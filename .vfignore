@@ -1,0 +1,6 @@
+# Nie zu Veryfront hochladen (Secrets, Konten, Datenbank, Docs)
+data/
+.env
+.env.*
+*.sqlite
+*.sqlite-*

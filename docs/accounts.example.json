@@ -1,0 +1,41 @@
+[
+  {
+    "id": "private",
+    "label": "Private inbox",
+    "context": "Private inbox with much bulk mail; provider spam filter is unreliable",
+    "host": "imap.example.invalid",
+    "port": 993,
+    "tls": true,
+    "user": "PLACEHOLDER_USER",
+    "password": "PLACEHOLDER_PASSWORD",
+    "mailbox": "INBOX",
+    "spam_mailbox": "Junk",
+    "spam_threshold": 0.95,
+    "enabled": true
+  },
+  {
+    "id": "domain",
+    "label": "Custom domain",
+    "context": "Custom-domain mailbox; almost only important mail",
+    "host": "imap.example.invalid",
+    "port": 993,
+    "tls": true,
+    "user": "PLACEHOLDER_USER",
+    "password": "PLACEHOLDER_PASSWORD",
+    "mailbox": "INBOX",
+    "enabled": false
+  },
+  {
+    "id": "work",
+    "label": "Work",
+    "context": "Work mailbox; many automated notifications, humans write rarely but matter",
+    "host": "imap.example.invalid",
+    "port": 993,
+    "tls": true,
+    "user": "PLACEHOLDER_USER",
+    "password": "PLACEHOLDER_PASSWORD",
+    "mailbox": "INBOX",
+    "spam_threshold": 0.9,
+    "enabled": false
+  }
+]

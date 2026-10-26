@@ -13,3 +13,11 @@ node_modules/
 
 # Local MCP config (may contain secrets)
 .mcp.json
+
+# Konten-Datei, SQLite-Daten (nie committen)
+data/
+*.sqlite
+*.sqlite-*
+*.sqlite3*
+.env.*
+!.env.example
