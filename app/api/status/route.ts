@@ -1,5 +1,6 @@
 import { openDatabase } from "../../../lib/db.ts";
 import { validateDatabasePath } from "../../../lib/accounts.ts";
+import { PROJECT_ROOT } from "../../../lib/constants.ts";
 
 const CLASSIFICATION_STATES = ["pending", "retry_wait", "classified", "failed", "paused"] as const;
 
@@ -7,7 +8,7 @@ const CLASSIFICATION_STATES = ["pending", "retry_wait", "classified", "failed", 
 export function GET(): Response {
   let db;
   try {
-    db = openDatabase(validateDatabasePath(process.env, process.cwd()));
+    db = openDatabase(validateDatabasePath(process.env, PROJECT_ROOT));
     const workers = db.prepare(
       `SELECT account_id, state, last_event_at, last_poll_at, error_code
        FROM worker_status ORDER BY account_id`,

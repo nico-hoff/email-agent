@@ -1,6 +1,12 @@
 import net from "node:net";
+import { PROJECT_ROOT } from "./lib/constants.ts";
 import { startup as defaultStartup, type StartupResult } from "./lib/accounts.ts";
-import { createImapWorkers, type ImapWorkers } from "./workers/imap-worker.ts";
+import { createImapWorkers, type ImapWorkers, type ImapWorkersDeps } from "./workers/imap-worker.ts";
+import { fileURLToPath } from "node:url";
+import { createClassificationPipeline, createPersistResponse } from "./lib/classification-pipeline.ts";
+import { createJevClient, type JevClient } from "./lib/jev.ts";
+import { createImapFlowPort } from "./lib/imap.ts";
+import { DEFAULT_SPAM_THRESHOLD } from "./lib/accounts-config.ts";
 import { startServer } from "veryfront/server";
 import { register, tryResolve } from "veryfront/extensions/contracts";
 import { EsbuildBundler, EsModuleLexer } from "@veryfront/ext-bundler-esbuild";
@@ -28,7 +34,7 @@ export interface CreateServiceOptions {
   log?: (message: string) => void;
   // Injectable factories for tests.
   startup?: typeof defaultStartup;
-  createWorkers?: (deps: { db: StartupResult["db"]; accounts: Parameters<typeof createImapWorkers>[0]["accounts"] }) => ImapWorkers;
+  createWorkers?: (deps: { db: StartupResult["db"]; accounts: ImapWorkersDeps["accounts"] }) => ImapWorkers;
   startHttp?: (o: { port: number; bindAddress: string; mode: "development" | "production" }) => Promise<HttpHandle>;
   onSignal?: (signal: "SIGINT" | "SIGTERM", handler: () => void) => void;
 }
@@ -59,9 +65,58 @@ function pickFreePort(host: string): Promise<number> {
 
 async function defaultStartHttp(o: { port: number; bindAddress: string; mode: "development" | "production" }): Promise<HttpHandle> {
   ensureBundlerContracts();
-  const server = await startServer({ mode: o.mode, port: o.port, bindAddress: o.bindAddress, projectDir: process.cwd() });
+  const server = await startServer({ mode: o.mode, port: o.port, bindAddress: o.bindAddress, projectDir: fileURLToPath(new URL(".", import.meta.url)) });
   await server.ready;
   return { port: server.port, url: server.url, stop: () => server.stop() };
+}
+
+/** Imap workers plus the Jev classification pipeline (onIngested -> submit). Without OPENROUTER_API_KEY only ingestion runs. */
+export function createWorkersWithPipeline(
+  deps: { db: StartupResult["db"]; accounts: ImapWorkersDeps["accounts"] },
+  o: {
+    env?: Record<string, string | undefined>;
+    log?: (message: string) => void;
+    createJev?: (apiKey: string) => JevClient;
+    createWorkers?: (d: ImapWorkersDeps) => ImapWorkers;
+  } = {},
+): ImapWorkers {
+  const make = o.createWorkers ?? ((d) => createImapWorkers(d));
+  const apiKey = (o.env ?? process.env).OPENROUTER_API_KEY;
+  if (!apiKey) {
+    (o.log ?? (() => {}))("classification disabled: OPENROUTER_API_KEY not set");
+    return make({ db: deps.db, accounts: deps.accounts });
+  }
+  const byId = new Map(deps.accounts.map((a) => [a.id, a]));
+  const pipeline = createClassificationPipeline({
+    db: deps.db,
+    jev: (o.createJev ?? ((key) => createJevClient({ apiKey: key })))(apiKey),
+    portFactory: (accountId) => {
+      const a = byId.get(accountId);
+      if (!a) throw new Error("unknown account");
+      return createImapFlowPort({ host: a.host, port: a.port, tls: a.tls, user: a.user, password: a.password });
+    },
+    accountContext: (id) => byId.get(id)?.context,
+    persistResponse: createPersistResponse((id) => byId.get(id)?.spam_threshold ?? DEFAULT_SPAM_THRESHOLD),
+  });
+  const workers = make({
+    db: deps.db,
+    accounts: deps.accounts,
+    onIngested: (emailId, input) => {
+      const accountId = (deps.db.prepare("SELECT account_id FROM emails WHERE id = ?").get(emailId) as { account_id: string } | undefined)?.account_id;
+      if (!accountId) return;
+      return pipeline.submit({ emailId, accountId, input });
+    },
+  });
+  return {
+    start() {
+      workers.start();
+      void pipeline.start().catch(() => (o.log ?? (() => {}))("pipeline start failed"));
+    },
+    async stop() {
+      pipeline.stop();
+      await workers.stop();
+    },
+  };
 }
 
 export async function createService(options: CreateServiceOptions = {}): Promise<Service> {
@@ -72,7 +127,7 @@ export async function createService(options: CreateServiceOptions = {}): Promise
 
   // Startup errors (bad accounts file, DB path) reject before anything listens; messages carry no secrets.
   const started = useWorkers
-    ? (options.startup ?? defaultStartup)({ env: options.env ?? process.env, projectRoot: options.projectRoot ?? process.cwd() })
+    ? (options.startup ?? defaultStartup)({ env: options.env ?? process.env, projectRoot: options.projectRoot ?? PROJECT_ROOT })
     : undefined;
 
   let workers: ImapWorkers | undefined;
@@ -88,7 +143,7 @@ export async function createService(options: CreateServiceOptions = {}): Promise
 
   if (started && started.config.status === "ok") {
     try {
-      workers = (options.createWorkers ?? ((d) => createImapWorkers(d)))({ db: started.db, accounts: started.config.accounts });
+      workers = (options.createWorkers ?? ((d) => createWorkersWithPipeline(d, { env: options.env ?? process.env, log })))({ db: started.db, accounts: started.config.accounts });
       workers.start();
       workerStatus = "running";
     } catch {

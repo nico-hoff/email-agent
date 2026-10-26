@@ -6,6 +6,43 @@ import { parseMessage, type ImapPort, type TransientInput } from "./imap.ts";
 import type { JevClient } from "./jev.ts";
 import { buildState, QUESTIONS } from "./jev-questions.ts";
 import { backoffMs, classifyFailure } from "./retry-policy.ts";
+import { normalizeAnswers } from "./jev-response.ts";
+import { computeShadowQuarantine } from "./shadow.ts";
+
+/** Thrown by persistResponse to reject an invalid response: the pipeline rolls back and marks the row failed. */
+export class ResponseRejectedError extends Error {
+  readonly failureCode: string;
+  constructor(failureCode: string) {
+    super(failureCode);
+    this.name = "ResponseRejectedError";
+    this.failureCode = failureCode;
+  }
+}
+
+/**
+ * Standard persistResponse: normalized answers + derived shadow_quarantine + audit, all inside the caller's
+ * transaction. Stores only normalized values (no excerpt, no raw response, no extra SDK fields).
+ */
+export function createPersistResponse(spamThresholdFor: (accountId: string) => number) {
+  return (ctx: ClassifiedContext): void => {
+    const n = normalizeAnswers(ctx.response.answers, QUESTIONS);
+    if (!n.ok) throw new ResponseRejectedError(`invalid_response_${n.code}`);
+    const ins = ctx.db.prepare(
+      "INSERT INTO classification_answers (classification_id, question_key, type, answer_json, probabilities_json) VALUES (?, ?, ?, ?, ?)",
+    );
+    for (const a of n.answers) {
+      ins.run(ctx.classificationId, a.key, a.type, JSON.stringify({ value: a.value }),
+        a.probabilities ? JSON.stringify(a.probabilities) : null);
+    }
+    const shadow = computeShadowQuarantine(n.answers, spamThresholdFor(ctx.accountId));
+    ins.run(ctx.classificationId, "shadow_quarantine", "derived", JSON.stringify(shadow), null);
+    ctx.db.prepare(
+      `INSERT INTO audit_log (occurred_at, trace_id, actor, action, account_id, email_id, details_json)
+       VALUES (?, ?, 'pipeline', 'shadow_quarantine_computed', ?, ?, ?)`,
+    ).run(ctx.now.toISOString(), ctx.traceId, ctx.accountId, ctx.emailId,
+      JSON.stringify({ candidate: shadow.candidate, decision: shadow.decision, reason: shadow.reason }));
+  };
+}
 
 export interface SchedulerClock {
   now(): Date;
@@ -178,6 +215,11 @@ export function createClassificationPipeline(opts: PipelineOptions): Classificat
         db.exec("COMMIT");
       } catch (e) {
         db.exec("ROLLBACK");
+        if (e instanceof ResponseRejectedError) {
+          setStatus(row.id, "failed", { failureCode: e.failureCode, attempts });
+          audit("classification_failed", traceId, row.account_id, row.email_id, { failure_code: e.failureCode });
+          return;
+        }
         throw e;
       }
       return;

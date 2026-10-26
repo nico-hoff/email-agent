@@ -1,3 +1,7 @@
+import { fileURLToPath } from "node:url";
+
+/** Project root = parent of lib/, independent of process.cwd(). */
+export const PROJECT_ROOT = fileURLToPath(new URL("..", import.meta.url));
 export const EXCERPT_MAX_CHARS = 1200;
 export const POLL_INTERVAL_MS = 300_000;
 export const WATCHDOG_STALE_MS = 720_000;
