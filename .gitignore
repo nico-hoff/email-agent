@@ -10,3 +10,6 @@
 .DS_Store
 
 node_modules/
+
+# Local MCP config (may contain secrets)
+.mcp.json
