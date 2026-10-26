@@ -60,7 +60,7 @@ test("layout declares manifest, theme colors, apple tags and viewport-fit=cover"
 // ---- service worker, executed in a sandbox with fake self/caches ----
 
 type Handler = (e: unknown) => void;
-function loadSw() {
+function loadSw(opts: { fetch?: (r: Request) => Promise<Response>; seed?: string[] } = {}) {
   const handlers: Record<string, Handler> = {};
   const store = new Map<string, Map<string, Response>>();
   const puts: string[] = [];
@@ -91,13 +91,15 @@ function loadSw() {
     clients: { claim: async () => {} },
     location: { origin: "https://app.test" },
   };
+  for (const n of opts.seed ?? []) store.set(n, new Map([[keyOf("/"), new Response("old")]]));
   const fakeFetch = async (r: Request | string) => {
     fetched.push(keyOf(r));
+    if (opts.fetch) return opts.fetch(r as Request);
     return new Response("net", { status: 200 });
   };
   const ctx = vm.createContext({ self, caches, fetch: fakeFetch, Response, Request, URL, Promise, console });
   vm.runInContext(readFileSync(pub("sw.js"), "utf8"), ctx);
-  return { handlers, puts, fetched };
+  return { handlers, puts, fetched, store };
 }
 
 async function install(handlers: Record<string, Handler>) {
@@ -111,6 +113,14 @@ async function dispatch(
   url: string,
   opts: { mode?: string; method?: string; destination?: string } = {},
 ): Promise<boolean> {
+  return (await dispatchRes(handlers, url, opts)).intercepted;
+}
+
+async function dispatchRes(
+  handlers: Record<string, Handler>,
+  url: string,
+  opts: { mode?: string; method?: string; destination?: string } = {},
+): Promise<{ intercepted: boolean; res?: Response; error?: unknown }> {
   const req = new Request(url, { method: opts.method ?? "GET" });
   Object.defineProperty(req, "mode", { value: opts.mode ?? "cors" });
   Object.defineProperty(req, "destination", { value: opts.destination ?? "" });
@@ -121,9 +131,13 @@ async function dispatch(
     respondWith: (p: Promise<Response>) => { responded = Promise.resolve(p); },
     waitUntil: (p: Promise<unknown>) => { waits.push(p); },
   });
-  if (responded) await responded;
+  let res: Response | undefined;
+  let error: unknown;
+  if (responded) {
+    try { res = await responded; } catch (e) { error = e; }
+  }
   await Promise.all(waits);
-  return responded !== undefined;
+  return { intercepted: responded !== undefined, res, error };
 }
 
 test("service worker never intercepts, fetches or caches /api/ requests", async () => {
@@ -155,4 +169,50 @@ test("service worker handles navigations and static assets and caches only the s
   assert.ok(sw.puts.some((u) => u.endsWith("/icon-192.png")), "icon cached");
   assert.ok(sw.puts.some((u) => u === "https://app.test/"), "shell cached");
   for (const u of sw.puts) assert.ok(!u.includes("/api/"), u);
+});
+
+test("navigation to a detail page is network-only and never written to the cache", async () => {
+  const sw = loadSw();
+  await install(sw.handlers);
+  const before = sw.puts.length;
+  const r = await dispatchRes(sw.handlers, "https://app.test/emails/1", { mode: "navigate" });
+  assert.equal(r.intercepted, true);
+  assert.equal(await r.res?.text(), "net");
+  assert.deepEqual(sw.puts.slice(before), []);
+});
+
+test("offline navigation to a detail page falls back to the cached / shell", async () => {
+  let offline = false;
+  const sw = loadSw({ fetch: async () => { if (offline) throw new TypeError("offline"); return new Response("net"); } });
+  await install(sw.handlers);
+  offline = true;
+  const r = await dispatchRes(sw.handlers, "https://app.test/emails/1", { mode: "navigate" });
+  assert.equal(r.error, undefined);
+  assert.equal(await r.res?.text(), "x", "served the precached / shell");
+});
+
+test("a / response with cache-control: no-store is not cached", async () => {
+  const sw = loadSw({ fetch: async () => new Response("fresh", { headers: { "cache-control": "no-store" } }) });
+  await install(sw.handlers);
+  const before = sw.puts.length;
+  await dispatchRes(sw.handlers, "https://app.test/", { mode: "navigate" });
+  await dispatchRes(sw.handlers, "https://app.test/assets/app.js", { destination: "script" });
+  assert.deepEqual(sw.puts.slice(before), []);
+});
+
+test("a / navigation response refreshes the shell cache", async () => {
+  const sw = loadSw({ fetch: async () => new Response("fresh") });
+  await install(sw.handlers);
+  const before = sw.puts.length;
+  await dispatchRes(sw.handlers, "https://app.test/", { mode: "navigate" });
+  assert.deepEqual(sw.puts.slice(before), ["https://app.test/"]);
+});
+
+test("activate deletes the old shell-v1 cache", async () => {
+  const sw = loadSw({ seed: ["shell-v1"] });
+  await install(sw.handlers);
+  const waits: Promise<unknown>[] = [];
+  sw.handlers.activate({ waitUntil: (p: Promise<unknown>) => { waits.push(p); } });
+  await Promise.all(waits);
+  assert.deepEqual([...sw.store.keys()], ["shell-v2"]);
 });

@@ -1,7 +1,12 @@
 // App-shell service worker. It only handles same-origin GET requests for the
 // navigation document and static assets. /api/ is never intercepted, fetched
 // or cached here, so mail metadata stays out of every browser cache.
-const CACHE = "shell-v1";
+//
+// The shell "/" must never render mail data on the server: it is the only
+// navigation response that gets cached. Data reaches the page only through
+// /api/ calls made by the client. Every other navigation (e.g. /emails/:id)
+// is network-only; if the network fails, the cached "/" shell is served.
+const CACHE = "shell-v2";
 const SHELL = [
   "/",
   "/manifest.webmanifest",
@@ -28,15 +33,25 @@ self.addEventListener("activate", (event) => {
   );
 });
 
-async function networkFirst(request) {
-  const cache = await caches.open(CACHE);
+function cacheable(res) {
+  if (!res.ok) return false;
+  const cc = (res.headers.get("cache-control") || "").toLowerCase();
+  return !cc.includes("no-store");
+}
+
+async function navigate(request) {
+  const isShell = new URL(request.url).pathname === "/";
   try {
     const res = await fetch(request);
-    if (res.ok) await cache.put(request, res.clone());
+    if (isShell && cacheable(res)) {
+      const cache = await caches.open(CACHE);
+      await cache.put(request, res.clone());
+    }
     return res;
   } catch (err) {
-    const hit = (await cache.match(request)) || (await cache.match("/"));
-    if (hit) return hit;
+    const cache = await caches.open(CACHE);
+    const shell = await cache.match("/");
+    if (shell) return shell;
     throw err;
   }
 }
@@ -46,7 +61,7 @@ async function staleWhileRevalidate(request) {
   const hit = await cache.match(request);
   const refresh = fetch(request)
     .then((res) => {
-      if (res.ok) return cache.put(request, res.clone()).then(() => res);
+      if (cacheable(res)) return cache.put(request, res.clone()).then(() => res);
       return res;
     })
     .catch((err) => {
@@ -64,7 +79,7 @@ self.addEventListener("fetch", (event) => {
   if (url.pathname.startsWith("/api/")) return;
 
   if (request.mode === "navigate") {
-    event.respondWith(networkFirst(request));
+    event.respondWith(navigate(request));
     return;
   }
   if (STATIC_DESTINATIONS.includes(request.destination) || SHELL.includes(url.pathname)) {
