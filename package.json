@@ -10,6 +10,7 @@
     "build": "veryfront build",
     "start": "node --env-file-if-exists=.env.local server.ts --production",
     "eval": "veryfront eval",
+    "eval:jev": "node --env-file=.env.local tools/eval-jev.ts --confirm-live",
     "deploy": "veryfront deploy",
     "typecheck": "tsc --noEmit",
     "test": "node --test"
