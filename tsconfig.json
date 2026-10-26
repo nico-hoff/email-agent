@@ -9,6 +9,7 @@
     "esModuleInterop": true,
     "noEmit": true,
     "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
     "paths": {
       "@/*": ["./*"]
     }

@@ -2,13 +2,17 @@
   "name": "email-agent",
   "version": "0.1.0",
   "type": "module",
+  "engines": {
+    "node": "26.12.1"
+  },
   "scripts": {
     "dev": "veryfront dev",
     "build": "veryfront build",
     "start": "veryfront serve",
     "eval": "veryfront eval",
     "deploy": "veryfront deploy",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --test"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
