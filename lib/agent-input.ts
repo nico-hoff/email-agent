@@ -28,15 +28,40 @@ export interface AgentInputDeps {
   parse?: (source: Buffer) => Promise<{ excerpt: string }>;
 }
 
-function loadAnswers(db: DatabaseSync, classificationId: number): NormalizedAnswer[] {
+function parseProbabilities(json: string): Record<string, number> | undefined {
+  try {
+    const raw = JSON.parse(json) as unknown;
+    if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return undefined;
+    const out: Record<string, number> = {};
+    for (const [k, v] of Object.entries(raw)) {
+      if (typeof v !== "number" || !Number.isFinite(v)) return undefined;
+      out[k] = v;
+    }
+    return out;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Shared with tools/get-email-context.ts. Derived rows (shadow_quarantine) are never loaded. */
+export function loadAnswers(db: DatabaseSync, classificationId: number): NormalizedAnswer[] {
   const rows = db.prepare(
-    "SELECT question_key, type, answer_json FROM classification_answers WHERE classification_id = ? AND type IN ('noul', 'choice', 'score')",
-  ).all(classificationId) as { question_key: string; type: "noul" | "choice" | "score"; answer_json: string }[];
+    "SELECT question_key, type, answer_json, probabilities_json FROM classification_answers WHERE classification_id = ? AND type IN ('noul', 'choice', 'score')",
+  ).all(classificationId) as {
+    question_key: string;
+    type: "noul" | "choice" | "score";
+    answer_json: string;
+    probabilities_json: string | null;
+  }[];
   const out: NormalizedAnswer[] = [];
   for (const r of rows) {
     try {
       const value = (JSON.parse(r.answer_json) as { value?: unknown })?.value;
-      if (typeof value === "number" || typeof value === "string") out.push({ key: r.question_key, type: r.type, value });
+      if (typeof value !== "number" && typeof value !== "string") continue;
+      const answer: NormalizedAnswer = { key: r.question_key, type: r.type, value };
+      const probabilities = r.probabilities_json === null ? undefined : parseProbabilities(r.probabilities_json);
+      if (probabilities) answer.probabilities = probabilities;
+      out.push(answer);
     } catch {
       // A malformed row counts as a missing answer; the gate then blocks.
     }
