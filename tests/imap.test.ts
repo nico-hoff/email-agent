@@ -171,7 +171,7 @@ describe("createImapFlowPort (read-only)", () => {
     await port.close();
     assert.ok(fake.locks.length >= 3);
     for (const l of fake.locks) assert.deepEqual((l.options as { readOnly: boolean }).readOnly, true);
-    assert.ok(fake.calls.includes("idle"));
+    assert.ok(!fake.calls.some((c) => c.startsWith("fetchOne") && c.includes("*")));
   });
 
   test("forwards events", async () => {

@@ -50,7 +50,7 @@ export interface ImapPort {
   /** Header-only fetch of messages with UID greater than `afterUid`. */
   fetchHeadersSince(folder: string, afterUid: number): Promise<HeaderInfo[]>;
   fetchMessageByUid(folder: string, uid: number): Promise<RawMessage | null>;
-  /** Opens the folder read-only and enters IDLE. */
+  /** Selects the folder read-only so that the connection IDLEs on it (call again after polling other folders). */
   watch(folder: string): Promise<void>;
   on(event: "exists", cb: () => void): void;
   on(event: "close", cb: () => void): void;
@@ -105,7 +105,7 @@ export interface ImapConnectionConfig {
 const MAX_SOURCE_BYTES = 2 * 1024 * 1024;
 const SOCKET_TIMEOUT_MS = 10 * 60 * 1000;
 
-type FlowClient = Pick<ImapFlow, "connect" | "logout" | "close" | "getMailboxLock" | "fetch" | "fetchOne" | "idle" | "on"> & {
+type FlowClient = Pick<ImapFlow, "connect" | "logout" | "close" | "getMailboxLock" | "fetch" | "fetchOne" | "on"> & {
   mailbox: ImapFlow["mailbox"];
 };
 
@@ -170,9 +170,9 @@ export function createImapFlowPort(
         return m && m.source ? { uid: m.uid, source: m.source } : null;
       }),
     async watch(folder) {
-      // Lock stays held for the lifetime of the connection; released on close().
-      await client.getMailboxLock(folder, { readOnly: true });
-      await client.idle();
+      // Selects the folder read-only and releases the lock; ImapFlow auto-IDLEs on the selected
+      // mailbox (autoIdle is on by default). We never hold the lock, so later fetches are not blocked.
+      await withLock(folder, async () => {});
     },
     on(event: string, cb: (...a: never[]) => void) {
       if (event === "error") {
