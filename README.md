@@ -23,7 +23,7 @@ Endpunkte: Dashboard `/`, `GET /api/emails`, `GET /api/status`, `GET /api/health
 
 ## Stichprobe und Evaluation
 
-- `npm run sample` zeigt zunächst nur eine **Vorschau** (Anzahl, keine Jev-Aufrufe). Erst `npm run sample -- --account <id> --limit-per-folder 200 --confirm <N>` (N = Zahl aus der Vorschau) ruft Jev tatsächlich auf. Weitere Optionen: `tools/sample.ts`.
+- `npm run sample` zeigt zunächst nur eine **Vorschau** (Anzahl, keine Jev-Aufrufe). Erst `npm run sample -- --account <id> --limit-per-folder 200 --confirm <N>` (N = Zahl aus der Vorschau) ruft Jev tatsächlich auf. Weitere Optionen: `scripts/sample.ts`.
 - `npm run eval:jev` führt die Evaluation gegen das synthetische Set `tests/fixtures/eval/email-eval-v1.jsonl` aus (Live-Aufrufe an Jev, verursacht Kosten; erfordert `--confirm-live`, im Script gesetzt).
 
 ## Entwicklung

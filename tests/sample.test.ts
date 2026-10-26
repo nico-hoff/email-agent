@@ -6,7 +6,7 @@ import { syncAccounts } from "../lib/accounts.ts";
 import type { ImapPort } from "../lib/imap.ts";
 import type { JevCallResult } from "../lib/jev.ts";
 import { JEV_MODEL, QUESTION_SET_VERSION } from "../lib/constants.ts";
-import { parseSampleArgs, runSample, SampleError, type SampleProgress } from "../tools/sample.ts";
+import { parseSampleArgs, runSample, SampleError, type SampleProgress } from "../scripts/sample.ts";
 
 const BODY_MARK = "BODY-MARKER-5D1E";
 const fixture = () => JSON.parse(readFileSync(new URL("./fixtures/jev-email-v1-response.json", import.meta.url), "utf8"));

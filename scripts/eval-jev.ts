@@ -1,6 +1,6 @@
 // Expliziter Runner fuer das synthetische Jev-Eval-Set (kein Chat-Agent, nicht in CI).
 // `veryfront/eval` bietet nur Adapter fuer Agenten/AG-UI, keinen fuer normale SDK-Funktionen.
-// Aufruf: node --env-file=.env.local tools/eval-jev.ts --confirm-live
+// Aufruf: node --env-file=.env.local scripts/eval-jev.ts --confirm-live
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createJevClient, type JevClient } from "../lib/jev.ts";
