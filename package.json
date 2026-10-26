@@ -6,9 +6,9 @@
     "node": "26.12.1"
   },
   "scripts": {
-    "dev": "veryfront dev",
+    "dev": "node --env-file-if-exists=.env.local server.ts --development",
     "build": "veryfront build",
-    "start": "veryfront serve",
+    "start": "node --env-file-if-exists=.env.local server.ts --production",
     "eval": "veryfront eval",
     "deploy": "veryfront deploy",
     "typecheck": "tsc --noEmit",
