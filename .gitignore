@@ -25,3 +25,6 @@ data/
 # graphify output and agent worktrees
 graphify-out/
 .claude/worktrees/
+
+# Build output
+dist/

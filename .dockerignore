@@ -1,0 +1,10 @@
+.git
+.hermes
+.claude
+node_modules
+.env*
+!.env.example
+data
+docs/accounts*.json
+dist
+graphify-out
