@@ -1,0 +1,11 @@
+node_modules/
+data/
+.env
+.env.*
+.mcp.json
+*.sqlite*
+.hermes/
+.claude/worktrees/
+dist/
+.veryfront/
+graphify-out/
