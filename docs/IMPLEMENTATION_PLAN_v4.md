@@ -1,6 +1,6 @@
 # Implementierungsplan v4 – Jev × Agent × Mobile Web-UI
 
-> **Status: Entwurf, nicht freigegeben.** Verbindlich wird er erst, wenn Nico die offenen Entscheidungen in Abschnitt 2.2 beantwortet und den Plan freigibt. Bis dahin gilt Plan v3 (`docs/IMPLEMENTATION_PLAN.md`) mit seinen Nicht-Zielen.
+> **Status: freigegeben am 2026-10-26.** Nico hat O1–O7 mit den Vorschlägen aus Abschnitt 2.2 beantwortet. Regeln aus Plan v3 (`docs/IMPLEMENTATION_PLAN.md`, Abschnitt 3) gelten weiter.
 >
 > Grundlage: Plan v3 (P–T22 erledigt), erstes Sample (`docs/ITERATION_2_NOTES.md`, Abschnitt 0), Context7-Stand zu Veryfront-Agents, -Tools und -Evals vom 2026-10-26. Schema-Quelle bleibt `docs/erd.md` (wird in T37 per Migration `002` erweitert).
 
@@ -28,9 +28,9 @@ Auf dem iPhone öffnet Nico eine installierbare Web-App (PWA). Sie zeigt je Kont
 | D20 | Schreibende HTTP-Endpunkte (Entwurf anfordern, Feedback) nur per `POST`, nur mit gültiger Identität (D16), mit CSRF-Schutz (Same-Origin-Prüfung plus Token) und Rate-Limit. Alle Lese-Endpunkte bleiben `GET`. |
 | D21 | UI ohne neues UI-Framework: React aus dem Starter, eigenes CSS mit Design-Tokens und Dark Mode. PWA-Manifest und Icon liegen unter `public/`. |
 
-### 2.2 Offen – Nico entscheidet vor Phase-Start (STOP-8)
+### 2.2 Entscheidungen von Nico (2026-10-26: alle Vorschläge übernommen)
 
-| ID | Frage | Vorschlag |
+| ID | Frage | Entscheidung (= Vorschlag) |
 |---|---|---|
 | O1 | Welches Modell nutzt der Antwort-Agent, und über welchen Provider? | Über OpenRouter mit dem vorhandenen Key, damit keine neue Pflicht-Variable nötig ist. Konkrete Modell-ID in T40 per Context7 und OpenRouter prüfen. |
 | O2 | Ist Tailscale als Zugangsweg in Ordnung? | Ja. Alternative wären Passkeys (WebAuthn) mit eigener Session-Verwaltung, das ist deutlich mehr Aufwand. |
