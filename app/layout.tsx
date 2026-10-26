@@ -9,7 +9,7 @@ export default function RootLayout({
   return (
     <>
       <Head>
-        <title>AI Workflows</title>
+        <title>E-Mail-Agent</title>
         <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
       </Head>
       {children}
