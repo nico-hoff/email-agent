@@ -65,3 +65,15 @@ test("a worker failure does not abort the process", async () => {
   assert.equal(svc.workerStatus, "failed");
   await svc.stop();
 });
+
+test("default signal handlers are removed again on stop", async () => {
+  const h = harness({ status: "disabled" });
+  const { onSignal: _injected, ...base } = h.base;
+  const before = { int: process.listenerCount("SIGINT"), term: process.listenerCount("SIGTERM") };
+  const svc = await createService(base as never);
+  assert.equal(process.listenerCount("SIGINT"), before.int + 1);
+  assert.equal(process.listenerCount("SIGTERM"), before.term + 1);
+  await svc.stop();
+  assert.equal(process.listenerCount("SIGINT"), before.int);
+  assert.equal(process.listenerCount("SIGTERM"), before.term);
+});

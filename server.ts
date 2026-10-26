@@ -36,7 +36,8 @@ export interface CreateServiceOptions {
   startup?: typeof defaultStartup;
   createWorkers?: (deps: { db: StartupResult["db"]; accounts: ImapWorkersDeps["accounts"] }) => ImapWorkers;
   startHttp?: (o: { port: number; bindAddress: string; mode: "development" | "production" }) => Promise<HttpHandle>;
-  onSignal?: (signal: "SIGINT" | "SIGTERM", handler: () => void) => void;
+  /** Subscribes a shutdown handler; may return an unsubscribe function that stop() calls. */
+  onSignal?: (signal: "SIGINT" | "SIGTERM", handler: () => void) => void | (() => void);
 }
 
 export interface Service {
@@ -153,8 +154,10 @@ export async function createService(options: CreateServiceOptions = {}): Promise
   }
 
   let stopping: Promise<void> | undefined;
+  const unsubscribe: (() => void)[] = [];
   const stop = (): Promise<void> => {
     stopping ??= (async () => {
+      for (const off of unsubscribe) off();
       try {
         await workers?.stop();
       } catch {
@@ -170,14 +173,19 @@ export async function createService(options: CreateServiceOptions = {}): Promise
     return stopping;
   };
 
-  const onSignal = options.onSignal ?? ((sig, fn) => { process.on(sig, fn); });
+  const onSignal = options.onSignal ?? ((sig, fn) => {
+    process.on(sig, fn);
+    return () => { process.off(sig, fn); };
+  });
   const handler = () => {
     void stop().then(() => {
       if (!options.onSignal) process.exit(0);
     });
   };
-  onSignal("SIGINT", handler);
-  onSignal("SIGTERM", handler);
+  for (const sig of ["SIGINT", "SIGTERM"] as const) {
+    const off = onSignal(sig, handler);
+    if (typeof off === "function") unsubscribe.push(off);
+  }
 
   return { port: http.port, url: http.url, workerStatus, stop };
 }

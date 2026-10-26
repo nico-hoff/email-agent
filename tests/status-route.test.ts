@@ -2,10 +2,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, chmodSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { openDatabase } from "../lib/db.ts";
 import { syncAccounts } from "../lib/accounts.ts";
 import { GET } from "../app/api/status/route.ts";
+import { PROJECT_ROOT } from "../lib/constants.ts";
 
 test("GET /api/status reads worker state and classification counts from SQLite only", async () => {
   const dir = mkdtempSync(join(tmpdir(), "status-"));
@@ -33,6 +34,30 @@ test("GET /api/status reads worker state and classification counts from SQLite o
     assert.deepEqual(body.classifications, { pending: 1, retry_wait: 0, classified: 0, failed: 0, paused: 0 });
   } finally {
     if (prev === undefined) delete process.env.DATABASE_PATH; else process.env.DATABASE_PATH = prev;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("GET /api/status resolves a relative DATABASE_PATH against PROJECT_ROOT, not the cwd", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "status-cwd-"));
+  chmodSync(dir, 0o700);
+  const file = join(dir, "t.sqlite");
+  const prevPath = process.env.DATABASE_PATH;
+  const prevCwd = process.cwd();
+  try {
+    const db = openDatabase(file);
+    syncAccounts(db, [
+      { id: "a1", label: "L", host: "imap.example", port: 993, mailbox: "INBOX", enabled: true },
+    ] as never);
+    db.close();
+    process.env.DATABASE_PATH = relative(PROJECT_ROOT, file);
+    process.chdir(dir);
+    const res = await GET();
+    assert.equal(res.status, 200);
+    assert.deepEqual((await res.json()).workers.map((w: { account_id: string }) => w.account_id), ["a1"]);
+  } finally {
+    process.chdir(prevCwd);
+    if (prevPath === undefined) delete process.env.DATABASE_PATH; else process.env.DATABASE_PATH = prevPath;
     rmSync(dir, { recursive: true, force: true });
   }
 });
