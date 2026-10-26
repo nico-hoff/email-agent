@@ -18,7 +18,7 @@ function src(id: string) {
   return Buffer.from(`From: s@example.test\r\nSubject: s ${id}\r\nMessage-ID: <${id}>\r\nDate: Mon, 26 Oct 2026 10:00:00 +0000\r\n\r\n${BODY_MARK}\r\n`);
 }
 
-function setup(folders: Record<string, Msg[]>, jevResults: JevCallResult[] = []) {
+function setup(folders: Record<string, Msg[]>, jevResults: JevCallResult[] = [], serverFolders?: { path: string; specialUse?: string }[]) {
   const db = openDatabase(":memory:");
   syncAccounts(db, [{
     id: "a", label: "a", context: "c", host: "h", port: 993, tls: true, user: "u", password: "p",
@@ -27,9 +27,10 @@ function setup(folders: Record<string, Msg[]>, jevResults: JevCallResult[] = [])
   const fetched: string[] = [];
   const jevCalls: number[] = [];
   const jev = { classify: async () => { jevCalls.push(1); return jevResults.shift() ?? ok(); } };
-  const readOnly = new Set(["connect", "close", "mailboxStatus", "fetchHeadersSince", "fetchMessageByUid"]);
+  const readOnly = new Set(["connect", "close", "mailboxStatus", "fetchHeadersSince", "fetchMessageByUid", "listFolders"]);
   const port = new Proxy({
     connect: async () => {}, close: async () => {},
+    ...(serverFolders ? { listFolders: async () => serverFolders } : {}),
     mailboxStatus: async () => ({ uidValidity: 1, highestUid: 999 }),
     fetchHeadersSince: async (f: string) => (folders[f] ?? []).map((m) => ({ uid: m.uid, messageId: `<${m.id}>` })),
     fetchMessageByUid: async (f: string, uid: number) => {
@@ -157,5 +158,33 @@ describe("sample args", () => {
     assert.equal(parseSampleArgs(["--account", "a"]).limitPerFolder, 200);
     assert.throws(() => parseSampleArgs(["--account", "a", "--bogus"]), SampleError);
     assert.throws(() => parseSampleArgs([]), SampleError);
+  });
+});
+
+describe("sample folder mapping", () => {
+  test("RED-guard: wrong spam_mailbox name aborts with the server folder list and \\Junk hint, before any fetch", async () => {
+    const s = setup({ INBOX: mk("i", 2) }, [], [
+      { path: "INBOX", specialUse: "\\Inbox" }, { path: "Unerwünscht", specialUse: "\\Junk" }, { path: "Gesendet" },
+    ]);
+    await assert.rejects(runSample(s.deps, { limitPerFolder: 5 }), (e: unknown) => {
+      assert.ok(e instanceof SampleError);
+      assert.equal(e.code, "folder_not_found");
+      assert.match(e.message, /spam_mailbox not found on server: "Spam"/);
+      assert.match(e.message, /"Unerwünscht"  <- server marks this as spam/);
+      return true;
+    });
+    assert.equal(s.fetched.length, 0);
+    assert.equal(n(s.db, "SELECT COUNT(*) n FROM audit_log"), 0);
+  });
+
+  test("exact mapping passes and the preview proceeds", async () => {
+    const s = setup({ INBOX: mk("i", 2), Spam: mk("s", 1) }, [], [{ path: "INBOX" }, { path: "Spam", specialUse: "\\Junk" }]);
+    const r = await runSample(s.deps, { limitPerFolder: 5 });
+    assert.deepEqual(r.selected, { mailbox: 2, spam_mailbox: 1 });
+  });
+
+  test("names are matched exactly (IMAP is case-sensitive except INBOX handling by the server)", async () => {
+    const s = setup({ INBOX: mk("i", 1) }, [], [{ path: "INBOX" }, { path: "spam" }]);
+    await assert.rejects(runSample(s.deps, { limitPerFolder: 5 }), /folder_not_found|not found on server/);
   });
 });

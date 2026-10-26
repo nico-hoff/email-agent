@@ -4,14 +4,14 @@ import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { createPersistResponse, createClassificationPipeline } from "../lib/classification-pipeline.ts";
 import { JEV_MODEL, PROJECT_ROOT, QUESTION_SET_VERSION, SAMPLE_HARD_LIMIT } from "../lib/constants.ts";
-import { createImapFlowPort, parseMessage, type ImapPort } from "../lib/imap.ts";
+import { checkFolderMapping, createImapFlowPort, formatFolderCheck, parseMessage, type ImapPort } from "../lib/imap.ts";
 import { ingestMail } from "../lib/ingest.ts";
 import { createJevClient, type JevClient } from "../lib/jev.ts";
 
 export const DEFAULT_LIMIT_PER_FOLDER = 200;
 
 export type SampleErrorCode =
-  | "invalid_limit" | "confirm_mismatch" | "limit_exceeded" | "question_set_unknown" | "bad_args";
+  | "invalid_limit" | "confirm_mismatch" | "limit_exceeded" | "question_set_unknown" | "bad_args" | "folder_not_found";
 
 export class SampleError extends Error {
   readonly code: SampleErrorCode;
@@ -149,6 +149,10 @@ export async function runSample(deps: SampleDeps, opts: SampleOptions): Promise<
   const selection: Selected[] = [];
   const selected: Record<FolderRole, number> = { mailbox: 0, spam_mailbox: 0 };
   try {
+    if (port.listFolders) {
+      const check = checkFolderMapping(await port.listFolders(), account);
+      if (check.missing.length > 0) throw new SampleError("folder_not_found", `\n${formatFolderCheck(check)}`);
+    }
     const folders: { role: FolderRole; folder: string }[] = [{ role: "mailbox", folder: account.mailbox }];
     if (account.spam_mailbox !== undefined && account.spam_mailbox !== account.mailbox) {
       folders.push({ role: "spam_mailbox", folder: account.spam_mailbox });
@@ -327,7 +331,30 @@ async function main(): Promise<void> {
     console.log(formatSample(result));
     process.exitCode = result.aborted ? 1 : 0;
   } catch (e) {
-    console.error(e instanceof SampleError ? `${e.code}: ${e.message}` : "sample failed");
+    if (e instanceof SampleError) {
+      console.error(`${e.code}: ${e.message}`);
+    } else {
+      // Only class, code and auth flag: messages may contain host or user names (H4).
+      const err = e as { name?: unknown; code?: unknown; authenticationFailed?: unknown; serverResponseCode?: unknown };
+      const parts = [`name=${String(err?.name ?? "unknown")}`];
+      if (typeof err?.code === "string") parts.push(`code=${err.code}`);
+      // IMAP response codes are fixed tokens (e.g. AUTHENTICATIONFAILED), no account data.
+      if (typeof err?.serverResponseCode === "string" && /^[A-Z0-9-]{1,40}$/.test(err.serverResponseCode)) {
+        parts.push(`server=${err.serverResponseCode}`);
+      }
+      if (err?.authenticationFailed === true) parts.push("auth_failed=true");
+      const resp = (e as { responseStatus?: unknown }).responseStatus;
+      if (typeof resp === "string" && /^[A-Z]{2,3}$/.test(resp)) parts.push(`status=${resp}`);
+      // IMAP command verb only (e.g. EXAMINE), never its arguments.
+      const verb = /^\S+\s+([A-Za-z]+)/.exec(String((e as { executedCommand?: unknown }).executedCommand ?? ""))?.[1];
+      if (verb) parts.push(`cmd=${verb.toUpperCase()}`);
+      // Code locations only (file:line), never messages.
+      const frames = String((e as { stack?: unknown })?.stack ?? "").split("\n").slice(1)
+        .map((l) => /([\w.-]+\/[\w.-]+\.(?:ts|js|mjs)):(\d+)/.exec(l)).filter((m) => m !== null)
+        .slice(0, 3).map((m) => `${m![1]}:${m![2]}`);
+      if (frames.length > 0) parts.push(`at=${frames.join(",")}`);
+      console.error(`sample failed (${parts.join(" ")})`);
+    }
     process.exitCode = e instanceof SampleError ? 2 : 1;
   } finally {
     started.db.close();

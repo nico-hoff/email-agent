@@ -44,6 +44,46 @@ export interface ImapEventError {
 }
 
 /** Read-only IMAP port: deliberately has no write methods. */
+export interface FolderInfo {
+  path: string;
+  specialUse?: string | undefined;
+}
+
+/** Folder roles the app knows; the accounts file maps each role to the provider's folder path. */
+export type FolderRoleName = "mailbox" | "spam_mailbox";
+
+export interface FolderCheck {
+  /** Roles whose configured path does not exist on the server (exact match, as IMAP requires). */
+  missing: { role: FolderRoleName; configured: string }[];
+  /** Server folders, with special-use flag, to help fix the mapping. */
+  available: FolderInfo[];
+}
+
+/** Pure check of the configured folder mapping against a LIST result. No guessing, no substitution. */
+export function checkFolderMapping(
+  list: FolderInfo[],
+  mapping: { mailbox: string; spam_mailbox?: string | undefined },
+): FolderCheck {
+  const paths = new Set(list.map((f) => f.path));
+  const missing: FolderCheck["missing"] = [];
+  if (!paths.has(mapping.mailbox)) missing.push({ role: "mailbox", configured: mapping.mailbox });
+  if (mapping.spam_mailbox !== undefined && !paths.has(mapping.spam_mailbox)) {
+    missing.push({ role: "spam_mailbox", configured: mapping.spam_mailbox });
+  }
+  return { missing, available: list };
+}
+
+export function formatFolderCheck(c: FolderCheck): string {
+  const hint = (f: FolderInfo) =>
+    f.specialUse === "\\Junk" ? "  <- server marks this as spam (\\Junk)"
+    : f.specialUse === "\\Inbox" ? "  <- inbox" : "";
+  return [
+    ...c.missing.map((m) => `folder for ${m.role} not found on server: "${m.configured}"`),
+    "available folders (use the exact name in data/accounts.json):",
+    ...c.available.map((f) => `  "${f.path}"${hint(f)}`),
+  ].join("\n");
+}
+
 export interface ImapPort {
   connect(): Promise<void>;
   mailboxStatus(folder: string): Promise<MailboxStatus>;
@@ -52,6 +92,8 @@ export interface ImapPort {
   fetchMessageByUid(folder: string, uid: number): Promise<RawMessage | null>;
   /** Selects the folder read-only so that the connection IDLEs on it (call again after polling other folders). */
   watch(folder: string): Promise<void>;
+  /** Read-only IMAP LIST: folder paths plus special-use flag (e.g. "\\Junk"). Optional for fakes. */
+  listFolders?(): Promise<FolderInfo[]>;
   on(event: "exists", cb: () => void): void;
   on(event: "close", cb: () => void): void;
   on(event: "error", cb: (e: ImapEventError) => void): void;
@@ -105,7 +147,7 @@ export interface ImapConnectionConfig {
 const MAX_SOURCE_BYTES = 2 * 1024 * 1024;
 const SOCKET_TIMEOUT_MS = 10 * 60 * 1000;
 
-type FlowClient = Pick<ImapFlow, "connect" | "logout" | "close" | "getMailboxLock" | "fetch" | "fetchOne" | "on"> & {
+type FlowClient = Pick<ImapFlow, "connect" | "logout" | "close" | "getMailboxLock" | "fetch" | "fetchOne" | "on" | "list"> & {
   mailbox: ImapFlow["mailbox"];
 };
 
@@ -169,6 +211,11 @@ export function createImapFlowPort(
         );
         return m && m.source ? { uid: m.uid, source: m.source } : null;
       }),
+    async listFolders() {
+      // LIST is a read-only command; no mailbox is selected or changed.
+      const list = await client.list();
+      return list.map((f) => ({ path: f.path, specialUse: f.specialUse }));
+    },
     async watch(folder) {
       // Selects the folder read-only and releases the lock; ImapFlow auto-IDLEs on the selected
       // mailbox (autoIdle is on by default). We never hold the lock, so later fetches are not blocked.

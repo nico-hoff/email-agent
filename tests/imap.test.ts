@@ -122,6 +122,10 @@ class FakeClient {
     this.locks.push({ path, options });
     return { path, release: () => this.calls.push("release") };
   }
+  async list() {
+    this.calls.push("list");
+    return [{ path: "INBOX", specialUse: "\\Inbox" }, { path: "Spam", specialUse: "\\Junk" }];
+  }
   async idle() {
     this.calls.push("idle");
     return true;
@@ -168,6 +172,12 @@ describe("createImapFlowPort (read-only)", () => {
     const msg = await port.fetchMessageByUid("INBOX", 5);
     assert.equal(msg?.uid, 5);
     await port.watch("INBOX");
+    const locksBefore = fake.locks.length;
+    assert.deepEqual(await port.listFolders!(), [
+      { path: "INBOX", specialUse: "\\Inbox" },
+      { path: "Spam", specialUse: "\\Junk" },
+    ]);
+    assert.equal(fake.locks.length, locksBefore, "LIST selects no mailbox");
     await port.close();
     assert.ok(fake.locks.length >= 3);
     for (const l of fake.locks) assert.deepEqual((l.options as { readOnly: boolean }).readOnly, true);
