@@ -1,90 +1,112 @@
 'use client'
 
-import { useState } from 'react'
-import { useWorkflowStart, useWorkflowList } from 'veryfront/workflow'
+import { useEffect, useState } from 'react'
 
-const STATUS_STYLES: Record<string, string> = {
-  running: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-  completed: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
-  waiting: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
-  failed: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
-  pending: 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400',
+interface Answer { type: string; value: number | string | null; probabilities?: unknown }
+interface EmailRow {
+  id: number
+  account_id: string
+  sender: string
+  subject: string
+  received_at: string
+  active_location: { folder: string; uid: number } | null
+  provider_spam: boolean
+  classification: { status: string; answers: Record<string, Answer> } | null
+  shadow_quarantine: { candidate: boolean; decision: string; reason: string; applied_threshold: number } | null
+  disagreement: string | null
+}
+interface Worker { account_id: string; state: string; error_code: string | null; last_poll_at: string | null }
+interface StatusBody { workers: Worker[]; classifications: Record<string, number> }
+
+const DISAGREEMENT_LABEL: Record<string, string> = {
+  provider_spam_jev_not_spam: 'Provider: Spam, Jev: nicht Spam',
+  jev_spam_provider_not_spam: 'Jev: Spam, Provider: nicht Spam',
 }
 
-export default function WorkflowDashboard(): React.JSX.Element {
-  const [topic, setTopic] = useState('')
-  const { start, isStarting } = useWorkflowStart({ workflowId: 'content-pipeline' })
-  const { runs, isLoading, refresh } = useWorkflowList({ autoRefresh: true })
+// noul answers are unmapped, so the raw value is shown as-is.
+function show(a: Answer | undefined): string {
+  return a === undefined || a.value === null ? '-' : String(a.value)
+}
 
-  async function handleStart(e: React.FormEvent) {
-    e.preventDefault()
-    if (!topic.trim()) return
-    await start({ topic: topic.trim() })
-    setTopic('')
-    await refresh()
-  }
+export default function ReviewDashboard(): React.JSX.Element {
+  const [emails, setEmails] = useState<EmailRow[]>([])
+  const [status, setStatus] = useState<StatusBody | null>(null)
+  const [account, setAccount] = useState('')
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const q = account ? `?account=${encodeURIComponent(account)}` : ''
+    Promise.all([
+      fetch('/api/status').then((r) => r.json()),
+      fetch(`/api/emails${q}`).then((r) => r.json()),
+    ])
+      .then(([s, e]) => {
+        if (s.error || e.error) throw new Error('unavailable')
+        setStatus(s)
+        setEmails(e.emails)
+        setError(null)
+      })
+      .catch(() => setError('Daten nicht verfügbar'))
+  }, [account])
+
+  const accounts = status?.workers.map((w) => w.account_id) ?? []
 
   return (
-    <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950">
-      <div className="max-w-2xl mx-auto px-4 py-12">
-        <div className="mb-10">
-          <h1 className="text-2xl font-bold text-neutral-900 dark:text-white">Content Pipeline</h1>
-          <p className="mt-1 text-neutral-500 dark:text-neutral-400">Research &rarr; Write &rarr; Review &rarr; Publish</p>
-        </div>
-
-        {/* Start new workflow */}
-        <form onSubmit={handleStart} className="mb-10">
-          <div className="flex gap-3">
-            <input
-              type="text"
-              value={topic}
-              onChange={(e) => setTopic(e.target.value)}
-              placeholder="Enter a topic to research and write about..."
-              className="flex-1 px-4 py-2.5 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-xl text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500"
-            />
-            <button
-              type="submit"
-              disabled={isStarting || !topic.trim()}
-              className="px-5 py-2.5 bg-blue-500 text-white font-medium rounded-xl hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {isStarting ? 'Starting...' : 'Start'}
-            </button>
-          </div>
-        </form>
-
-        {/* Workflow runs */}
-        <div>
-          <h2 className="text-sm font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wider mb-4">Recent Runs</h2>
-
-          {isLoading ? (
-            <p className="text-neutral-400 text-sm py-8 text-center">Loading...</p>
-          ) : runs.length === 0 ? (
-            <div className="text-center py-12 bg-white dark:bg-neutral-900 rounded-2xl border border-neutral-200 dark:border-neutral-800">
-              <p className="text-neutral-500 dark:text-neutral-400">No workflows yet. Start one above.</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {runs.map((wf) => (
-                <a
-                  key={wf.id}
-                  href={`/workflows/${wf.id}`}
-                  className="block bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-xl p-4 hover:border-neutral-300 dark:hover:border-neutral-700 transition-colors"
-                >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-medium text-neutral-900 dark:text-white text-sm">{wf.id}</p>
-                      <p className="text-xs text-neutral-500 mt-1">{wf.workflowId} &middot; {new Date(wf.createdAt).toLocaleString()}</p>
-                    </div>
-                    <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${STATUS_STYLES[wf.status] || STATUS_STYLES.pending}`}>
-                      {wf.status.replace(/_/g, ' ')}
-                    </span>
-                  </div>
-                </a>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
+    <main style={{ fontFamily: 'system-ui, sans-serif', padding: 16, maxWidth: 1200, margin: '0 auto' }}>
+      <h1>E-Mail-Review (Beobachtungsmodus, nur lesend)</h1>
+      {error && <p role="alert">{error}</p>}
+      <section aria-label="Worker">
+        <h2>Worker</h2>
+        <ul>
+          {status?.workers.map((w) => (
+            <li key={w.account_id}>
+              {w.account_id}: {w.state}{w.error_code ? ` (${w.error_code})` : ''}, letzter Poll: {w.last_poll_at ?? '-'}
+            </li>
+          ))}
+        </ul>
+        <p>
+          {status && Object.entries(status.classifications).map(([k, n]) => `${k}: ${n}`).join(' · ')}
+        </p>
+      </section>
+      <label>
+        Konto{' '}
+        <select value={account} onChange={(e) => setAccount(e.target.value)}>
+          <option value="">alle</option>
+          {accounts.map((a) => <option key={a} value={a}>{a}</option>)}
+        </select>
+      </label>
+      <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 12 }}>
+        <thead>
+          <tr>
+            <th align="left">Konto</th><th align="left">Ordner</th><th align="left">Absender / Betreff</th>
+            <th align="left">Kategorie</th><th align="left">Antworten (Rohwerte)</th>
+            <th align="left">Shadow</th><th align="left">Abweichung</th>
+          </tr>
+        </thead>
+        <tbody>
+          {emails.map((m) => {
+            const a = m.classification?.answers ?? {}
+            return (
+              <tr key={m.id} style={{ borderTop: '1px solid #8884' }}>
+                <td>{m.account_id}</td>
+                <td>{m.active_location?.folder ?? '-'}{m.provider_spam ? ' (Spam)' : ''}</td>
+                <td>{m.sender}<br />{m.subject}</td>
+                <td>{show(a.category)}</td>
+                <td>
+                  {Object.entries(a).filter(([k]) => k !== 'category').map(([k, v]) => `${k}=${show(v)}`).join(', ') ||
+                    (m.classification?.status ?? '-')}
+                </td>
+                <td>
+                  {m.shadow_quarantine
+                    ? `${m.shadow_quarantine.decision} (${m.shadow_quarantine.reason}, ab ${m.shadow_quarantine.applied_threshold})`
+                    : '-'}
+                </td>
+                <td>{m.disagreement ? DISAGREEMENT_LABEL[m.disagreement] : ''}</td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </main>
   )
 }
