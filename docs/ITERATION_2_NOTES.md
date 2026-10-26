@@ -18,6 +18,26 @@
 - Entscheidung zur `security_auth`-Policy (D11).
 - Was auf dem Handy wirklich gebraucht wird (Abweichungen prüfen? täglicher Digest? nur „needs reply“?).
 
+### Erstes Sample (2026-10-26, Konto `web2`, nur aggregiert)
+
+168 ausgewählt (INBOX 6, Spam 162), 159 klassifiziert, 9 übersprungen (doppelte Message-IDs im Spam-Ordner), 0 Fehler, Ø Latenz 225 ms. Shadow: 159 × `unmapped_answer` (erwartet, fail-closed).
+
+| Frage | INBOX (n=6) Median / Max | Spam (n=153) Min / p10 / Median | Spam ≥ 0.5 |
+|---|---|---|---|
+| `is_spam` | 0.44 / 0.65 | 0.64 / 0.87 / 0.93 | 153/153 |
+| `is_phishing_or_scam` | 0.30 / 0.95 (3/6 ≥ 0.5) | 0.04 / 0.33 / 0.69 | 131/153 |
+| `needs_my_reply` | 0.53 / 0.96 | 0.17 / 0.64 / 0.86 | 143/153 |
+| `is_assessable` | 0.93 / 0.94 | 0.06 / 0.27 / 0.78 | 132/153 |
+| `addresses_an_ai` | 0.02 / 0.04 | 0.02 / 0.02 / 0.02 | 0/153 |
+
+Kategorien: INBOX `security_auth` 4, `transactional` 2; Spam `spam` 78, `newsletter_promo` 74, `transactional` 1.
+
+Erste Lesart (vorläufig, n klein):
+- `is_spam` trennt hier gut: alle Spam-Ordner-Mails ≥ 0.64, INBOX max 0.65. Eine Schwelle um 0.8–0.85 wäre ein Kandidat, braucht aber mehr legitime Mails (Custom-Domain-Konto).
+- `is_phishing_or_scam` schlägt bei Sicherheits-/Login-Mails im Posteingang an (3/6 ≥ 0.5). Das ist genau der D11-Fall: `security_auth` darf nie allein über Phishing-/Spam-Werte entschieden werden.
+- `needs_my_reply` ist bei Spam fast immer hoch und als Sicherheitsbremse in der Shadow-Regel so **nicht** brauchbar; Formulierung im Fragenset v2 schärfen oder anders gewichten.
+- `addresses_an_ai` ist durchweg niedrig (kein Injection-Fall in dieser Stichprobe).
+
 ## 1. Kalibrierung: Schwellen und Shadow-Regel
 
 - `interpretNoul` liefert heute immer `unmapped` (fail-closed), daher ist `shadow_quarantine.candidate` immer `false`. Beobachtet: offensichtliche Werbung bekam `is_spam` 0.74–0.82, `needs_my_reply` 0.83 bei Werbung. Die Rohwerte sind also keine sauberen Wahrscheinlichkeiten.
