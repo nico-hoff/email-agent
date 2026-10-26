@@ -12,6 +12,7 @@
     "eval": "veryfront eval",
     "sample": "node --env-file=.env.local scripts/sample.ts",
     "eval:jev": "node --env-file=.env.local scripts/eval-jev.ts --confirm-live",
+    "calibrate": "node --env-file-if-exists=.env.local scripts/calibrate.ts",
     "deploy": "veryfront deploy",
     "typecheck": "tsc --noEmit",
     "test": "node --test"

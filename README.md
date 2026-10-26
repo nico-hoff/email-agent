@@ -25,6 +25,7 @@ Endpunkte: Dashboard `/`, `GET /api/emails`, `GET /api/status`, `GET /api/health
 
 - `npm run sample` zeigt zunächst nur eine **Vorschau** (Anzahl, keine Jev-Aufrufe). Erst `npm run sample -- --account <id> --limit-per-folder 200 --confirm <N>` (N = Zahl aus der Vorschau) ruft Jev tatsächlich auf. Weitere Optionen: `scripts/sample.ts`.
 - `npm run eval:jev` führt die Evaluation gegen das synthetische Set `tests/fixtures/eval/email-eval-v1.jsonl` aus (Live-Aufrufe an Jev, verursacht Kosten; erfordert `--confirm-live`, im Script gesetzt).
+- `npm run calibrate` liest nur die lokale Datenbank und zeigt je `noul`-Frage die Verteilung (min, p10, Median, p90, max) getrennt nach Provider-Posteingang und -Spam-Ordner sowie Precision und Recall gegen das Provider-Label für Schwellen von 0.50 bis 0.95. Nur Aggregate, nie Betreff oder Absender. Optionen: `--question-set <version>`, `--account <id>`, `--json`.
 
 ## Entwicklung
 
