@@ -1,8 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, chmodSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, chmodSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { openDatabase } from "../lib/db.ts";
 import { syncAccounts } from "../lib/accounts.ts";
 import {
@@ -140,6 +142,29 @@ test("report and its text never contain sender, subject or host", () => {
   } finally {
     db.close();
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("CLI failure prints only error class and code, never paths or stack frames", () => {
+  const base = mkdtempSync(join(tmpdir(), "calibrate-cli-"));
+  try {
+    // Parent exists with group/other access, so validateDatabasePath throws.
+    const dir = join(base, "MARKERDIR");
+    mkdirSync(dir);
+    chmodSync(dir, 0o755);
+    const root = fileURLToPath(new URL("..", import.meta.url));
+    const res = spawnSync(process.execPath, ["scripts/calibrate.ts"], {
+      cwd: root,
+      encoding: "utf8",
+      env: { ...process.env, DATABASE_PATH: join(dir, "t.sqlite") },
+    });
+    assert.equal(res.status, 1);
+    assert.doesNotMatch(res.stderr, /MARKERDIR/);
+    assert.doesNotMatch(res.stderr, /\/home/);
+    assert.doesNotMatch(res.stderr, /    at /);
+    assert.match(res.stderr, /calibrate failed/);
+  } finally {
+    rmSync(base, { recursive: true, force: true });
   }
 });
 

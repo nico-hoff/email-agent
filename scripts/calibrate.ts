@@ -230,15 +230,27 @@ async function main(): Promise<void> {
     console.error(e instanceof Error ? e.message : "bad_args");
     process.exit(2);
   }
-  const { openDatabase } = await import("../lib/db.ts");
-  const { validateDatabasePath } = await import("../lib/accounts.ts");
-  const { PROJECT_ROOT } = await import("../lib/constants.ts");
-  const db = openDatabase(validateDatabasePath(process.env, PROJECT_ROOT));
+  let db: DatabaseSync | undefined;
   try {
+    const { openDatabase } = await import("../lib/db.ts");
+    const { validateDatabasePath } = await import("../lib/accounts.ts");
+    const { PROJECT_ROOT } = await import("../lib/constants.ts");
+    db = openDatabase(validateDatabasePath(process.env, PROJECT_ROOT));
     const report = buildCalibrationReport(db, args);
     console.log(args.json ? JSON.stringify(report, null, 2) : formatCalibrationReport(report));
+  } catch (e) {
+    // H4: never print messages or stacks here; they can contain absolute paths.
+    const name = e instanceof Error ? e.name : "unknown";
+    const code = (e as { code?: unknown } | null)?.code;
+    const safeCode = typeof code === "string" && /^[A-Z0-9_]{1,40}$/.test(code) ? code : undefined;
+    console.error(`calibrate failed (name=${name}${safeCode === undefined ? "" : ` code=${safeCode}`})`);
+    process.exitCode = 1;
   } finally {
-    db.close();
+    try {
+      db?.close();
+    } catch {
+      // ignore close errors; the failure above is already reported
+    }
   }
 }
 
