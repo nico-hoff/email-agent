@@ -2,7 +2,9 @@ import { lstatSync, readFileSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { z } from "zod";
 
-export const DEFAULT_ACCOUNTS_FILE = "data/accounts.json";
+import { DEFAULT_ACCOUNTS_FILE } from "./constants.ts";
+
+export { DEFAULT_ACCOUNTS_FILE };
 export const DEFAULT_SPAM_THRESHOLD = 0.95;
 
 const nonEmpty = z.string().min(1);
