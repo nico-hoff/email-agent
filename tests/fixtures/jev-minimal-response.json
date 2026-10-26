@@ -1,0 +1,42 @@
+{
+  "answers": {
+    "is_spam": {
+      "noul": 0.74,
+      "type": "noul"
+    },
+    "category": {
+      "choice": "promo",
+      "confidence": 0.96,
+      "probabilities": {
+        "promo": 0.98,
+        "personal": 0.02
+      },
+      "type": "choice"
+    },
+    "urgency": {
+      "confidence": 1,
+      "legend": {
+        "0": "Can wait",
+        "1": "This week",
+        "2": "Within 48 hours",
+        "3": "Today or blocking"
+      },
+      "probabilities": {
+        "0": 1,
+        "1": 0,
+        "2": 0,
+        "3": 0
+      },
+      "score": 0,
+      "type": "score"
+    }
+  },
+  "id": "gen-dec-1793046089-eg26y8OYWHddTJiPhTg6",
+  "model": "typesafe/jev-1.13-20260917",
+  "provider": "TypeSafe",
+  "usage": {
+    "cost": 0.000019866,
+    "inputTokens": 473,
+    "outputTokens": 64
+  }
+}
