@@ -9,3 +9,4 @@ data/
 dist/
 .veryfront/
 graphify-out/
+docs/accounts*.json
