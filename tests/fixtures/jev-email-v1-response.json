@@ -1,0 +1,91 @@
+{
+  "answers": {
+    "addresses_an_ai": {
+      "noul": 0.96,
+      "type": "noul"
+    },
+    "category": {
+      "choice": "spam",
+      "confidence": 0.72,
+      "probabilities": {
+        "business": 0,
+        "newsletter_promo": 0.12,
+        "personal": 0,
+        "security_auth": 0,
+        "spam": 0.76,
+        "transactional": 0,
+        "unclear": 0.12
+      },
+      "type": "choice"
+    },
+    "importance": {
+      "confidence": 0.9,
+      "legend": {
+        "0": "Routine",
+        "1": "Useful, not critical",
+        "2": "Significant personal, financial or legal consequence",
+        "3": "Critical for security, health or legal matters"
+      },
+      "probabilities": {
+        "0": 0.94,
+        "1": 0.04,
+        "2": 0,
+        "3": 0.02
+      },
+      "score": 0.09,
+      "type": "score"
+    },
+    "is_assessable": {
+      "noul": 0.95,
+      "type": "noul"
+    },
+    "is_phishing_or_scam": {
+      "noul": 0.3,
+      "type": "noul"
+    },
+    "is_spam": {
+      "noul": 0.82,
+      "type": "noul"
+    },
+    "needs_my_reply": {
+      "noul": 0.83,
+      "type": "noul"
+    },
+    "route": {
+      "choice": "ignore",
+      "confidence": 0.55,
+      "probabilities": {
+        "digest": 0.04,
+        "draft_reply": 0,
+        "ignore": 0.66,
+        "notify": 0.3
+      },
+      "type": "choice"
+    },
+    "urgency": {
+      "confidence": 0.95,
+      "legend": {
+        "0": "No deadline, can wait",
+        "1": "This week",
+        "2": "Within 48 hours",
+        "3": "Today or blocking"
+      },
+      "probabilities": {
+        "0": 0.98,
+        "1": 0,
+        "2": 0.01,
+        "3": 0.01
+      },
+      "score": 0.05,
+      "type": "score"
+    }
+  },
+  "id": "gen-dec-1793046419-JNFljEFpSqCXKMXhJhje",
+  "model": "typesafe/jev-1.13-20260917",
+  "provider": "TypeSafe",
+  "usage": {
+    "cost": 0.000049938,
+    "inputTokens": 1189,
+    "outputTokens": 238
+  }
+}
