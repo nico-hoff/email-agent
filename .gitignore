@@ -6,3 +6,7 @@
 
 # Veryfront local state
 .veryfront/
+
+.DS_Store
+
+node_modules/
