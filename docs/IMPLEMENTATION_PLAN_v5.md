@@ -76,7 +76,7 @@
 
 - Tabelle `sender_rules`: Blacklist („Müll, darf gelöscht werden“) und Allowlist („nie aussortieren“), je Adresse oder Domain, optional je Konto.
 - Feedback-Knöpfe in der App (T37): „ist Spam“, „kein Spam“, „falscher Ordner → …“, „braucht Antwort“, „braucht keine Antwort“, „Absender immer aussortieren“.
-- **HITL-Auslöser (E7/E8):** Zählt `senders.jev_spam_count` für eine Adresse (bzw. summiert für eine Domain) 3 erreicht und gibt es noch keine Regel, erscheint in der App eine Karte „Absender X wurde 3× als Spam erkannt – immer aussortieren (Blacklist) oder nie (Whitelist)?“, mit Vorschlag Adresse oder Domain. Die Antwort wird als `sender_rules`-Eintrag mit `source='nico'` gespeichert und gilt dauerhaft, bis Nico sie in den Einstellungen ändert.
+- **HITL-Auslöser (E7/E8):** Erreicht `senders.jev_spam_count` für eine Adresse (bzw. summiert für eine Domain) den Wert 3 und gibt es noch keine Regel, erscheint in der App eine Karte „Absender X wurde 3× als Spam erkannt – immer aussortieren (Blacklist) oder nie (Whitelist)?“, mit Vorschlag Adresse oder Domain. Die Antwort wird als `sender_rules`-Eintrag mit `source='nico'` gespeichert und gilt dauerhaft, bis Nico sie in den Einstellungen ändert.
 - Feedback fließt dreifach ein: (a) Labels für die Kalibrierung, (b) Zähler für den HITL-Auslöser, (c) **reine Zähler** im Jev-State (`sender_history.user_marked_spam`, `user_marked_not_spam`), nur wenn DMARC bestanden hat.
 
 ### 3.4 Automatische Aktionen (ab M7, einziger Schreibpfad)
