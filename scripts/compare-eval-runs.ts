@@ -5,6 +5,18 @@ import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { QUESTIONS } from "../lib/jev-questions.ts";
 import { EVAL_SOURCES } from "../lib/eval-sources.ts";
+import {
+  balancedAccuracy,
+  categoryMetrics,
+  confusionAt,
+  f1,
+  precision,
+  recall,
+  rocAuc,
+  specificity,
+  wilson,
+  type ScoredPoint,
+} from "../lib/eval-stats.ts";
 import { quantiles, THRESHOLDS } from "./calibrate.ts";
 
 export type RunSummary = {
@@ -113,6 +125,11 @@ const NO_SOURCE = "(ohne Quelle)";
 const OTHER = "(anderes)";
 const MAX_UNSTABLE_IDS = 20;
 const MIN_STRATUM = 10;
+const SMALL_CELL = 30;
+const WIDE_INTERVAL = 0.2;
+const STRATUM_CLASSES = [...KNOWN_CATEGORIES, "phishing", "(none)"];
+const SPLIT_NAMES = ["calib", "test"];
+const STRATEGY_NAMES = ["balanced", "proportional"];
 
 const SAFE_TOKEN = /^[\w.:/=+-]{1,80}$/;
 const safeToken = (v: unknown, fallback: string): string => (typeof v === "string" && SAFE_TOKEN.test(v) ? v : fallback);
@@ -144,7 +161,35 @@ type SafeRun = {
   aborted: boolean;
   perQuestion: Record<string, { n: number; hits: number; rate: number }>;
   cases: SafeCase[];
+  split: string | null;
+  strategy: string | null;
+  /** Schluessel "<Quelle>|<Klasse>", nur bekannte Namen (sonst "(anderes)"). */
+  population: Record<string, number>;
+  sample: Record<string, number>;
+  shortStrata: string[];
+  duplicatesRemoved: number | null;
 };
+
+function safeStratum(key: unknown): string {
+  const k = typeof key === "string" ? key : "";
+  const i = k.indexOf("|");
+  const src = i >= 0 ? k.slice(0, i) : "";
+  const cls = i >= 0 ? k.slice(i + 1) : "";
+  return `${SOURCE_NAMES.includes(src) ? src : OTHER}|${STRATUM_CLASSES.includes(cls) ? cls : OTHER}`;
+}
+
+function safeCounts(v: unknown): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (!isRecord(v)) return out;
+  for (const [k, raw] of Object.entries(v)) {
+    const n = num(raw);
+    if (n !== null) {
+      const key = safeStratum(k);
+      out[key] = (out[key] ?? 0) + n;
+    }
+  }
+  return out;
+}
 
 function safeCase(raw: unknown): SafeCase | null {
   if (!isRecord(raw)) return null;
@@ -241,6 +286,12 @@ function safeRun(raw: unknown): SafeRun {
     aborted: r.aborted === "cost_limit",
     perQuestion,
     cases,
+    split: typeof r.split === "string" && SPLIT_NAMES.includes(r.split) ? r.split : null,
+    strategy: typeof r.strategy === "string" && STRATEGY_NAMES.includes(r.strategy) ? r.strategy : null,
+    population: safeCounts(r.population),
+    sample: safeCounts(r.sample),
+    shortStrata: Array.isArray(r.short_strata) ? uniq(r.short_strata.map(safeStratum)) : [],
+    duplicatesRemoved: num(r.duplicates_removed),
   };
 }
 
@@ -253,6 +304,24 @@ const table = (head: string[], rows: (string | number)[][]): string[] => [
   `|${head.map(() => "---").join("|")}|`,
   ...rows.map((r) => `| ${r.join(" | ")} |`),
 ];
+
+const f3 = (x: number | null) => (x === null ? "-" : x.toFixed(3));
+const pctOrDash = (x: number | null) => (x === null ? "-" : pct(x));
+const ci = (h: number, n: number): string => {
+  const w = wilson(h, n);
+  return w ? `${pct(w.low)} - ${pct(w.high)}` : "-";
+};
+const cellHint = (n: number, h: number): string => {
+  const w = wilson(h, n);
+  const parts: string[] = [];
+  if (n < SMALL_CELL) parts.push(`kleine Zelle (n < ${SMALL_CELL})`);
+  if (w && w.high - w.low > WIDE_INTERVAL) parts.push("Intervall breit (> 0,2)");
+  return parts.join("; ");
+};
+const stratumCells = (key: string): [string, string] => {
+  const i = key.indexOf("|");
+  return [key.slice(0, i), key.slice(i + 1)];
+};
 
 export function buildInsights(input: readonly unknown[], opts: { now: Date }): string {
   const runs = input.map(safeRun);
@@ -268,6 +337,9 @@ export function buildInsights(input: readonly unknown[], opts: { now: Date }): s
   for (const r of runs) for (const [k, v] of Object.entries(r.errorClasses)) classes[k] = (classes[k] ?? 0) + v;
   const revisions = uniq(runs.flatMap((r) => r.revisions));
   const thresholds = uniq(runs.map((r) => r.threshold).filter((t): t is number => t !== null));
+  const splits = uniq(runs.map((r) => r.split).filter((t): t is string => t !== null));
+  const strategies = uniq(runs.map((r) => r.strategy).filter((t): t is string => t !== null));
+  const dupCounts = uniq(runs.map((r) => r.duplicatesRemoved).filter((t): t is number => t !== null));
   out.push(
     "# Eval-Insights Jev",
     "",
@@ -276,6 +348,9 @@ export function buildInsights(input: readonly unknown[], opts: { now: Date }): s
     `- Läufe: ${runs.length}`,
     `- Seeds: ${list(runs.map((r) => r.seed ?? "?"))}`,
     `- n je Lauf: ${list(runs.map((r) => r.n))}`,
+    `- Split: ${splits.length ? list(splits) : "unbekannt"}`,
+    `- Strategie: ${strategies.length ? list(strategies) : "unbekannt"}`,
+    `- Entfernte Dubletten: ${dupCounts.length ? list(dupCounts) : "unbekannt"}`,
     `- Dataset-Revisionen: ${revisions.length ? list(revisions) : "unbekannt"}`,
     `- noul-Schwelle (provisorisch): ${thresholds.length ? list(thresholds) : "unbekannt"}`,
     `- Gesamtkosten: ${cmp.costTotal === null ? "unbekannt" : cmp.costTotal.toFixed(6)}`,
@@ -301,6 +376,92 @@ export function buildInsights(input: readonly unknown[], opts: { now: Date }): s
     ),
     "",
   );
+
+  // 2a. Wilson-Intervalle
+  out.push("## Trefferquote mit 95-%-Wilson-Intervall", "");
+  out.push(
+    "Gepoolt über alle Läufe. Läufe mit überlappenden Fall-IDs sind nicht unabhängig; die gepoolten Intervalle sind dann zu eng.",
+    "",
+  );
+  const poolRows: (string | number)[][] = [];
+  for (const q of KNOWN_QUESTIONS) {
+    const n = runs.reduce((a, r) => a + (r.perQuestion[q]?.n ?? 0), 0);
+    if (n === 0) continue;
+    const h = runs.reduce((a, r) => a + (r.perQuestion[q]?.hits ?? 0), 0);
+    poolRows.push([q, n, h, rate(h, n), ci(h, n), cellHint(n, h)]);
+  }
+  out.push(...table(["Frage", "n", "Treffer", "Quote", "95-%-Intervall", "Hinweis"], poolRows), "");
+  out.push("### Je Lauf", "");
+  const runRows: (string | number)[][] = [];
+  runs.forEach((r, i) => {
+    for (const q of KNOWN_QUESTIONS) {
+      const s = r.perQuestion[q];
+      if (!s || s.n === 0) continue;
+      runRows.push([r.seed ?? i + 1, q, s.n, s.hits, rate(s.hits, s.n), ci(s.hits, s.n), cellHint(s.n, s.hits)]);
+    }
+  });
+  out.push(...table(["Lauf", "Frage", "n", "Treffer", "Quote", "95-%-Intervall", "Hinweis"], runRows), "");
+
+  // 2b. Stichprobenbeschreibung
+  out.push("## Stichprobe", "");
+  const described = runs.filter((r) => Object.keys(r.population).length > 0);
+  if (described.length === 0) {
+    out.push("- keine Angaben zur Stichprobe in den Laufberichten (älteres Format)", "");
+  } else {
+    out.push(
+      `- Split: ${splits.length ? list(splits) : "unbekannt"}; Strategie: ${strategies.length ? list(strategies) : "unbekannt"}`,
+      "",
+    );
+    const keys = uniq(runs.flatMap((r) => [...Object.keys(r.population), ...Object.keys(r.sample)])).sort();
+    const popOf = (k: string) => runs.map((r) => r.population[k]).find((v) => v !== undefined) ?? 0;
+    const popTotal = keys.reduce((a, k) => a + popOf(k), 0);
+    out.push(
+      ...table(
+        ["Quelle", "Klasse", "Population", "Anteil Population", "Stichprobe je Lauf", "Anteil Stichprobe je Lauf"],
+        keys.map((k) => {
+          const [src, cls] = stratumCells(k);
+          const perRun = described.map((r) => ({
+            n: r.sample[k] ?? 0,
+            total: Object.values(r.sample).reduce((a, b) => a + b, 0),
+          }));
+          return [
+            src,
+            cls,
+            popOf(k),
+            rate(popOf(k), popTotal),
+            list(perRun.map((x) => x.n)),
+            list(perRun.map((x) => rate(x.n, x.total))),
+          ];
+        }),
+      ),
+      "",
+    );
+    const shorts = uniq(runs.flatMap((r) => r.shortStrata)).sort();
+    out.push(
+      shorts.length
+        ? `- Schichten kleiner als ihr Anteil (vollständig genommen, Rest umverteilt): ${list(shorts.map((k) => k.replace("|", " | ")))}`
+        : "- Keine Schicht war kleiner als ihr Anteil.",
+    );
+    const idSets = runs.map((r) => new Set(r.cases.map((c) => c.id)));
+    const idRuns = new Map<string, number>();
+    for (const set of idSets) for (const id of set) idRuns.set(id, (idRuns.get(id) ?? 0) + 1);
+    const shared = [...idRuns.values()].filter((v) => v >= 2).length;
+    out.push(
+      `- Fall-IDs gesamt (eindeutig): ${idRuns.size}`,
+      `- Fall-IDs in mehreren Läufen: ${shared} (${rate(shared, idRuns.size)})`,
+      "",
+    );
+    if (runs.length >= 2) {
+      const pairRows: (string | number)[][] = [];
+      for (let i = 0; i < runs.length; i++) {
+        for (let j = i + 1; j < runs.length; j++) {
+          const common = [...idSets[i]].filter((id) => idSets[j].has(id)).length;
+          pairRows.push([runs[i].seed ?? i + 1, runs[j].seed ?? j + 1, common, rate(common, idSets[i].size), rate(common, idSets[j].size)]);
+        }
+      }
+      out.push(...table(["Lauf A", "Lauf B", "gemeinsam", "Anteil an A", "Anteil an B"], pairRows), "");
+    }
+  }
 
   // 3. Quelle x erwartete Kategorie
   type Stratum = { source: string; category: string; cases: number; q: Record<string, { n: number; hits: number }> };
@@ -344,6 +505,25 @@ export function buildInsights(input: readonly unknown[], opts: { now: Date }): s
   out.push("## Kategorie-Verwechslungen (erwartet → Jev)", "");
   out.push(...table(["Erwartet", "Jev", "Anzahl"], confRows.map((r) => [r.e, r.a, r.n])), "");
 
+  // 4a. Kategorie-Metriken
+  out.push("## Kategorie-Metriken", "");
+  const catPairs = cases
+    .filter((c) => c.expectedCategory !== null && c.answeredCategory !== null)
+    .map((c) => [c.expectedCategory as string, c.answeredCategory as string] as const);
+  const cm = categoryMetrics(catPairs);
+  out.push(
+    `- Accuracy: ${pctOrDash(cm.accuracy)} (n = ${cm.n})`,
+    `- Macro-F1: ${f3(cm.macroF1)} (ungewichtetes Mittel über alle Klassen, die erwartet oder geantwortet wurden)`,
+    "",
+  );
+  out.push(
+    ...table(
+      ["Klasse", "Support", "Precision", "Recall", "F1"],
+      cm.perClass.map((c) => [c.label, c.support, f3(c.precision), f3(c.recall), f3(c.f1)]),
+    ),
+    "",
+  );
+
   // 5. noul-Verteilungen und Schwellen
   const noulQs = NOUL_KEYS.filter((q) => cases.some((c) => c.expectedNoul[q] !== undefined && c.raw[q] !== undefined));
   out.push("## noul-Rohwerte nach erwartetem Wert", "");
@@ -369,6 +549,78 @@ export function buildInsights(input: readonly unknown[], opts: { now: Date }): s
     ),
     "",
   );
+
+  // 5a. Konfusionsmatrix, ROC-AUC und Schwellen-Tabelle je noul-Frage
+  const T0 = thresholds[0] ?? 0.5;
+  const pointsOf = (q: string): ScoredPoint[] =>
+    cases
+      .filter((c) => c.expectedNoul[q] !== undefined && c.raw[q] !== undefined)
+      .map((c) => ({ score: c.raw[q], expected: c.expectedNoul[q] }));
+  out.push("## noul-Fragen: Konfusionsmatrix bei provisorischer Schwelle", "");
+  out.push(
+    `Schwelle ${f2(T0)} (provisorisch): Rohwert >= Schwelle zählt als true. Gepoolt über alle Läufe; ROC-AUC aus den Rohwerten (Rangverfahren, Gleichstände gemittelt).`,
+    "",
+  );
+  const confRowsNoul: (string | number)[][] = [];
+  for (const q of noulQs) {
+    const pts = pointsOf(q);
+    const pos = pts.filter((p) => p.expected).length;
+    const neg = pts.length - pos;
+    const c = confusionAt(pts, T0);
+    const hints: string[] = [];
+    if (pos === 0 || neg === 0) hints.push("nur eine Klasse");
+    if (pos < SMALL_CELL || neg < SMALL_CELL) hints.push(`kleine Zelle (n < ${SMALL_CELL})`);
+    confRowsNoul.push([
+      q, f2(T0), c.tp, c.fp, c.fn, c.tn,
+      f3(precision(c)), f3(recall(c)), f3(f1(c)), f3(specificity(c)), f3(balancedAccuracy(c)), f3(rocAuc(pts)),
+      hints.join("; "),
+    ]);
+  }
+  out.push(
+    ...table(
+      ["Frage", "Schwelle", "TP", "FP", "FN", "TN", "Precision", "Recall", "F1", "Specificity", "Balanced Acc.", "ROC-AUC", "Hinweis"],
+      confRowsNoul,
+    ),
+    "",
+  );
+  out.push("### Schwellen-Tabelle", "");
+  if (splits.includes("test") || splits.length === 0) {
+    out.push(
+      `Hinweis: ${splits.includes("test") ? "Mindestens ein Lauf lief auf test" : "Der Split der Läufe ist unbekannt"}. Schwellen nicht auf test wählen: Kandidaten nur auf calib bestimmen (--split calib), auf test nur berichten.`,
+      "",
+    );
+  } else {
+    out.push("Alle Läufe liefen auf calib: markierte Kandidaten sind zulässig, berichtet wird anschließend auf test.", "");
+  }
+  const thrRows: (string | number)[][] = [];
+  for (const q of noulQs) {
+    const pts = pointsOf(q);
+    const rows = THRESHOLDS.map((t) => {
+      const c = confusionAt(pts, t);
+      return { t, p: precision(c), r: recall(c), f: f1(c), b: balancedAccuracy(c) };
+    });
+    const argmax = (pick: (r: (typeof rows)[number]) => number | null): number => {
+      let best = -1;
+      let bestVal = -Infinity;
+      rows.forEach((r, i) => {
+        const v = pick(r);
+        if (v !== null && v > bestVal + 1e-9) {
+          bestVal = v;
+          best = i;
+        }
+      });
+      return best;
+    };
+    const bestF = argmax((r) => r.f);
+    const bestB = argmax((r) => r.b);
+    rows.forEach((r, i) => {
+      const marks: string[] = [];
+      if (i === bestF) marks.push("max. F1");
+      if (i === bestB) marks.push("max. Balanced Acc.");
+      thrRows.push([q, f2(r.t), f3(r.p), f3(r.r), f3(r.f), f3(r.b), marks.length ? `Kandidat auf calib (${marks.join(", ")})` : ""]);
+    });
+  }
+  out.push(...table(["Frage", "Schwelle", "Precision", "Recall", "F1", "Balanced Acc.", "Kandidat"], thrRows), "");
 
   // 6. Stabilitaet
   out.push("## Stabilität (gleiche ID in mehreren Läufen, unterschiedliches Ergebnis)", "");

@@ -260,6 +260,159 @@ describe("buildInsights", () => {
   });
 });
 
+// ---- Statistik-Abschnitte ----
+
+const NOUL_POS = [0.9, 0.8, 0.4];
+const NOUL_NEG = [0.7, 0.3, 0.4];
+const noulRun = (seed: number, extra: Record<string, unknown> = {}) =>
+  full(
+    seed,
+    [
+      ...NOUL_POS.map((v, i) => mk(`p${i}`, "triage", { is_spam: true }, null, v)),
+      ...NOUL_NEG.map((v, i) => mk(`q${i}`, "sinabis", { is_spam: false }, null, v)),
+    ],
+    extra,
+  );
+
+const catRun = (seed: number, hitsOf: number, total: number, extra: Record<string, unknown> = {}) =>
+  full(
+    seed,
+    Array.from({ length: total }, (_, i) =>
+      mk(`k${seed}-${i}`, "triage", { category: "spam" }, i < hitsOf ? "spam" : "business", null),
+    ),
+    extra,
+  );
+
+describe("insights: Wilson intervals per question", () => {
+  const md = insights([catRun(1, 8, 10)]);
+
+  it("pools all runs and adds the 95% Wilson interval", () => {
+    assert.match(md, /## Trefferquote mit 95-%-Wilson-Intervall/);
+    assert.match(md, /\| category \| 10 \| 8 \| 80\.0% \| 49\.0% - 94\.3% \|/);
+    const two = insights([catRun(1, 8, 10), catRun(2, 6, 10)]);
+    assert.match(two, /\| category \| 20 \| 14 \| 70\.0% \| 48\.1% - 85\.5% \|/);
+  });
+
+  it("also lists each run separately", () => {
+    const two = insights([catRun(1, 8, 10), catRun(2, 6, 10)]);
+    assert.match(two, /\| 1 \| category \| 10 \| 8 \| 80\.0% \| 49\.0% - 94\.3% \|/);
+    assert.match(two, /\| 2 \| category \| 10 \| 6 \| 60\.0% \| 31\.3% - 83\.2% \|/);
+  });
+
+  it("flags small cells (n < 30) and wide intervals (width > 0.2), and nothing for large narrow ones", () => {
+    assert.match(md, /\| category \| 10 \| 8 \| 80\.0% \| 49\.0% - 94\.3% \| kleine Zelle \(n < 30\); Intervall breit \(> 0,2\) \|/);
+    const big = insights([catRun(1, 100, 200)]);
+    const line = big.split("\n").find((l) => /^\| category \| 200 \| 100 \|/.test(l))!;
+    assert.ok(line);
+    assert.doesNotMatch(line, /kleine Zelle|Intervall breit/);
+  });
+
+  it("warns that overlapping runs are not independent", () => {
+    assert.match(md, /nicht unabhängig/);
+  });
+});
+
+describe("insights: noul confusion matrix, ROC-AUC and threshold table", () => {
+  const md = insights([noulRun(1, { split: "test" })]);
+
+  it("gives TP/FP/FN/TN and derived scores at the provisional threshold, plus ROC-AUC from raw values", () => {
+    assert.match(md, /## noul-Fragen: Konfusionsmatrix/);
+    assert.match(md, /\| is_spam \| 0\.50 \| 2 \| 1 \| 1 \| 2 \| 0\.667 \| 0\.667 \| 0\.667 \| 0\.667 \| 0\.667 \| 0\.833 \|/);
+  });
+
+  it("marks small classes (< 30 positives or negatives)", () => {
+    const line = md.split("\n").find((l) => l.startsWith("| is_spam | 0.50 | 2 | 1 |"))!;
+    assert.match(line, /kleine Zelle \(n < 30\)/);
+  });
+
+  it("shows no AUC when only one class is present", () => {
+    const only = insights([
+      full(1, [mk("x1", "triage", { is_spam: true }, null, 0.9), mk("x2", "triage", { is_spam: true }, null, 0.2)]),
+    ]);
+    const line = only.split("\n").find((l) => l.startsWith("| is_spam | 0.50 |"))!;
+    assert.ok(line);
+    assert.match(line, /\| - \|/);
+    assert.match(line, /nur eine Klasse/);
+  });
+
+  it("threshold table covers 0.50 to 0.95 per question with P, R, F1, balanced accuracy", () => {
+    const num = "(?:\\d\\.\\d{3}|-)";
+    const rows = md
+      .split("\n")
+      .filter((l) => new RegExp(`^\\| is_spam \\| 0\\.\\d\\d \\| ${num} \\| ${num} \\| ${num} \\| ${num} \\|`).test(l));
+    assert.equal(rows.length, 10);
+    assert.ok(rows.some((l) => l.startsWith("| is_spam | 0.50 | 0.667 | 0.667 | 0.667 | 0.667 |")));
+    assert.ok(rows.some((l) => l.startsWith("| is_spam | 0.85 | 1.000 | 0.333 | 0.500 | 0.667 |")));
+    assert.ok(rows.some((l) => l.startsWith("| is_spam | 0.95 | - | 0.000 | - | 0.500 |")));
+  });
+
+  it("marks the best F1 and balanced accuracy only as a candidate on calib", () => {
+    assert.match(md, /\| is_spam \| 0\.75 \| 1\.000 \| 0\.667 \| 0\.800 \| 0\.833 \| Kandidat auf calib \(max\. F1, max\. Balanced Acc\.\) \|/);
+    assert.equal(md.split("\n").filter((l) => l.includes("Kandidat auf calib (")).length, 1);
+  });
+
+  it("warns not to choose thresholds on test, but not for calib runs", () => {
+    assert.match(md, /Schwellen nicht auf test wählen/);
+    const calib = insights([noulRun(1, { split: "calib" })]);
+    assert.doesNotMatch(calib, /Schwellen nicht auf test wählen/);
+    assert.match(calib, /\| is_spam \| 0\.75 \|.*Kandidat auf calib/);
+  });
+});
+
+describe("insights: category metrics", () => {
+  const pairs: Array<[string, string]> = [["spam", "spam"], ["spam", "business"], ["business", "business"], ["business", "business"], ["personal", "spam"]];
+  const md = insights([full(1, pairs.map(([e, a], i) => mk(`c${i}`, "triage", { category: e }, a, null)))]);
+
+  it("reports accuracy, macro-F1 and per-class precision, recall, F1", () => {
+    assert.match(md, /## Kategorie-Metriken/);
+    assert.match(md, /Accuracy: 60\.0% \(n = 5\)/);
+    assert.match(md, /Macro-F1: 0\.433/);
+    assert.match(md, /\| spam \| 2 \| 0\.500 \| 0\.500 \| 0\.500 \|/);
+    assert.match(md, /\| business \| 2 \| 0\.667 \| 1\.000 \| 0\.800 \|/);
+    assert.match(md, /\| personal \| 1 \| 0\.000 \| 0\.000 \| 0\.000 \|/);
+  });
+});
+
+describe("insights: sample description", () => {
+  const sampling = (pop: Record<string, number>, sample: Record<string, number>, over: Record<string, unknown> = {}) => ({
+    split: "test", strategy: "balanced", population: pop, sample, short_strata: [], duplicates_removed: 2, ...over,
+  });
+  const POP = { "triage|spam": 40, "triage|personal": 40, "sinabis|business": 20 };
+  const r1 = full(1, run1.cases as C[], sampling(POP, { "triage|spam": 10, "triage|personal": 10, "sinabis|business": 5 }));
+  const r2 = full(2, run2.cases as C[], sampling(POP, { "triage|spam": 8, "triage|personal": 8, "sinabis|business": 4 }, { short_strata: ["sinabis|business"] }));
+  const md = insights([r1, r2]);
+
+  it("names split, strategy and removed duplicates in the header", () => {
+    assert.match(md, /- Split: test/);
+    assert.match(md, /- Strategie: balanced/);
+    assert.match(md, /- Entfernte Dubletten: 2/);
+  });
+
+  it("compares population and sample per stratum", () => {
+    assert.match(md, /## Stichprobe/);
+    assert.match(md, /\| triage \| spam \| 40 \| 40\.0% \| 10, 8 \| 40\.0%, 40\.0% \|/);
+    assert.match(md, /\| sinabis \| business \| 20 \| 20\.0% \| 5, 4 \| 20\.0%, 20\.0% \|/);
+    assert.match(md, /vollständig genommen.*sinabis \| business/);
+  });
+
+  it("states the overlap of case ids between runs", () => {
+    assert.match(md, /Fall-IDs gesamt \(eindeutig\): 5/);
+    assert.match(md, /in mehreren Läufen: 3 \(60\.0%\)/);
+    assert.match(md, /\| 1 \| 2 \| 3 \| 60\.0% \| 100\.0% \|/);
+  });
+
+  it("says so when the reports carry no sampling description", () => {
+    assert.match(insights([run1]), /keine Angaben zur Stichprobe/);
+  });
+
+  it("never lets unexpected strata names through", () => {
+    const M = "MARKER_STRATUM_77";
+    const dirty = full(1, run1.cases as C[], sampling({ [`${M}|${M}`]: 5 }, { [`${M}|${M}`]: 5 }, { split: M, strategy: M }));
+    const out = insights([dirty]);
+    assert.ok(!out.includes("MARKER_"));
+  });
+});
+
 describe("eval:compare CLI", () => {
   const script = join(import.meta.dirname, "..", "scripts", "compare-eval-runs.ts");
   const setup = () => {

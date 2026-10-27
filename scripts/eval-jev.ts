@@ -1,18 +1,36 @@
 // Expliziter Runner fuer das synthetische Jev-Eval-Set (kein Chat-Agent, nicht in CI).
 // `veryfront/eval` bietet nur Adapter fuer Agenten/AG-UI, keinen fuer normale SDK-Funktionen.
 // Aufruf: node --env-file=.env.local scripts/eval-jev.ts --confirm-live
-//   optional: --source hf --seed <s> --n <N> [--max-cost <usd>] [--no-dev-db]  (Stichprobe aus data/eval-datasets/)
+//   optional: --source hf --seed <s> --n <N> [--split test|calib] [--strategy balanced|proportional]
+//             [--max-cost <usd>] [--no-dev-db]  (Stichprobe aus data/eval-datasets/)
+// Partitionen: Schwellen werden nur auf `calib` gewaehlt, berichtet wird auf `test` (Standard).
 // Der hf-Lauf schreibt die Faelle samt normalisierten Antworten zusaetzlich in data/dev-synthetic.sqlite
-// (getrennte Dev-DB, nie in die echte DB); --no-dev-db schaltet das ab. Das feste Set schreibt dort nichts.
+// (getrennte Dev-DB); --no-dev-db schaltet das ab. Die eval_run-Auditzeile geht bei JEDEM Lauf (auch beim festen Set)
+// ausschliesslich in diese Dev-DB; die echte Datenbank wird von keinem Eval-Skript geoeffnet.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { DatabaseSync } from "node:sqlite";
 import { createJevClient, type JevClient } from "../lib/jev.ts";
-import { EVAL_SOURCES, sampleCases, type EvalCase } from "../lib/eval-sources.ts";
+import {
+  dedupeCases,
+  EVAL_SOURCES,
+  partitionOf,
+  SAMPLE_STRATEGIES,
+  sampleCasesDetailed,
+  SPLITS,
+  type EvalCase,
+  type EvalSplit,
+  type SampleStrategy,
+} from "../lib/eval-sources.ts";
 import { buildState, QUESTIONS } from "../lib/jev-questions.ts";
 import { normalizeAnswers, type NormalizedAnswer } from "../lib/jev-response.ts";
-import { DEFAULT_DATABASE_PATH, JEV_MODEL } from "../lib/constants.ts";
-import { openDatabase } from "../lib/db.ts";
-import { importSyntheticCases, openSyntheticDevDatabase, type SyntheticItem } from "../lib/synthetic-dev-db.ts";
+import { JEV_MODEL } from "../lib/constants.ts";
+import {
+  importSyntheticCases,
+  openSyntheticDevDatabase,
+  type ImportResult,
+  type SyntheticItem,
+} from "../lib/synthetic-dev-db.ts";
 
 export const MAX_LIVE_CALLS = 30;
 // Harte Grenze pro Lauf fuer die HF-Stichprobe.
@@ -190,6 +208,17 @@ export type RunReport = {
   costPerMail: number | null;
   noulThreshold: number;
   cases: CaseResult[];
+} & Partial<SamplingInfo>;
+
+/** Beschreibung der Stichprobe: Population und Stichprobe je Schicht (Quelle|Klasse), nur Zaehler und Namen. */
+export type SamplingInfo = {
+  split: EvalSplit;
+  strategy: SampleStrategy;
+  population: Record<string, number>;
+  sample: Record<string, number>;
+  /** Schichten, die kleiner als ihr Anteil waren: vollstaendig genommen, Rest umverteilt. */
+  short_strata: string[];
+  duplicates_removed: number;
 };
 
 // Nur IDs, Quelle, erwartete Werte, normalisierte Antworten, Treffer, Kosten: nie Betreff, Body, Absender.
@@ -201,9 +230,11 @@ export function buildRunReport(input: {
   nRequested?: number;
   revisions: Record<string, string>;
   createdAt: Date;
+  sampling?: SamplingInfo;
 }): RunReport {
   const r = input.report;
   return {
+    ...(input.sampling ?? {}),
     version: 1,
     created_at: input.createdAt.toISOString(),
     source: "hf",
@@ -231,32 +262,82 @@ export function writeRunReport(dir: string, run: RunReport): string {
   return path;
 }
 
-// Liest data/eval-datasets/<kurzname>/{rows.jsonl,manifest.json}; verworfen werden fehlerhafte Zeilen
-// und Faelle ohne jede erwartete Angabe (sie wuerden nur Aufrufe kosten). includeUnlabeled behaelt sie (dev:seed).
-export function loadHfCases(dir: string, o: { includeUnlabeled?: boolean } = {}): { cases: EvalCase[]; revisions: Record<string, string> } {
+// Liest data/eval-datasets/<kurzname>/{rows.jsonl,manifest.json}. Reihenfolge: mappen, exakte Dubletten je Quelle
+// entfernen (vor allem anderen), nach fester Partition filtern, dann Faelle ohne jede erwartete Angabe verwerfen
+// (sie wuerden nur Aufrufe kosten). includeUnlabeled behaelt sie (dev:seed); split "all" (Standard) beide Partitionen.
+export function loadHfCases(
+  dir: string,
+  o: { includeUnlabeled?: boolean; split?: EvalSplit | "all" } = {},
+): { cases: EvalCase[]; revisions: Record<string, string>; duplicatesRemoved: number } {
+  const split = o.split ?? "all";
   const cases: EvalCase[] = [];
   const revisions: Record<string, string> = {};
+  let duplicatesRemoved = 0;
   for (const source of EVAL_SOURCES) {
     const rowsPath = join(dir, source.short, "rows.jsonl");
     const manifestPath = join(dir, source.short, "manifest.json");
     if (!existsSync(rowsPath) || !existsSync(manifestPath)) continue;
-    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { revision?: unknown };
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { revision?: unknown; duplicates_removed?: unknown };
     revisions[source.short] = typeof manifest.revision === "string" ? manifest.revision : "unknown";
+    if (typeof manifest.duplicates_removed === "number") duplicatesRemoved += manifest.duplicates_removed;
+    const mappedAll: EvalCase[] = [];
     for (const line of readFileSync(rowsPath, "utf8").split("\n")) {
       if (line.trim() === "") continue;
       const parsed = JSON.parse(line) as { row_idx?: unknown; row?: unknown };
       if (typeof parsed.row_idx !== "number") continue;
       const mapped = source.map(parsed.row, parsed.row_idx);
-      if (mapped && (o.includeUnlabeled || Object.keys(mapped.expected).length > 0)) cases.push(mapped);
+      if (mapped) mappedAll.push(mapped);
+    }
+    const deduped = dedupeCases(mappedAll);
+    duplicatesRemoved += deduped.removed;
+    for (const c of deduped.cases) {
+      if (split !== "all" && partitionOf(c) !== split) continue;
+      if (o.includeUnlabeled || Object.keys(c.expected).length > 0) cases.push(c);
     }
   }
   if (Object.keys(revisions).length === 0) throw new Error("datasets_missing");
-  return { cases, revisions };
+  return { cases, revisions, duplicatesRemoved };
+}
+
+/** Laedt die Partition, zieht die geschichtete Stichprobe und beschreibt sie (ohne Inhalte). */
+export function prepareHfSample(
+  dir: string,
+  o: { seed: number; n: number; split: EvalSplit; strategy: SampleStrategy },
+): { cases: EvalCase[]; revisions: Record<string, string>; sampling: SamplingInfo } {
+  const loaded = loadHfCases(dir, { split: o.split });
+  const drawn = sampleCasesDetailed(loaded.cases, { seed: o.seed, n: o.n, strategy: o.strategy });
+  const population: Record<string, number> = {};
+  const sample: Record<string, number> = {};
+  for (const s of drawn.strata) {
+    population[s.key] = s.population;
+    sample[s.key] = s.sampled;
+  }
+  return {
+    cases: drawn.cases,
+    revisions: loaded.revisions,
+    sampling: {
+      split: o.split,
+      strategy: o.strategy,
+      population,
+      sample,
+      short_strata: drawn.shortStrata,
+      duplicates_removed: loaded.duplicatesRemoved,
+    },
+  };
 }
 
 export type EvalArgs =
   | { ok: true; mode: "fixed"; maxCost: number | null }
-  | { ok: true; mode: "hf"; seed: number; n: number; maxCost: number | null; devDb: boolean }
+  | {
+      ok: true;
+      mode: "hf";
+      seed: number;
+      n: number;
+      maxCost: number | null;
+      devDb: boolean;
+      split: EvalSplit;
+      strategy: SampleStrategy;
+    }
   | { ok: false };
 
 export function parseEvalArgs(argv: string[]): EvalArgs {
@@ -265,6 +346,8 @@ export function parseEvalArgs(argv: string[]): EvalArgs {
   let n: number | null = null;
   let maxCost: number | null = null;
   let devDb = true;
+  let split: string | null = null;
+  let strategy: string | null = null;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--confirm-live") continue;
@@ -272,17 +355,79 @@ export function parseEvalArgs(argv: string[]): EvalArgs {
     else if (a === "--seed") seed = Number(argv[++i]);
     else if (a === "--n") n = Number(argv[++i]);
     else if (a === "--max-cost") maxCost = Number(argv[++i]);
+    else if (a === "--split") split = argv[++i] ?? "";
+    else if (a === "--strategy") strategy = argv[++i] ?? "";
     else if (a === "--no-dev-db") devDb = false;
     else return { ok: false };
   }
   if (maxCost !== null && !(Number.isFinite(maxCost) && maxCost > 0)) return { ok: false };
   if (source === null) {
-    return seed === null && n === null && devDb ? { ok: true, mode: "fixed", maxCost } : { ok: false };
+    return seed === null && n === null && devDb && split === null && strategy === null
+      ? { ok: true, mode: "fixed", maxCost }
+      : { ok: false };
   }
   if (source !== "hf") return { ok: false };
   if (seed === null || n === null) return { ok: false };
   if (!Number.isInteger(seed) || !Number.isInteger(n) || n < 1 || n > HF_MAX_CALLS) return { ok: false };
-  return { ok: true, mode: "hf", seed, n, maxCost, devDb };
+  const chosenSplit = (split ?? "test") as EvalSplit;
+  const chosenStrategy = (strategy ?? "balanced") as SampleStrategy;
+  if (!SPLITS.includes(chosenSplit) || !SAMPLE_STRATEGIES.includes(chosenStrategy)) return { ok: false };
+  return { ok: true, mode: "hf", seed, n, maxCost, devDb, split: chosenSplit, strategy: chosenStrategy };
+}
+
+function writeEvalAudit(
+  db: DatabaseSync,
+  report: EvalReport,
+  extra: Record<string, number | string>,
+): void {
+  db.prepare(
+    `INSERT INTO audit_log (occurred_at, trace_id, actor, action, details_json)
+     VALUES (?, ?, 'eval', 'eval_run', ?)`,
+  ).run(
+    new Date().toISOString(),
+    crypto.randomUUID(),
+    JSON.stringify({
+      cases: report.total,
+      errors: report.errors.count,
+      hits: Object.fromEntries(Object.entries(report.perQuestion).map(([q, s]) => [q, [s.hits, s.n]])),
+      ...extra,
+      ...(report.costTotal !== null ? { cost: report.costTotal } : {}),
+    }),
+  );
+}
+
+/**
+ * Alles, was ein Lauf in eine Datenbank schreibt, geht in die synthetische Dev-DB unter <root>/data/:
+ * optional die Faelle samt Antworten (nur hf) und immer die Auditzeile `eval_run`. Die echte DB wird nie geoeffnet.
+ */
+export function finalizeEvalRun(input: {
+  root: string;
+  cases: EvalCase[];
+  report: EvalReport;
+  hf: { seed: number; split: EvalSplit; strategy: SampleStrategy } | null;
+  importDevDb: boolean;
+}): { imported: ImportResult | null } {
+  const db = openSyntheticDevDatabase(input.root);
+  try {
+    let imported: ImportResult | null = null;
+    let importError: unknown;
+    if (input.hf && input.importDevDb) {
+      try {
+        imported = importSyntheticCases(db, devDbItemsFromReport(input.cases, input.report));
+      } catch (e) {
+        importError = e; // the audit row is still written; the error is rethrown below
+      }
+    }
+    writeEvalAudit(
+      db,
+      input.report,
+      input.hf ? { seed: input.hf.seed, split: input.hf.split, strategy: input.hf.strategy } : {},
+    );
+    if (importError !== undefined) throw importError;
+    return { imported };
+  } finally {
+    db.close();
+  }
 }
 
 async function main(): Promise<void> {
@@ -292,7 +437,9 @@ async function main(): Promise<void> {
   }
   const args = parseEvalArgs(process.argv.slice(2));
   if (!args.ok) {
-    console.error(`usage: eval:jev [--source hf --seed <s> --n <1..${HF_MAX_CALLS}>] [--max-cost <usd>] [--no-dev-db]  (error: args_invalid)`);
+    console.error(
+      `usage: eval:jev [--source hf --seed <s> --n <1..${HF_MAX_CALLS}> [--split test|calib] [--strategy balanced|proportional]] [--max-cost <usd>] [--no-dev-db]  (error: args_invalid)`,
+    );
     process.exit(2);
   }
   const apiKey = process.env.OPENROUTER_API_KEY;
@@ -303,12 +450,16 @@ async function main(): Promise<void> {
   const root = join(import.meta.dirname, "..");
   let cases: EvalCase[];
   let revisions: Record<string, string> = {};
+  let sampling: SamplingInfo | undefined;
   let maxCalls = MAX_LIVE_CALLS;
   if (args.mode === "hf") {
     try {
-      const loaded = loadHfCases(join(root, "data", "eval-datasets"));
-      revisions = loaded.revisions;
-      cases = sampleCases(loaded.cases, { seed: args.seed, n: args.n });
+      const prepared = prepareHfSample(join(root, "data", "eval-datasets"), {
+        seed: args.seed, n: args.n, split: args.split, strategy: args.strategy,
+      });
+      cases = prepared.cases;
+      revisions = prepared.revisions;
+      sampling = prepared.sampling;
     } catch (e) {
       console.error(`dataset load failed (${e instanceof Error ? e.message : "unknown"}); run npm run eval:fetch first`);
       process.exit(2);
@@ -325,49 +476,32 @@ async function main(): Promise<void> {
   const report = await runEvalSet({ jev, cases, maxCalls, maxCost: args.maxCost });
   console.log(formatReport(report));
 
-  let seedInfo: Record<string, number> = {};
-  if (args.mode === "hf") {
+  if (args.mode === "hf" && sampling) {
+    console.log(`  split=${sampling.split} strategy=${sampling.strategy} duplicates removed=${sampling.duplicates_removed}`);
+    for (const [k, pop] of Object.entries(sampling.population)) {
+      console.log(`  stratum ${k}: ${sampling.sample[k] ?? 0} of ${pop}`);
+    }
+    if (sampling.short_strata.length) console.log(`  smaller than share, taken fully: ${sampling.short_strata.join(", ")}`);
     const run = buildRunReport({
       report, model: JEV_MODEL, seed: args.seed, n: cases.length, nRequested: args.n, revisions, createdAt: new Date(),
+      sampling,
     });
     const path = writeRunReport(join(root, "data", "eval-runs"), run);
     console.log(`  run report: data/eval-runs/${path.split("/").pop()}`);
-    seedInfo = { seed: args.seed };
-    if (args.devDb) {
-      // Separate synthetic database; the guard inside refuses a file with non-synthetic accounts.
-      try {
-        const devDb = openSyntheticDevDatabase(root);
-        try {
-          const r = importSyntheticCases(devDb, devDbItemsFromReport(cases, report));
-          console.log(`  dev database: ${r.cases} mails, ${r.classified} with answers (data/dev-synthetic.sqlite)`);
-        } finally {
-          devDb.close();
-        }
-      } catch (e) {
-        // The paid run is already reported; a dev database problem must not hide that. Error class only.
-        console.error(`  dev database not written (${e instanceof Error ? e.name : "unknown"})`);
-      }
-    }
   }
 
-  const db = openDatabase(process.env.DATABASE_PATH ?? join(root, DEFAULT_DATABASE_PATH));
+  // The paid run is already reported; a dev database problem must not hide that. Error class only.
   try {
-    db.prepare(
-      `INSERT INTO audit_log (occurred_at, trace_id, actor, action, details_json)
-       VALUES (?, ?, 'eval', 'eval_run', ?)`,
-    ).run(
-      new Date().toISOString(),
-      crypto.randomUUID(),
-      JSON.stringify({
-        cases: report.total,
-        errors: report.errors.count,
-        hits: Object.fromEntries(Object.entries(report.perQuestion).map(([q, s]) => [q, [s.hits, s.n]])),
-        ...seedInfo,
-        ...(report.costTotal !== null ? { cost: report.costTotal } : {}),
-      }),
-    );
-  } finally {
-    db.close();
+    const r = finalizeEvalRun({
+      root,
+      cases,
+      report,
+      hf: args.mode === "hf" ? { seed: args.seed, split: args.split, strategy: args.strategy } : null,
+      importDevDb: args.mode === "hf" && args.devDb,
+    });
+    if (r.imported) console.log(`  dev database: ${r.imported.cases} mails, ${r.imported.classified} with answers (data/dev-synthetic.sqlite)`);
+  } catch (e) {
+    console.error(`  dev database not written (${e instanceof Error ? e.name : "unknown"})`);
   }
   process.exit(report.errors.count > 0 || report.aborted ? 1 : 0);
 }

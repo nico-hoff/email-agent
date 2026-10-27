@@ -5,14 +5,21 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   buildRunReport,
+  finalizeEvalRun,
   HF_MAX_CALLS,
   loadHfCases,
   parseEvalArgs,
+  prepareHfSample,
   runEvalSet,
   writeRunReport,
   devDbItemsFromReport,
   type EvalCase,
 } from "../scripts/eval-jev.ts";
+import { existsSync, readFileSync as readFile } from "node:fs";
+import { openDatabase } from "../lib/db.ts";
+import { DEV_SYNTHETIC_DATABASE_PATH } from "../lib/constants.ts";
+import { partitionOf } from "../lib/eval-sources.ts";
+import { seedDevDatabase } from "../scripts/seed-dev-db.ts";
 import type { JevClient } from "../lib/jev.ts";
 
 function answers(over: Record<string, unknown> = {}) {
@@ -175,10 +182,10 @@ describe("argument parsing", () => {
 
   it("parses --source hf with seed and n", () => {
     assert.deepEqual(parseEvalArgs(["--confirm-live", "--source", "hf", "--seed", "2", "--n", "100"]), {
-      ok: true, mode: "hf", seed: 2, n: 100, maxCost: null, devDb: true,
+      ok: true, mode: "hf", seed: 2, n: 100, maxCost: null, devDb: true, split: "test", strategy: "balanced",
     });
     assert.deepEqual(parseEvalArgs(["--source", "hf", "--seed", "1", "--n", "5", "--max-cost", "0.01"]), {
-      ok: true, mode: "hf", seed: 1, n: 5, maxCost: 0.01, devDb: true,
+      ok: true, mode: "hf", seed: 1, n: 5, maxCost: 0.01, devDb: true, split: "test", strategy: "balanced",
     });
   });
 
@@ -194,7 +201,7 @@ describe("argument parsing", () => {
 describe("dev database wiring", () => {
   it("--no-dev-db switches the dev database write off (hf only)", () => {
     assert.deepEqual(parseEvalArgs(["--source", "hf", "--seed", "1", "--n", "5", "--no-dev-db"]), {
-      ok: true, mode: "hf", seed: 1, n: 5, maxCost: null, devDb: false,
+      ok: true, mode: "hf", seed: 1, n: 5, maxCost: null, devDb: false, split: "test", strategy: "balanced",
     });
     assert.equal(parseEvalArgs(["--confirm-live", "--no-dev-db"]).ok, false);
   });
@@ -227,5 +234,224 @@ describe("dev database wiring", () => {
     const run = buildRunReport({ report, model: "m", seed: 1, n: 1, revisions: {}, createdAt: new Date("2026-03-04T05:06:07Z") });
     assert.ok(!JSON.stringify(run).includes("reportedModels"));
     assert.deepEqual(Object.keys(run.cases[0]).sort(), ["answers", "cost", "expected", "hits", "id", "source"]);
+  });
+});
+
+function writeDataset(root: string, short: string, rows: unknown[], manifest: Record<string, unknown> = {}) {
+  mkdirSync(join(root, short), { recursive: true });
+  writeFileSync(join(root, short, "rows.jsonl"), rows.map((r) => JSON.stringify(r)).join("\n") + "\n");
+  writeFileSync(join(root, short, "manifest.json"), JSON.stringify({ revision: "r".repeat(40), ...manifest }));
+}
+
+function bigDataset(dir?: string) {
+  const root = dir ?? mkdtempSync(join(tmpdir(), "eval-big-"));
+  const tri = Array.from({ length: 200 }, (_, i) => ({
+    row_idx: i,
+    row: { subject: `Synthetic subject ${i}`, body: `Synthetic body ${i}`, category: i % 2 === 0 ? "spam" : "personal" },
+  }));
+  // exact duplicate of row 0 (different case and spacing), left in the file on purpose
+  tri.push({ row_idx: 200, row: { subject: "synthetic  SUBJECT 0", body: "Synthetic body 0", category: "spam" } });
+  writeDataset(root, "triage", tri, { duplicates_removed: 4 });
+  const sin = Array.from({ length: 100 }, (_, i) => ({
+    row_idx: i,
+    row: { subject: `Betreff ${i}`, body: `Text ${i}`, lang: "de", from: { email: `a@d${i % 5}.example.test` } },
+  }));
+  writeDataset(root, "sinabis", sin, { duplicates_removed: 0 });
+  return root;
+}
+
+describe("loadHfCases: duplicates and fixed partition", () => {
+  it("removes duplicates left in the file and adds the manifest count", () => {
+    const r = loadHfCases(bigDataset());
+    assert.equal(r.cases.length, 300);
+    assert.equal(r.duplicatesRemoved, 5);
+    assert.ok(r.cases.some((c) => c.id === "triage-0"));
+    assert.ok(!r.cases.some((c) => c.id === "triage-200"));
+  });
+
+  it("calib and test are disjoint, complete, roughly 30/70 and match partitionOf", () => {
+    const root = bigDataset();
+    const all = loadHfCases(root).cases;
+    const calib = loadHfCases(root, { split: "calib" }).cases;
+    const test = loadHfCases(root, { split: "test" }).cases;
+    assert.equal(calib.length + test.length, all.length);
+    assert.equal(new Set([...calib, ...test].map((c) => c.id)).size, all.length);
+    assert.ok(calib.length > 50 && calib.length < 130, String(calib.length));
+    assert.ok(calib.every((c) => partitionOf(c) === "calib"));
+    assert.ok(test.every((c) => partitionOf(c) === "test"));
+    assert.deepEqual(loadHfCases(root, { split: "test" }).cases.map((c) => c.id), test.map((c) => c.id));
+  });
+
+  it("keeps both partitions for dev:seed (includeUnlabeled, no split)", () => {
+    const { cases } = loadHfCases(bigDataset(), { includeUnlabeled: true });
+    assert.equal(cases.length, 300);
+  });
+});
+
+describe("dev:seed", () => {
+  it("imports every deduplicated case of both partitions into the dev database", () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), "eval-seed-"));
+    const ds = join(projectRoot, "data", "eval-datasets");
+    mkdirSync(join(projectRoot, "data"), { mode: 0o700 });
+    mkdirSync(ds);
+    bigDataset(ds);
+    const r = seedDevDatabase({ root: projectRoot, now: new Date("2026-10-27T12:00:00Z") });
+    assert.equal(r.cases, 300);
+    const db = openDatabase(join(projectRoot, DEV_SYNTHETIC_DATABASE_PATH));
+    try {
+      const n = (db.prepare("SELECT COUNT(*) AS n FROM emails").get() as { n: number }).n;
+      assert.equal(n, 300);
+    } finally {
+      db.close();
+    }
+  });
+});
+
+describe("prepareHfSample", () => {
+  it("samples only from the requested split and describes population and sample per stratum", () => {
+    const root = bigDataset();
+    const r = prepareHfSample(root, { seed: 1, n: 30, split: "test", strategy: "balanced" });
+    assert.equal(r.cases.length, 30);
+    assert.ok(r.cases.every((c) => partitionOf(c) === "test"));
+    assert.equal(r.sampling.split, "test");
+    assert.equal(r.sampling.strategy, "balanced");
+    assert.equal(r.sampling.duplicates_removed, 5);
+    assert.deepEqual(Object.keys(r.sampling.population).sort(), ["sinabis|business", "triage|personal", "triage|spam"]);
+    assert.equal(Object.values(r.sampling.sample).reduce((a, b) => a + b, 0), 30);
+    for (const [k, v] of Object.entries(r.sampling.sample)) assert.ok(v <= r.sampling.population[k]);
+    const popTotal = Object.values(r.sampling.population).reduce((a, b) => a + b, 0);
+    assert.equal(popTotal, loadHfCases(root, { split: "test" }).cases.length);
+  });
+
+  it("reports strata that were too small and were taken fully", () => {
+    const r = prepareHfSample(bigDataset(), { seed: 1, n: 200, split: "test", strategy: "balanced" });
+    assert.ok(r.sampling.short_strata.length >= 1);
+    for (const k of r.sampling.short_strata) assert.equal(r.sampling.sample[k], r.sampling.population[k]);
+  });
+
+  it("is deterministic per seed and differs between seeds and between splits", () => {
+    const root = bigDataset();
+    const ids = (seed: number, split: "calib" | "test", strategy: "balanced" | "proportional") =>
+      prepareHfSample(root, { seed, n: 20, split, strategy }).cases.map((c) => c.id);
+    assert.deepEqual(ids(3, "test", "proportional"), ids(3, "test", "proportional"));
+    assert.notDeepEqual(ids(3, "test", "balanced"), ids(4, "test", "balanced"));
+    const calibIds = new Set(ids(3, "calib", "balanced"));
+    assert.ok(ids(3, "test", "balanced").every((id) => !calibIds.has(id)));
+  });
+});
+
+describe("run report: sampling description", () => {
+  it("carries split, strategy, population and sample per stratum and the duplicate count, still without mail text", async () => {
+    const report = await runEvalSet({ jev: fakeJev(0.1, { calls: 0 }), cases: [mkCase(1), mkCase(2)] });
+    const run = buildRunReport({
+      report, model: "m", seed: 2, n: 2, revisions: {}, createdAt: new Date("2026-03-04T05:06:07Z"),
+      sampling: {
+        split: "test", strategy: "balanced", population: { "triage|business": 5 }, sample: { "triage|business": 2 },
+        short_strata: ["triage|business"], duplicates_removed: 3,
+      },
+    });
+    assert.equal(run.split, "test");
+    assert.equal(run.strategy, "balanced");
+    assert.deepEqual(run.population, { "triage|business": 5 });
+    assert.deepEqual(run.sample, { "triage|business": 2 });
+    assert.deepEqual(run.short_strata, ["triage|business"]);
+    assert.equal(run.duplicates_removed, 3);
+    const json = JSON.stringify(run);
+    for (const marker of ["ZZMARKER-SUBJECT", "ZZMARKER-BODY", "ZZMARKER-DOMAIN"]) assert.ok(!json.includes(marker));
+  });
+});
+
+describe("--split and --strategy arguments", () => {
+  const base = ["--source", "hf", "--seed", "1", "--n", "5"];
+  it("default to test and balanced", () => {
+    const a = parseEvalArgs(base);
+    assert.ok(a.ok && a.mode === "hf" && a.split === "test" && a.strategy === "balanced");
+  });
+  it("accept calib and proportional", () => {
+    const a = parseEvalArgs([...base, "--split", "calib", "--strategy", "proportional"]);
+    assert.ok(a.ok && a.mode === "hf" && a.split === "calib" && a.strategy === "proportional");
+  });
+  it("reject unknown values and use without --source hf", () => {
+    assert.equal(parseEvalArgs([...base, "--split", "all"]).ok, false);
+    assert.equal(parseEvalArgs([...base, "--strategy", "random"]).ok, false);
+    assert.equal(parseEvalArgs(["--split", "test"]).ok, false);
+    assert.equal(parseEvalArgs(["--strategy", "balanced"]).ok, false);
+  });
+});
+
+describe("eval audit goes to the synthetic dev database only", () => {
+  function withRealDbPath<T>(fn: (realPath: string) => T): T {
+    const realDir = mkdtempSync(join(tmpdir(), "eval-real-"));
+    const realPath = join(realDir, "email-agent.sqlite");
+    const saved = process.env.DATABASE_PATH;
+    process.env.DATABASE_PATH = realPath;
+    try {
+      return fn(realPath);
+    } finally {
+      if (saved === undefined) delete process.env.DATABASE_PATH;
+      else process.env.DATABASE_PATH = saved;
+    }
+  }
+
+  function auditRows(root: string) {
+    const db = openDatabase(join(root, DEV_SYNTHETIC_DATABASE_PATH));
+    try {
+      return db.prepare("SELECT actor, details_json FROM audit_log WHERE action = 'eval_run'").all() as Array<{
+        actor: string;
+        details_json: string;
+      }>;
+    } finally {
+      db.close();
+    }
+  }
+
+  it("hf run: leaves the DATABASE_PATH file untouched (not even created) and audits into the dev database", async () => {
+    const root = mkdtempSync(join(tmpdir(), "eval-root-"));
+    const cases = [mkCase(1), mkCase(2)];
+    const report = await runEvalSet({ jev: fakeJev(0.1, { calls: 0 }), cases });
+    withRealDbPath((realPath) => {
+      const r = finalizeEvalRun({
+        root, cases, report, hf: { seed: 4, split: "test", strategy: "balanced" }, importDevDb: true,
+      });
+      assert.equal(r.imported?.cases, 2);
+      assert.equal(existsSync(realPath), false);
+    });
+    const rows = auditRows(root);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].actor, "eval");
+    const details = JSON.parse(rows[0].details_json);
+    assert.equal(details.cases, 2);
+    assert.equal(details.seed, 4);
+    assert.equal(details.split, "test");
+    assert.ok(!rows[0].details_json.includes("ZZMARKER"));
+  });
+
+  it("fixed set run: audit in the dev database, no mails imported", async () => {
+    const root = mkdtempSync(join(tmpdir(), "eval-root-"));
+    const report = await runEvalSet({ jev: fakeJev(0.1, { calls: 0 }), cases: [mkCase(1)] });
+    withRealDbPath((realPath) => {
+      const r = finalizeEvalRun({ root, cases: [mkCase(1)], report, hf: null, importDevDb: true });
+      assert.equal(r.imported, null);
+      assert.equal(existsSync(realPath), false);
+    });
+    assert.equal(auditRows(root).length, 1);
+  });
+
+  it("--no-dev-db still audits but imports no mails", async () => {
+    const root = mkdtempSync(join(tmpdir(), "eval-root-"));
+    const report = await runEvalSet({ jev: fakeJev(0.1, { calls: 0 }), cases: [mkCase(1)] });
+    const r = finalizeEvalRun({
+      root, cases: [mkCase(1)], report, hf: { seed: 1, split: "test", strategy: "balanced" }, importDevDb: false,
+    });
+    assert.equal(r.imported, null);
+    assert.equal(auditRows(root).length, 1);
+  });
+
+  it("no eval script opens the real database or reads DATABASE_PATH", () => {
+    for (const f of ["eval-jev.ts", "fetch-eval-datasets.ts", "compare-eval-runs.ts", "seed-dev-db.ts"]) {
+      const src = readFile(join(import.meta.dirname, "..", "scripts", f), "utf8");
+      assert.ok(!/DATABASE_PATH/.test(src.replace(/DEV_SYNTHETIC_DATABASE_PATH/g, "")), `${f}: DATABASE_PATH`);
+      assert.ok(!/\bopenDatabase\s*\(/.test(src), `${f}: openDatabase`);
+    }
   });
 });
