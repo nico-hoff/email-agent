@@ -165,6 +165,7 @@ function importOne(db: DatabaseSync, item: SyntheticItem, now: Date, ts: string,
     cls.answers,
     DEFAULT_SPAM_THRESHOLD,
     "eval",
+    QUESTION_SET_VERSION,
   );
   return true;
 }

@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { openDatabase } from "../lib/db.ts";
 import { syncAccounts } from "../lib/accounts.ts";
 import { AGENT_EXCERPT_MAX_CHARS, buildAgentInput, formatAgentInput } from "../lib/agent-input.ts";
+import { QUESTION_SET_VERSION } from "../lib/constants.ts";
 import type { ImapPort } from "../lib/imap.ts";
 import type { NormalizedAnswer, NoulReading } from "../lib/jev-response.ts";
 
@@ -26,10 +27,10 @@ function setup() {
       .run(id, "a1", "INBOX", 1, 100 + id, active ? 1 : 0, T, T);
   };
   let cls = 0;
-  const classify = (emailId: number, status: string, a: Record<string, number | string>) => {
+  const classify = (emailId: number, status: string, a: Record<string, number | string>, version?: string) => {
     const id = ++cls;
     db.prepare("INSERT INTO classifications (id, email_id, question_set_version, model_requested, model_reported, status, failure_code, attempts, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)")
-      .run(id, emailId, `v${id}`, "typesafe/jev-1.13", status === "classified" ? "typesafe/jev-1.13" : null, status, status === "failed" ? "x" : null, 1, T, T);
+      .run(id, emailId, version ?? `v${id}`, "typesafe/jev-1.13", status === "classified" ? "typesafe/jev-1.13" : null, status, status === "failed" ? "x" : null, 1, T, T);
     const ins = db.prepare("INSERT INTO classification_answers (classification_id, question_key, type, answer_json) VALUES (?,?,?,?)");
     for (const [k, v] of Object.entries(a)) ins.run(id, k, typeof v === "number" ? "noul" : "choice", JSON.stringify({ value: v }));
     ins.run(id, "shadow_quarantine", "derived", JSON.stringify({ candidate: false }));
@@ -40,6 +41,9 @@ function setup() {
   mail(3, true); classify(3, "failed", {});                                       // not classified
   mail(4, false); classify(4, "classified", ok);                                  // no active location
   mail(5, true); classify(5, "classified", ok); classify(5, "pending", {});      // latest classified one counts
+  mail(6, true); classify(6, "classified", ok, QUESTION_SET_VERSION);            // calibrated question set, addresses_an_ai 0.02
+  mail(7, true); classify(7, "classified", { ...ok, addresses_an_ai: 0.35 }, QUESTION_SET_VERSION); // above the threshold
+  mail(8, true); classify(8, "classified", { ...ok, category: "security_auth" }, QUESTION_SET_VERSION);
   return { db, dir };
 }
 
@@ -100,11 +104,28 @@ test("blocked mail never reaches IMAP", async () => {
   }
 });
 
-test("with the default (uncalibrated) interpreter even an ordinary mail is blocked", async () => {
+test("default interpreter without a known question set version blocks even an ordinary mail (fail-closed)", async () => {
   const { db, dir } = setup();
   try {
     const r = await buildAgentInput({ db, portFactory: () => { throw new Error("IMAP must not be touched"); } }, 1);
     assert.deepEqual(r, { ok: false, code: "not_eligible", reasons: ["addresses_an_ai"] });
+  } finally {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("default (calibrated) interpreter: 0.02 allowed, 0.35 and security_auth blocked before IMAP; needs_my_reply stays unmapped", async () => {
+  const { db, dir } = setup();
+  try {
+    const { port, calls } = fakePort();
+    const ok = await buildAgentInput({ db, portFactory: () => port }, 6);
+    assert.ok(ok.ok);
+    assert.equal(ok.input.needs_my_reply, "unmapped");
+    assert.deepEqual(calls, ["connect", "fetch INBOX 106", "close"]);
+    const never = { db, portFactory: () => { throw new Error("IMAP must not be touched"); } };
+    assert.deepEqual(await buildAgentInput(never, 7), { ok: false, code: "not_eligible", reasons: ["addresses_an_ai"] });
+    assert.deepEqual(await buildAgentInput(never, 8), { ok: false, code: "not_eligible", reasons: ["security_auth"] });
   } finally {
     db.close();
     rmSync(dir, { recursive: true, force: true });

@@ -6,7 +6,7 @@ import { loadAnswers } from "../lib/agent-input.ts";
 import { validateDatabasePath } from "../lib/accounts.ts";
 import { PROJECT_ROOT } from "../lib/constants.ts";
 import { openDatabase } from "../lib/db.ts";
-import { interpretNoul, type NormalizedAnswer, type NoulReading } from "../lib/jev-response.ts";
+import { interpretNoul, type NoulInterpreter, type NormalizedAnswer } from "../lib/jev-response.ts";
 
 /** Allowlist (D19). Never the full sender address, body, excerpt or derived rows (H3). */
 export interface EmailContext {
@@ -25,7 +25,7 @@ export type EmailContextResult =
 export interface GetEmailContextDeps {
   /** Returns a connection; the tool closes it after every call. */
   openDb: () => DatabaseSync;
-  interpret?: (answer: NormalizedAnswer) => NoulReading;
+  interpret?: NoulInterpreter;
 }
 
 const inputSchema = defineSchema((v) =>
@@ -50,7 +50,7 @@ export function readEmailContext(db: DatabaseSync, emailId: number, interpret: G
   if (!cls) return { ok: false, code: "not_classified" };
 
   const answers = loadAnswers(db, cls.id);
-  if (!agentEligibility(answers, interpret ?? interpretNoul).eligible) return { ok: false, code: "not_eligible" };
+  if (!agentEligibility(answers, interpret ?? interpretNoul, cls.question_set_version).eligible) return { ok: false, code: "not_eligible" };
 
   const category = answers.find((a) => a.key === "category");
   return {

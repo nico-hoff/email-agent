@@ -163,11 +163,34 @@ describe("badges and answers", () => {
     assert.equal(items[0].bar?.uncalibrated, false);
   });
 
+  it("shows Ja/Nein plus threshold and config version for calibrated answers, raw value for the rest", () => {
+    const cal = (value: number, reading: "positive" | "negative") =>
+      ({ type: "noul", value, reading, threshold: 0.8, calibration_version: "1" }) as ApiAnswer;
+    const items = describeAnswers({
+      is_spam: cal(0.87, "positive"),
+      is_phishing_or_scam: { type: "noul", value: 0.1, reading: "negative", threshold: 0.5, calibration_version: "1" },
+      needs_my_reply: { type: "noul", value: 0.9, reading: "unmapped", threshold: null, calibration_version: null },
+    });
+    const by = (k: string) => items.find((i) => i.key === k)!;
+    assert.equal(by("is_spam").answer, "Ja");
+    assert.equal(by("is_spam").bar?.uncalibrated, false);
+    assert.equal(by("is_spam").bar?.raw, 0.87);
+    assert.equal(by("is_spam").bar?.threshold, 0.8);
+    assert.equal(by("is_spam").bar?.calibrationVersion, "1");
+    assert.equal(by("is_spam").bar?.detail, "Rohwert 0,87, Schwelle 0,8 (Kalibrierung Version 1)");
+    assert.equal(by("is_phishing_or_scam").answer, "Nein");
+    assert.equal(by("is_phishing_or_scam").bar?.detail, "Rohwert 0,1, Schwelle 0,5 (Kalibrierung Version 1)");
+    assert.equal(by("needs_my_reply").answer, "Rohwert 0,9, noch unkalibriert");
+    assert.equal(by("needs_my_reply").bar?.uncalibrated, true);
+    assert.equal(by("needs_my_reply").bar?.detail, undefined);
+  });
+
   it("explains shadow reasons", () => {
     const base = { candidate: false, decision: "no", applied_threshold: 0.9 };
     assert.match(shadowText({ ...base, reason: "unmapped_answer" }), /unkalibriert/);
     assert.match(shadowText({ ...base, reason: "below_threshold" }), /Schwelle 0,9/);
     assert.match(shadowText({ ...base, reason: "candidate" }), /nichts verschoben/);
+    assert.match(shadowText({ ...base, reason: "security_auth" }), /Sicherheit/);
   });
 });
 

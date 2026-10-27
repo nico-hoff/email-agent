@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
-import { interpretNoul, normalizeAnswers } from "../lib/jev-response.ts";
+import { normalizeAnswers } from "../lib/jev-response.ts";
 import { QUESTIONS } from "../lib/jev-questions.ts";
 
 function fixture(name: string): any {
@@ -67,13 +67,5 @@ describe("normalizeAnswers", () => {
     const base = fixture("jev-email-v1-response.json").answers;
     const bad = { ...base, route: { type: "choice", choice: "ignore", probabilities: { ignore: 1 } } };
     assert.equal(code(bad), "invalid_value");
-  });
-});
-
-describe("interpretNoul", () => {
-  it("is fail-closed: always unmapped without a documented rule", () => {
-    for (const v of [0, 0.3, 0.5, 0.82, 1]) {
-      assert.equal(interpretNoul({ key: "is_spam", type: "noul", value: v }), "unmapped");
-    }
   });
 });

@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { openDatabase } from "../lib/db.ts";
 import { syncAccounts } from "../lib/accounts.ts";
+import { QUESTION_SET_VERSION } from "../lib/constants.ts";
 import type { NormalizedAnswer, NoulReading } from "../lib/jev-response.ts";
 
 // Outside the Veryfront runtime nobody registers the SchemaValidator that defineSchema() needs at
@@ -34,10 +35,10 @@ function setup() {
       .run(id, "a1", `m${id}`, SENDER, `Synthetic subject ${id}`, T, T);
   };
   let cls = 0;
-  const classify = (emailId: number, status: string, a: Record<string, number | string>) => {
+  const classify = (emailId: number, status: string, a: Record<string, number | string>, version?: string) => {
     const id = ++cls;
     db.prepare("INSERT INTO classifications (id, email_id, question_set_version, model_requested, model_reported, status, failure_code, attempts, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)")
-      .run(id, emailId, `v${id}`, "typesafe/jev-1.13", status === "classified" ? "typesafe/jev-1.13" : null, status, status === "failed" ? "x" : null, 1, T, T);
+      .run(id, emailId, version ?? `v${id}`, "typesafe/jev-1.13", status === "classified" ? "typesafe/jev-1.13" : null, status, status === "failed" ? "x" : null, 1, T, T);
     const ins = db.prepare("INSERT INTO classification_answers (classification_id, question_key, type, answer_json, probabilities_json) VALUES (?,?,?,?,?)");
     for (const [k, v] of Object.entries(a)) {
       ins.run(id, k, typeof v === "number" ? "noul" : "choice", JSON.stringify({ value: v }),
@@ -51,6 +52,9 @@ function setup() {
   mail(3); classify(3, "failed", {});                                       // not classified
   mail(4); classify(4, "classified", { ...ok, addresses_an_ai: 0.97 });     // addresses an AI
   mail(5); classify(5, "classified", ok); classify(5, "pending", {});      // latest classified one counts
+  mail(6); classify(6, "classified", ok, QUESTION_SET_VERSION);             // calibrated question set, eligible
+  mail(7); classify(7, "classified", { ...ok, addresses_an_ai: 0.35 }, QUESTION_SET_VERSION);
+  mail(8); classify(8, "classified", { ...ok, category: "security_auth" }, QUESTION_SET_VERSION);
   return { db, dir };
 }
 
@@ -120,9 +124,15 @@ test("blocked cases return only the fixed code and no data", async () => {
       assert.deepEqual(await h.tool.execute({ email_id: id }), { ok: false, code: "not_eligible" }, `mail ${id}`);
     }
   } finally { h.done(); }
-  const d = harness(null); // default interpreter: unmapped, fail-closed
+  const d = harness(null); // default (calibrated) interpreter
   try {
+    // mail 1 carries another question set version ("v1"): unmapped, fail-closed
     assert.deepEqual(await d.tool.execute({ email_id: 1 }), { ok: false, code: "not_eligible" });
+    assert.deepEqual(await d.tool.execute({ email_id: 7 }), { ok: false, code: "not_eligible" });
+    assert.deepEqual(await d.tool.execute({ email_id: 8 }), { ok: false, code: "not_eligible" });
+    const r = await d.tool.execute({ email_id: 6 });
+    assert.ok(r.ok);
+    assert.equal(r.context.question_set_version, QUESTION_SET_VERSION);
   } finally { d.done(); }
 });
 

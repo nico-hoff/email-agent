@@ -1,7 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import { agentEligibility, type AgentBlockReason } from "./agent-eligibility.ts";
 import { parseMessage, type ImapPort } from "./imap.ts";
-import { interpretNoul, type NormalizedAnswer, type NoulReading } from "./jev-response.ts";
+import { interpretNoul, type NormalizedAnswer, type NoulInterpreter, type NoulReading } from "./jev-response.ts";
 
 export const AGENT_EXCERPT_MAX_CHARS = 1200;
 
@@ -24,7 +24,7 @@ export interface AgentInputDeps {
   db: DatabaseSync;
   /** Read-only IMAP port per account; only called for eligible mails. */
   portFactory: (accountId: string) => ImapPort;
-  interpret?: (answer: NormalizedAnswer) => NoulReading;
+  interpret?: NoulInterpreter;
   parse?: (source: Buffer) => Promise<{ excerpt: string }>;
 }
 
@@ -80,13 +80,13 @@ export async function buildAgentInput(deps: AgentInputDeps, emailId: number): Pr
   if (!email) return { ok: false, code: "email_not_found" };
 
   const cls = deps.db.prepare(
-    "SELECT id FROM classifications WHERE email_id = ? AND status = 'classified' ORDER BY id DESC LIMIT 1",
-  ).get(emailId) as { id: number } | undefined;
+    "SELECT id, question_set_version FROM classifications WHERE email_id = ? AND status = 'classified' ORDER BY id DESC LIMIT 1",
+  ).get(emailId) as { id: number; question_set_version: string } | undefined;
   if (!cls) return { ok: false, code: "not_classified" };
 
   const interpret = deps.interpret ?? interpretNoul;
   const answers = loadAnswers(deps.db, cls.id);
-  const gate = agentEligibility(answers, interpret);
+  const gate = agentEligibility(answers, interpret, cls.question_set_version);
   if (!gate.eligible) return { ok: false, code: "not_eligible", reasons: gate.reasons };
 
   const loc = deps.db.prepare(
@@ -118,7 +118,7 @@ export async function buildAgentInput(deps: AgentInputDeps, emailId: number): Pr
       subject: email.subject,
       excerpt: { trust: "untrusted", text: excerpt.slice(0, AGENT_EXCERPT_MAX_CHARS) },
       category: String(by.get("category")!.value),
-      needs_my_reply: reply && reply.type === "noul" ? interpret(reply) : "unmapped",
+      needs_my_reply: reply && reply.type === "noul" ? interpret(reply, cls.question_set_version) : "unmapped",
     },
   };
 }

@@ -151,12 +151,35 @@ describe("computeShadowQuarantine", () => {
   const base = [noul("is_spam", 0.99), noul("needs_my_reply", 0.01), noul("is_assessable", 0.99),
     { key: "category", type: "choice", value: "security_auth" } as NormalizedAnswer];
 
-  test("unmapped noul interpretation -> candidate false, reason unmapped_answer, category kept raw", () => {
-    const r = computeShadowQuarantine(base, 0.95);
+  const business = base.slice(0, 3).concat([{ key: "category", type: "choice", value: "business" } as NormalizedAnswer]);
+  test("calibrated is_spam, but needs_my_reply/is_assessable unmapped -> never a candidate (unmapped_answer)", () => {
+    const r = computeShadowQuarantine(business, 0.95, undefined, QUESTION_SET_VERSION);
     assert.deepEqual(r, {
       candidate: false, decision: "no", applied_threshold: 0.95, reason: "unmapped_answer",
+      inputs: { is_spam: 0.99, needs_my_reply: 0.01, is_assessable: 0.99, category: "business" },
+    });
+  });
+  test("without a question set version everything is unmapped (fail-closed)", () => {
+    assert.equal(computeShadowQuarantine(business, 0.95).reason, "unmapped_answer");
+  });
+  test("D15: security_auth is never a candidate, own reason, independent of every value and interpreter", () => {
+    const r = computeShadowQuarantine(base, 0.95);
+    assert.deepEqual(r, {
+      candidate: false, decision: "no", applied_threshold: 0.95, reason: "security_auth",
       inputs: { is_spam: 0.99, needs_my_reply: 0.01, is_assessable: 0.99, category: "security_auth" },
     });
+    const allPositive = () => "positive" as const;
+    const negReply = (a: NormalizedAnswer) => (a.key === "needs_my_reply" ? "negative" as const : "positive" as const);
+    for (const interpret of [allPositive, negReply]) {
+      for (const thr of [0, 0.5, 0.99]) {
+        const x = computeShadowQuarantine(base, thr, interpret, QUESTION_SET_VERSION);
+        assert.equal(x.candidate, false);
+        assert.equal(x.reason, "security_auth");
+      }
+    }
+    assert.equal(computeShadowQuarantine([{ key: "category", type: "choice", value: "security_auth" }], 0.5).reason, "security_auth");
+    // same values with another category are a candidate under a permissive interpreter
+    assert.equal(computeShadowQuarantine(business, 0.95, negReply, QUESTION_SET_VERSION).reason, "candidate");
   });
   test("missing input answers are unmapped, never defaulted", () => {
     const r = computeShadowQuarantine([], 0.5);

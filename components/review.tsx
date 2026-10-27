@@ -165,6 +165,7 @@ function AnswerBlock({ item }: { item: AnswerItem }): React.JSX.Element {
             <span style={{ width: `${Math.round(item.bar.fill * 100)}%` }} />
           </div>
           {item.bar.uncalibrated && <span className="hint">unkalibriert: noch keine Ja/Nein-Aussage</span>}
+          {item.bar.detail && <span className="hint">{item.bar.detail}</span>}
         </div>
       )}
       {item.probabilities && (

@@ -1,6 +1,8 @@
 import { openDatabase } from "../../../lib/db.ts";
 import { validateDatabasePath } from "../../../lib/accounts.ts";
 import { PROJECT_ROOT } from "../../../lib/constants.ts";
+import { interpretNoul } from "../../../lib/jev-response.ts";
+import { NOUL_CALIBRATION, noulThreshold } from "../../../lib/noul-calibration.ts";
 
 const STATUSES = ["pending", "retry_wait", "classified", "failed", "paused"];
 const DEFAULT_LIMIT = 50;
@@ -38,7 +40,7 @@ function parse(json: string | null): unknown {
 }
 
 /**
- * Disagreement rule (noul is unmapped, so the raw spam value is not interpreted):
+ * Disagreement rule (uses the category answer and the shadow candidate, not the calibrated is_spam reading):
  * provider_spam = active location folder equals the account's spam_mailbox.
  * jev_spam = category answer equals "spam" OR shadow_quarantine.candidate is true.
  * Only classified emails are compared.
@@ -113,6 +115,14 @@ export function GET(request: Request): Response {
             const entry: Record<string, unknown> = { type: a.type, value: parsed?.value ?? null };
             const p = parse(a.probabilities_json);
             if (p !== null) entry.probabilities = p;
+            if (a.type === "noul" && typeof entry.value === "number") {
+              // Metadata only: the reading under the calibration of this classification's question set.
+              const version = r.question_set_version ?? undefined;
+              const reading = interpretNoul({ key: a.question_key, type: "noul", value: entry.value }, version);
+              entry.reading = reading;
+              entry.threshold = reading === "unmapped" ? null : noulThreshold(a.question_key, version);
+              entry.calibration_version = reading === "unmapped" ? null : NOUL_CALIBRATION.version;
+            }
             answers[a.question_key] = entry;
           }
         }

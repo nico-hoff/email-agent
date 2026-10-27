@@ -1,4 +1,5 @@
 import type { JevQuestion } from "./jev-questions.ts";
+import { noulThreshold } from "./noul-calibration.ts";
 
 export type NormalizedAnswer = {
   key: string;
@@ -35,13 +36,16 @@ function probabilitiesFor(raw: unknown, options: string[]): Record<string, numbe
   if (!isRecord(raw)) return null;
   const keys = Object.keys(raw);
   if (keys.length !== options.length || !options.every((o) => Object.hasOwn(raw, o))) return null;
-  const out: Record<string, number> = {};
+  // Map instead of obj[key]: the Veryfront API loader rejects reads with a dynamic key (this module is
+  // reachable from app/api/emails/route.ts through interpretNoul).
+  const values = new Map(Object.entries(raw));
+  const entries: [string, number][] = [];
   for (const k of options) {
-    const p = raw[k];
+    const p = values.get(k);
     if (!isNum(p) || p < 0 || p > 1) return null;
-    out[k] = p;
+    entries.push([k, p]);
   }
-  return out;
+  return Object.fromEntries(entries);
 }
 
 export function normalizeAnswers(
@@ -53,8 +57,9 @@ export function normalizeAnswers(
     if (!Object.hasOwn(questions, key)) return { ok: false, code: "unexpected_answer", key };
   }
   const out: NormalizedAnswer[] = [];
+  const given = new Map(Object.entries(answers));
   for (const [key, q] of Object.entries(questions)) {
-    const a = answers[key];
+    const a = given.get(key);
     if (a === undefined) return { ok: false, code: "missing_answer", key };
     if (!isRecord(a) || a.type !== q.type) return { ok: false, code: "type_mismatch", key };
     if (q.type === "noul") {
@@ -87,7 +92,17 @@ export function normalizeAnswers(
   return { ok: true, answers: out };
 }
 
-// docs/jev-contract.md belegt weder Skala noch Schwelle fuer noul: fail-closed.
-export function interpretNoul(_answer: NormalizedAnswer): NoulReading {
-  return "unmapped";
+/** Reads a noul answer; the question set version is passed along by every caller that knows it. */
+export type NoulInterpreter = (answer: NormalizedAnswer, questionSetVersion?: string) => NoulReading;
+
+/**
+ * D13/O8: rule from config/noul-calibration.ts (documented in docs/jev-contract.md, section Kalibrierung):
+ * positive if raw value >= threshold, else negative. Fail-closed (unmapped) for a missing or other question set
+ * version, questions without a threshold, and anything that is not a finite noul number.
+ */
+export function interpretNoul(answer: NormalizedAnswer, questionSetVersion?: string): NoulReading {
+  if (answer.type !== "noul" || typeof answer.value !== "number" || !Number.isFinite(answer.value)) return "unmapped";
+  const threshold = noulThreshold(answer.key, questionSetVersion);
+  if (threshold === null) return "unmapped";
+  return answer.value >= threshold ? "positive" : "negative";
 }

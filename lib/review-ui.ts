@@ -1,11 +1,15 @@
 // Pure helpers for the mobile review UI (T36): types of the /api/emails rows, view filters, German
 // formulations and formatting. No React, no I/O, no mail content: the API exposes metadata only.
-import { interpretNoul, type NoulReading, type NormalizedAnswer } from "./jev-response.ts";
+import type { NoulInterpreter, NoulReading, NormalizedAnswer } from "./jev-response.ts";
 
 export interface ApiAnswer {
   type: string;
   value: number | string | null;
   probabilities?: Record<string, number>;
+  /** noul only (GET /api/emails): reading under the calibration of the classification's question set. */
+  reading?: NoulReading;
+  threshold?: number | null;
+  calibration_version?: string | null;
 }
 
 export interface ApiShadow {
@@ -33,7 +37,13 @@ export interface ApiEmail {
 }
 
 export type ViewId = "needs_reply" | "today" | "disagreements" | "all";
-export type Interpreter = (answer: NormalizedAnswer) => NoulReading;
+export type Interpreter = NoulInterpreter;
+
+/**
+ * Client code has no calibration (the config is read server-side only): the readings come from GET /api/emails
+ * (`reading`). Without one, a noul answer stays unmapped, i.e. a raw value marked "unkalibriert".
+ */
+const apiReadingOnly: Interpreter = () => "unmapped";
 
 export const PAGE_SIZE = 50;
 /** Upper bound of GET /api/emails (limit). Older mails need the cursor API (T35). */
@@ -48,17 +58,17 @@ export const VIEW_LABEL: Record<ViewId, string> = {
 
 const noulAnswer = (key: string, value: number): NormalizedAnswer => ({ key, type: "noul", value });
 
-/** O4: "Braucht Antwort" exists only once needs_my_reply is calibrated (interpretNoul no longer fail-closed). */
-export function isNeedsReplyCalibrated(interpret: Interpreter = interpretNoul): boolean {
+/** O4: "Braucht Antwort" exists only once needs_my_reply is calibrated (a reading for it exists). */
+export function isNeedsReplyCalibrated(interpret: Interpreter = apiReadingOnly): boolean {
   return [0, 0.5, 1].some((v) => interpret(noulAnswer("needs_my_reply", v)) !== "unmapped");
 }
 
-export function availableViews(interpret: Interpreter = interpretNoul): ViewId[] {
+export function availableViews(interpret: Interpreter = apiReadingOnly): ViewId[] {
   const rest: ViewId[] = ["today", "disagreements", "all"];
   return isNeedsReplyCalibrated(interpret) ? ["needs_reply", ...rest] : rest;
 }
 
-export function defaultView(interpret: Interpreter = interpretNoul): ViewId {
+export function defaultView(interpret: Interpreter = apiReadingOnly): ViewId {
   return availableViews(interpret)[0];
 }
 
@@ -90,11 +100,11 @@ export function filterByView(emails: ApiEmail[], view: ViewId, o: FilterOptions 
     case "disagreements":
       return emails.filter((m) => m.disagreement !== null);
     case "needs_reply": {
-      const interpret = o.interpret ?? interpretNoul;
+      const interpret = o.interpret ?? apiReadingOnly;
       return emails.filter((m) => {
         const a = m.classification?.answers.needs_my_reply;
         return a !== undefined && typeof a.value === "number" &&
-          interpret(noulAnswer("needs_my_reply", a.value)) === "positive";
+          (a.reading ?? interpret(noulAnswer("needs_my_reply", a.value))) === "positive";
       });
     }
   }
@@ -184,6 +194,7 @@ export const STATUS_LABEL: Record<string, string> = {
 };
 
 export const SHADOW_REASON_LABEL: Record<string, string> = {
+  security_auth: "Sicherheits- und Login-Mails werden nie als Kandidat vorgeschlagen.",
   unmapped_answer: "Noch keine Entscheidung: Die Spam-, Antwort- und Lesbarkeits-Werte sind unkalibriert.",
   not_spam: "Jev hält die Mail nicht für Spam.",
   below_threshold: "Der Spam-Wert liegt unter der Schwelle des Kontos.",
@@ -260,8 +271,11 @@ export interface AnswerItem {
   kind: "noul" | "choice" | "score";
   question: string;
   answer: string;
-  /** noul only: raw value, bar fill (0..1) and whether the value is still uncalibrated. */
-  bar?: { raw: number; fill: number; uncalibrated: boolean };
+  /**
+   * noul only: raw value, bar fill (0..1), whether the value is still uncalibrated and, for calibrated
+   * answers, the threshold and calibration version plus a ready-made detail line.
+   */
+  bar?: { raw: number; fill: number; uncalibrated: boolean; threshold?: number; calibrationVersion?: string; detail?: string };
   probabilities?: ProbabilityRow[];
 }
 
@@ -290,20 +304,29 @@ function probabilityRows(a: ApiAnswer, labelOf: (k: string) => string, selectedK
     .map(([k, p]) => ({ label: labelOf(k), p, percent: formatPercent(p), selected: k === selectedKey }));
 }
 
-/** Translates the stored answers into question -> answer pairs. noul stays a raw value while interpretNoul is unmapped. */
-export function describeAnswers(answers: Record<string, ApiAnswer>, interpret: Interpreter = interpretNoul): AnswerItem[] {
+/**
+ * Translates the stored answers into question -> answer pairs. A noul answer shows Ja/Nein with threshold and
+ * calibration version when the API (or the injected interpreter) maps it; otherwise it stays a raw value.
+ */
+export function describeAnswers(answers: Record<string, ApiAnswer>, interpret: Interpreter = apiReadingOnly): AnswerItem[] {
   const out: AnswerItem[] = [];
   for (const key of ANSWER_ORDER) {
     const a = answers[key];
     if (a === undefined || a.value === null) continue;
     const question = QUESTION_TEXT[key];
     if (a.type === "noul" && typeof a.value === "number") {
-      const reading = interpret(noulAnswer(key, a.value));
+      const reading = a.reading ?? interpret(noulAnswer(key, a.value));
       const uncalibrated = reading === "unmapped";
+      const bar: NonNullable<AnswerItem["bar"]> = { raw: a.value, fill: Math.min(Math.max(a.value, 0), 1), uncalibrated };
+      if (!uncalibrated && typeof a.threshold === "number" && typeof a.calibration_version === "string") {
+        bar.threshold = a.threshold;
+        bar.calibrationVersion = a.calibration_version;
+        bar.detail = `Rohwert ${formatNumber(a.value)}, Schwelle ${formatNumber(a.threshold)} (Kalibrierung Version ${a.calibration_version})`;
+      }
       out.push({
         key, kind: "noul", question,
         answer: uncalibrated ? `Rohwert ${formatNumber(a.value)}, noch unkalibriert` : reading === "positive" ? "Ja" : "Nein",
-        bar: { raw: a.value, fill: Math.min(Math.max(a.value, 0), 1), uncalibrated },
+        bar,
       });
     } else if (a.type === "choice" && typeof a.value === "string") {
       const labels = key === "route" ? ROUTE_LABEL : CATEGORY_LABEL;

@@ -120,6 +120,14 @@ describe("EmailDetailView", () => {
     assert.ok(!/<form|<textarea|type="submit"|<button/i.test(html), "no write controls before T37");
   });
 
+  it("renders result, threshold and config version for a calibrated answer", () => {
+    const answers: Record<string, ApiAnswer> = { ...ANSWERS, is_spam: { type: "noul", value: 0.87, reading: "positive", threshold: 0.8, calibration_version: "1" } };
+    const m = mail(9, { classification: { status: "classified", answers } });
+    const html = detail(m);
+    assert.ok(html.includes("Rohwert 0,87, Schwelle 0,8 (Kalibrierung Version 1)"));
+    assert.ok(!html.includes("Rohwert 0,87, noch unkalibriert"));
+  });
+
   it("explains an unclassified mail", () => {
     const html = detail(mail(8, { classification: null, shadow_quarantine: null }));
     assert.ok(html.includes("Nicht bewertet"));

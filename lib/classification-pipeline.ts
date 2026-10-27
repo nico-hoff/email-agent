@@ -7,7 +7,15 @@ import type { JevClient } from "./jev.ts";
 import { buildState, QUESTIONS } from "./jev-questions.ts";
 import { backoffMs, classifyFailure } from "./retry-policy.ts";
 import { normalizeAnswers, type NormalizedAnswer } from "./jev-response.ts";
+import { assertCalibrationMatchesQuestions, NOUL_CALIBRATION } from "./noul-calibration.ts";
 import { computeShadowQuarantine, type ShadowQuarantine } from "./shadow.ts";
+
+// Start-up check (O8): the calibration must belong to the question set this pipeline asks.
+assertCalibrationMatchesQuestions(
+  NOUL_CALIBRATION,
+  QUESTION_SET_VERSION,
+  Object.entries(QUESTIONS).filter(([, q]) => q.type === "noul").map(([k]) => k),
+);
 
 /** Thrown by persistResponse to reject an invalid response: the pipeline rolls back and marks the row failed. */
 export class ResponseRejectedError extends Error {
@@ -27,7 +35,7 @@ export function createPersistResponse(spamThresholdFor: (accountId: string) => n
   return (ctx: ClassifiedContext): void => {
     const n = normalizeAnswers(ctx.response.answers, QUESTIONS);
     if (!n.ok) throw new ResponseRejectedError(`invalid_response_${n.code}`);
-    persistNormalizedAnswers(ctx, n.answers, spamThresholdFor(ctx.accountId), "pipeline");
+    persistNormalizedAnswers(ctx, n.answers, spamThresholdFor(ctx.accountId), "pipeline", QUESTION_SET_VERSION);
   };
 }
 
@@ -40,6 +48,7 @@ export function persistNormalizedAnswers(
   answers: NormalizedAnswer[],
   spamThreshold: number,
   actor: "pipeline" | "eval",
+  questionSetVersion: string,
 ): ShadowQuarantine {
   const ins = ctx.db.prepare(
     "INSERT INTO classification_answers (classification_id, question_key, type, answer_json, probabilities_json) VALUES (?, ?, ?, ?, ?)",
@@ -48,7 +57,7 @@ export function persistNormalizedAnswers(
     ins.run(ctx.classificationId, a.key, a.type, JSON.stringify({ value: a.value }),
       a.probabilities ? JSON.stringify(a.probabilities) : null);
   }
-  const shadow = computeShadowQuarantine(answers, spamThreshold);
+  const shadow = computeShadowQuarantine(answers, spamThreshold, undefined, questionSetVersion);
   ins.run(ctx.classificationId, "shadow_quarantine", "derived", JSON.stringify(shadow), null);
   ctx.db.prepare(
     `INSERT INTO audit_log (occurred_at, trace_id, actor, action, account_id, email_id, details_json)

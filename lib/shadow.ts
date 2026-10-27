@@ -1,6 +1,7 @@
-import { interpretNoul, type NoulReading, type NormalizedAnswer } from "./jev-response.ts";
+import { interpretNoul, type NoulInterpreter, type NoulReading, type NormalizedAnswer } from "./jev-response.ts";
 
 export type ShadowReason =
+  | "security_auth"
   | "unmapped_answer"
   | "not_spam"
   | "below_threshold"
@@ -24,10 +25,9 @@ export interface ShadowQuarantine {
   reason: ShadowReason;
 }
 
-type Interpreter = (answer: NormalizedAnswer) => NoulReading;
-
 /**
- * Pure shadow rule. candidate = is_spam positive AND spam value >= threshold
+ * Pure shadow rule. D15: category security_auth is never a candidate, whatever the values are.
+ * Otherwise candidate = is_spam positive AND spam value >= threshold
  * AND needs_my_reply negative AND is_assessable positive. Any unmapped or missing
  * input yields candidate=false (unmapped_answer); no arbitrary cut-offs.
  * The threshold is the account's configured spam_threshold, never read from the DB.
@@ -35,7 +35,8 @@ type Interpreter = (answer: NormalizedAnswer) => NoulReading;
 export function computeShadowQuarantine(
   answers: NormalizedAnswer[],
   spamThreshold: number,
-  interpret: Interpreter = interpretNoul,
+  interpret: NoulInterpreter = interpretNoul,
+  questionSetVersion?: string,
 ): ShadowQuarantine {
   const by = new Map(answers.map((a) => [a.key, a]));
   const num = (k: string): number | null => {
@@ -53,9 +54,11 @@ export function computeShadowQuarantine(
     candidate, decision: candidate ? "pending_policy" : "no", applied_threshold: spamThreshold, inputs, reason,
   });
 
+  if (inputs.category === "security_auth") return out(false, "security_auth");
+
   const read = (k: string): NoulReading => {
     const a = by.get(k);
-    return a && a.type === "noul" && inputs[k as "is_spam"] !== null ? interpret(a) : "unmapped";
+    return a && a.type === "noul" && inputs[k as "is_spam"] !== null ? interpret(a, questionSetVersion) : "unmapped";
   };
   const spam = read("is_spam");
   const reply = read("needs_my_reply");
