@@ -107,6 +107,29 @@ describe("synthetic mode of createService", () => {
       const body = (await emails.json()) as { emails: { account_id: string; active_location: { folder: string } }[] };
       assert.deepEqual(body.emails.map((e) => e.account_id).sort(), ["hf-sinabis", "hf-triage"]);
       assert.equal(body.emails.find((e) => e.account_id === "hf-triage")!.active_location.folder, "Junk");
+      // T35/T64/T47 through the real server (Veryfront loader, dynamic route, CSRF, middleware).
+      const paged = await fetch(`${base}/api/emails?view=important&limit=5`, { headers: { cookie: session } });
+      assert.equal(paged.status, 200);
+      const page = (await paged.json()) as { emails: { id: number; open: boolean; done: boolean; account: { id: string; label: string; color: string } }[]; counts: Record<string, number>; next_cursor: string | null };
+      assert.deepEqual(Object.keys(page.counts).sort(), ["all", "important", "noise", "open"]);
+      assert.equal(page.counts.all, 2);
+      assert.match(page.emails[0].account.color, /^#[0-9a-f]{6}$/);
+      const first = page.emails[0].id;
+      const one = await fetch(`${base}/api/emails/${first}`, { headers: { cookie: session } });
+      assert.equal(one.status, 200);
+      assert.equal(((await one.json()) as { id: number }).id, first);
+      assert.equal((await fetch(`${base}/api/emails/999999`, { headers: { cookie: session } })).status, 404);
+      assert.equal((await fetch(`${base}/api/emails/${first}/done`, { method: "POST" })).status, 401, "no session");
+      const mutation = {
+        origin: base, "sec-fetch-site": "same-origin", "x-csrf-token": vf, cookie: `__Host-vf_csrf=${vf}; ${session}`, "x-app-csrf": info.csrfToken,
+      };
+      const marked = await fetch(`${base}/api/emails/${first}/done`, { method: "POST", headers: mutation });
+      assert.equal(marked.status, 200);
+      assert.deepEqual(await marked.json(), { ok: true, id: first, done: true, seen: false });
+      const after = (await (await fetch(`${base}/api/emails/${first}`, { headers: { cookie: session } })).json()) as { done: boolean };
+      assert.equal(after.done, true);
+      const undone = await fetch(`${base}/api/emails/${first}/undone`, { method: "POST", headers: mutation });
+      assert.deepEqual(await undone.json(), { ok: true, id: first, done: false, seen: false });
       const status = await fetch(`${base}/api/status`, { headers: { cookie: session } });
       assert.equal(status.status, 200);
       const s = (await status.json()) as { workers: { account_id: string; state: string }[] };

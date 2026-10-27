@@ -2,7 +2,7 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { type AuthContext, guardMutation } from "./auth-runtime.ts";
-import { readEmailStatus, setDone } from "./email-status.ts";
+import { parseEmailId, readEmailStatus, setDone } from "./email-status.ts";
 import type { RateLimiter } from "./rate-limit.ts";
 
 export interface DoneDeps {
@@ -13,12 +13,6 @@ export interface DoneDeps {
 }
 
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "cache-control": "no-store" } });
-
-/** Strict positive decimal id; anything else is "not found" (no 400, so ids cannot be probed for shape). */
-export function parseEmailId(raw: unknown): number | null {
-  if (typeof raw !== "string" || !/^[1-9]\d{0,14}$/.test(raw)) return null;
-  return Number(raw);
-}
 
 /**
  * Order: session (401), rate limit (429), CSRF (403), id (404), then the write. Repeating a call is harmless and

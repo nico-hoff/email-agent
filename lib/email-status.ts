@@ -10,6 +10,12 @@ export interface EmailStatus {
   done: boolean;
 }
 
+/** Strict positive decimal id; anything else is "not found" (no 400, so ids cannot be probed for shape). */
+export function parseEmailId(raw: unknown): number | null {
+  if (typeof raw !== "string" || !/^[1-9]\d{0,14}$/.test(raw)) return null;
+  return Number(raw);
+}
+
 export function readEmailStatus(db: DatabaseSync, emailId: number): EmailStatus {
   const row = db.prepare("SELECT seen, done FROM email_status WHERE email_id = ?").get(emailId) as
     | { seen: number; done: number }

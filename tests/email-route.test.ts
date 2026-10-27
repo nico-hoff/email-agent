@@ -70,6 +70,10 @@ test("GET /api/emails returns metadata, answers, shadow and disagreements withou
     const by = (id: number) => body.emails.find((e: { id: number }) => e.id === id);
     const e1 = by(1);
     assert.equal(e1.account_id, "a1");
+    // T47: the tag carries id, label and color, never host or user.
+    assert.deepEqual(Object.keys(e1.account).sort(), ["color", "id", "label"]);
+    assert.equal(e1.account.label, "L1");
+    assert.match(e1.account.color, /^#[0-9a-f]{6}$/);
     assert.equal(e1.active_location.folder, "Junk");
     assert.equal(e1.provider_spam, true);
     assert.equal(e1.classification.status, "classified");
@@ -83,7 +87,7 @@ test("GET /api/emails returns metadata, answers, shadow and disagreements withou
     assert.equal(by(4).disagreement, null);
     assert.equal(by(4).provider_spam, false);
     assert.equal(by(4).shadow_quarantine, null);
-    for (const bad of ["body", "snippet", "excerpt", "raw", "imap.one", "imap.two", "L1", "password", "OPENROUTER"]) {
+    for (const bad of ["body", "snippet", "excerpt", "raw", "imap.one", "imap.two", "password", "OPENROUTER"]) {
       assert.ok(!text.toLowerCase().includes(bad.toLowerCase()), bad);
     }
   } finally {
