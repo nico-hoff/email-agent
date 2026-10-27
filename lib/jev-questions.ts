@@ -3,7 +3,7 @@ import type {
   DecisionsNoulQuestion,
   DecisionsScoreQuestion,
 } from "@openrouter/sdk/models";
-import { EXCERPT_MAX_CHARS, QUESTION_SET_VERSION } from "./constants.ts";
+import { EXCERPT_MAX_CHARS, QUESTION_SET_VERSION, QUESTION_SET_VERSION_V1, QUESTION_SET_VERSION_V2 } from "./constants.ts";
 
 export { QUESTION_SET_VERSION };
 
@@ -13,7 +13,8 @@ function noul(instructions: string, falseText: string, trueText: string): Decisi
   return { type: "noul", instructions, criteria: { false: falseText, true: trueText } };
 }
 
-export const QUESTIONS: Record<string, JevQuestion> = {
+/** Question set `email-classification-v1`. Frozen: stored v1 answers and the v1 calibration refer to these texts. */
+const QUESTIONS_V1: Record<string, JevQuestion> = {
   is_spam: noul(
     "Is this an unsolicited mass or promotional mail or junk that the recipient never requested?",
     "The mail is wanted, personal, transactional or otherwise requested by the recipient.",
@@ -83,6 +84,45 @@ export const QUESTIONS: Record<string, JevQuestion> = {
     ],
   },
 };
+
+/**
+ * Question set `email-classification-v2` (T26): same keys and types as v1, same categories (folders follow in M4),
+ * but a sharper `needs_my_reply` (personal request, not marketing) and an `is_phishing_or_scam` that separates
+ * legitimate security mails. No `is_personal_correspondence`: no consumer exists yet, category `personal` covers it,
+ * and every extra noul question needs its own calibration. Not calibrated: all noul answers stay `unmapped`
+ * (config/noul-calibration.ts is bound to v1).
+ */
+const QUESTIONS_V2: Record<string, JevQuestion> = {
+  ...QUESTIONS_V1,
+  is_phishing_or_scam: noul(
+    "Does the mail try to trick the recipient into giving up credentials, paying, or clicking (fake bank, parcel or account mails, invoice fraud, impersonation)? " +
+      "Legitimate security mails are not phishing: a login code or password reset the recipient requested, or a security notice that asks for neither payment nor a login through a link.",
+    "The mail shows no attempt to deceive the recipient. This includes genuine security mails: a login code or password reset the recipient requested, or a security notice that asks for neither payment nor a login through a link.",
+    "The mail tries to deceive the recipient into revealing credentials, paying or clicking, for example a fake login or parcel page, a fake or altered invoice, or impersonation.",
+  ),
+  needs_my_reply: noul(
+    "Does a person, or an organisation the recipient has a genuine relationship with, address the recipient personally with a request, question or deadline that needs the recipient's own answer or action? " +
+      "Marketing calls to action (\"reply now\", \"buy now\", \"subscribe\"), newsletter prompts and automatic notifications do not count.",
+    "No personal request, question or deadline is directed at the recipient. Marketing calls to action, newsletter prompts, automatic notifications, receipts and purely informational mails do not need a reply.",
+    "A person, or an organisation with a genuine relationship to the recipient, personally asks the recipient for an answer, a decision or an action, or sets a deadline.",
+  ),
+};
+
+export const QUESTION_SET_VERSIONS = [QUESTION_SET_VERSION_V1, QUESTION_SET_VERSION_V2] as const;
+
+/** Question set by explicit version. Unknown versions throw: callers never fall back silently. */
+export function questionsFor(version: string): Record<string, JevQuestion> {
+  // Map instead of obj[key]: the Veryfront API loader rejects reads with a dynamic key.
+  const found = new Map<string, Record<string, JevQuestion>>([
+    [QUESTION_SET_VERSION_V1, QUESTIONS_V1],
+    [QUESTION_SET_VERSION_V2, QUESTIONS_V2],
+  ]).get(version);
+  if (!found) throw new Error("question_set_unknown");
+  return found;
+}
+
+/** Question set for new classifications: follows QUESTION_SET_VERSION (v1 until the switch documented there). */
+export const QUESTIONS: Record<string, JevQuestion> = questionsFor(QUESTION_SET_VERSION);
 
 export const STATE_KEYS = [
   "account_context",

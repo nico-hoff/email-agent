@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { EXCERPT_MAX_CHARS, QUESTION_SET_VERSION } from "../lib/constants.ts";
-import { QUESTIONS, STATE_KEYS, buildState } from "../lib/jev-questions.ts";
+import { EXCERPT_MAX_CHARS, QUESTION_SET_VERSION, QUESTION_SET_VERSION_V1, QUESTION_SET_VERSION_V2 } from "../lib/constants.ts";
+import { QUESTIONS, QUESTION_SET_VERSIONS, STATE_KEYS, buildState, questionsFor } from "../lib/jev-questions.ts";
 
 test("version constant", () => {
   assert.equal(QUESTION_SET_VERSION, "email-classification-v1");
@@ -72,4 +72,70 @@ test("buildState passes sender_history counters", () => {
   const s = buildState({ sender_history: { mails_seen_from_sender: 3, days_since_first_seen: 9 }, list_unsubscribe_present: true });
   assert.deepEqual(s["sender_history"], { mails_seen_from_sender: 3, days_since_first_seen: 9 });
   assert.equal(s["list_unsubscribe_present"], true);
+});
+
+// --- Fragenset v2 (T26) ---
+
+test("v1 stays retrievable unchanged and is still the default", () => {
+  assert.equal(QUESTION_SET_VERSION_V1, "email-classification-v1");
+  assert.equal(QUESTION_SET_VERSION, QUESTION_SET_VERSION_V1);
+  assert.equal(questionsFor("email-classification-v1"), QUESTIONS);
+  const reply = questionsFor("email-classification-v1")["needs_my_reply"];
+  assert.ok(reply?.type === "noul");
+  assert.equal(reply.instructions, "Does the mail expect a reply or action from the recipient (question, request, deadline, appointment)?");
+  assert.deepEqual(reply.criteria, {
+    false: "No reply or action is expected from the recipient.",
+    true: "A reply or action from the recipient is expected.",
+  });
+  const phish = questionsFor("email-classification-v1")["is_phishing_or_scam"];
+  assert.ok(phish?.type === "noul");
+  assert.equal(
+    phish.instructions,
+    "Does the mail try to trick the recipient into giving up credentials, paying, or clicking (fake bank, parcel or account mails, invoice fraud, impersonation)?",
+  );
+});
+
+test("v2 is registered, explicit, and unknown versions are rejected", () => {
+  assert.equal(QUESTION_SET_VERSION_V2, "email-classification-v2");
+  assert.deepEqual([...QUESTION_SET_VERSIONS], [QUESTION_SET_VERSION_V1, QUESTION_SET_VERSION_V2]);
+  assert.notEqual(questionsFor(QUESTION_SET_VERSION_V2), QUESTIONS);
+  assert.throws(() => questionsFor("email-classification-v9"), /question_set_unknown/);
+  assert.throws(() => questionsFor("constructor"), /question_set_unknown/);
+});
+
+test("v2 keeps keys, types and all non-noul questions of v1", () => {
+  const v1 = questionsFor(QUESTION_SET_VERSION_V1);
+  const v2 = questionsFor(QUESTION_SET_VERSION_V2);
+  assert.deepEqual(Object.keys(v2), Object.keys(v1));
+  for (const [k, q] of Object.entries(v1)) {
+    assert.equal(v2[k]?.type, q.type, k);
+    if (q.type !== "noul") assert.deepEqual(v2[k], q, k); // categories stay until the folders of M4
+  }
+  for (const k of ["is_spam", "addresses_an_ai", "is_assessable"]) assert.deepEqual(v2[k], v1[k], k);
+  for (const q of Object.values(v2)) {
+    if (q.type === "noul") assert.deepEqual(Object.keys(q.criteria ?? {}).sort(), ["false", "true"]);
+  }
+});
+
+test("v2 needs_my_reply requires a personal request and excludes marketing calls to action", () => {
+  const q = questionsFor(QUESTION_SET_VERSION_V2)["needs_my_reply"];
+  assert.ok(q?.type === "noul");
+  assert.match(String(q.instructions), /personal/i);
+  assert.match(String(q.instructions), /marketing/i);
+  assert.match(String(q.instructions), /newsletter/i);
+  assert.match(String(q.instructions), /automatic/i);
+  assert.match(String(q.criteria?.["true"] ?? ""), /personal/i);
+  assert.match(String(q.criteria?.["false"] ?? ""), /marketing|newsletter/i);
+  assert.match(String(q.criteria?.["false"] ?? ""), /automatic/i);
+});
+
+test("v2 is_phishing_or_scam separates legitimate security mails", () => {
+  const q = questionsFor(QUESTION_SET_VERSION_V2)["is_phishing_or_scam"];
+  assert.ok(q?.type === "noul");
+  const text = `${String(q.instructions)} ${String(q.criteria?.["false"] ?? "")}`;
+  assert.match(text, /login code/i);
+  assert.match(text, /password reset/i);
+  assert.match(text, /recipient (requested|triggered|asked)/i);
+  assert.match(text, /payment/i);
+  assert.match(String(q.criteria?.["true"] ?? ""), /deceive|trick/i);
 });

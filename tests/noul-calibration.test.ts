@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { assertCalibrationMatchesQuestions, NOUL_CALIBRATION, NoulCalibrationError, parseNoulCalibration } from "../lib/noul-calibration.ts";
+import { assertCalibrationMatchesQuestions, NOUL_CALIBRATION, NoulCalibrationError, noulThreshold, parseNoulCalibration } from "../lib/noul-calibration.ts";
 import { interpretNoul, type NormalizedAnswer } from "../lib/jev-response.ts";
-import { QUESTION_SET_VERSION } from "../lib/constants.ts";
-import { QUESTIONS } from "../lib/jev-questions.ts";
+import { QUESTION_SET_VERSION, QUESTION_SET_VERSION_V2 } from "../lib/constants.ts";
+import { QUESTIONS, questionsFor } from "../lib/jev-questions.ts";
 import shippedConfig from "../config/noul-calibration.ts";
 
 const root = join(import.meta.dirname, "..");
@@ -122,5 +122,16 @@ describe("interpretNoul (calibrated)", () => {
   it("does not resolve inherited property names", () => {
     assert.equal(interpretNoul(noul("constructor", 1), V), "unmapped");
     assert.equal(interpretNoul(noul("__proto__", 1), V), "unmapped");
+  });
+});
+
+describe("calibration v1 does not carry over to question set v2 (T26)", () => {
+  it("every noul question of v2 stays unmapped until Nico calibrates it", () => {
+    const noulKeys = Object.entries(questionsFor(QUESTION_SET_VERSION_V2)).filter(([, q]) => q.type === "noul").map(([k]) => k);
+    assert.ok(noulKeys.length >= 5);
+    for (const key of noulKeys) {
+      assert.equal(noulThreshold(key, QUESTION_SET_VERSION_V2), null, key);
+      assert.equal(interpretNoul(noul(key, 0.99), QUESTION_SET_VERSION_V2), "unmapped", key);
+    }
   });
 });

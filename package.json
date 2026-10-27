@@ -14,6 +14,7 @@
     "eval": "veryfront eval",
     "sample": "node --env-file=.env.local scripts/sample.ts",
     "eval:jev": "node --env-file=.env.local scripts/eval-jev.ts --confirm-live",
+    "jev:probe:v2": "node --env-file=.env.local scripts/jev-v2-probe.ts",
     "agent:probe": "node --env-file=.env.local scripts/agent-live-probe.ts",
     "eval:fetch": "node scripts/fetch-eval-datasets.ts",
     "eval:compare": "node scripts/compare-eval-runs.ts",
