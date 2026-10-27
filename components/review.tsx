@@ -1,6 +1,7 @@
 // Presentational components of the signal inbox (T36, T47, T48, T49). They are stateless and receive only the
 // metadata rows of GET /api/emails: no body, excerpt or raw source ever exists here. The mailbox itself is read-only.
-import type { Ref } from "react";
+import { useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode, type Ref } from "react";
+import { SWIPE_COMMIT_PX, swipeCommits, swipeOffset } from "../lib/review-done.ts";
 import {
   cardBadges,
   categoryLabel,
@@ -79,15 +80,79 @@ function initial(sender: string): string {
   return c === "" ? "?" : c.toUpperCase();
 }
 
+/**
+ * Swipe to the left marks done (touch only; the button is the alternative). The row follows the finger, the layer
+ * behind it fills with the accent color and turns solid at the commit point. Vertical scrolling stays with the browser
+ * (touch-action: pan-y). A drag never opens the link.
+ */
+function SwipeFront({ onCommit, children }: { onCommit: () => void; children: ReactNode }): React.JSX.Element {
+  const [dx, setDx] = useState(0);
+  const [dragging, setDragging] = useState(false);
+  const start = useRef<{ x: number; y: number; id: number; locked: boolean } | null>(null);
+  const moved = useRef(false);
+  const box = useRef<HTMLDivElement | null>(null);
+
+  const onDown = (e: ReactPointerEvent<HTMLDivElement>): void => {
+    if (e.pointerType !== "touch") return;
+    start.current = { x: e.clientX, y: e.clientY, id: e.pointerId, locked: false };
+    moved.current = false;
+  };
+  const onMove = (e: ReactPointerEvent<HTMLDivElement>): void => {
+    const s = start.current;
+    if (!s || s.id !== e.pointerId) return;
+    const x = e.clientX - s.x;
+    const y = e.clientY - s.y;
+    if (!s.locked) {
+      if (Math.abs(x) < 8 || Math.abs(x) < Math.abs(y) * 1.2) return;
+      s.locked = true;
+      setDragging(true);
+      e.currentTarget.setPointerCapture(e.pointerId);
+    }
+    moved.current = true;
+    setDx(swipeOffset(x));
+  };
+  const finish = (e: ReactPointerEvent<HTMLDivElement>, cancelled: boolean): void => {
+    const s = start.current;
+    if (!s || s.id !== e.pointerId) return;
+    start.current = null;
+    const x = e.clientX - s.x;
+    setDragging(false);
+    setDx(0);
+    if (s.locked && !cancelled && swipeCommits(x, box.current?.offsetWidth ?? 390)) onCommit();
+  };
+
+  const progress = Math.min(Math.abs(dx) / SWIPE_COMMIT_PX, 1);
+  return (
+    <div
+      ref={box}
+      className={dragging ? (progress >= 1 ? "item-front is-dragging is-armed" : "item-front is-dragging") : "item-front"}
+      style={{ transform: dx === 0 ? undefined : `translateX(${dx}px)`, "--swipe": progress } as React.CSSProperties}
+      onPointerDown={onDown}
+      onPointerMove={onMove}
+      onPointerUp={(e) => finish(e, false)}
+      onPointerCancel={(e) => finish(e, true)}
+      onClickCapture={(e) => {
+        if (moved.current) {
+          e.preventDefault()
+          e.stopPropagation()
+          moved.current = false
+        }
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
 export function EmailCard(
-  { m, now, timeZone }: { m: ApiEmail; now: Date; timeZone?: string },
+  { m, now, timeZone, onDone }: { m: ApiEmail; now: Date; timeZone?: string; onDone?: (id: number) => void },
 ): React.JSX.Element {
   const folder = m.active_location?.folder ?? null;
   const cls = ["item", m.open ? "is-open" : "", m.seen ? "is-seen" : "", m.done ? "is-done" : ""].filter(Boolean).join(" ");
   const vs = verdicts(m);
-  return (
-    <li className={cls}>
-      <a className="card" href={`/emails/${m.id}`} data-cat={categoryOf(m) ?? "none"}>
+  const canDone = onDone !== undefined && !m.done;
+  const link = (
+    <a className="card" href={`/emails/${m.id}`} data-cat={categoryOf(m) ?? "none"}>
         <span className="avatar" aria-hidden="true">{initial(m.sender)}</span>
         <span className="card-body">
           <span className="card-head">
@@ -112,18 +177,33 @@ export function EmailCard(
           </span>
         </span>
       </a>
+  );
+  if (!canDone) return <li className={cls}>{link}</li>;
+  return (
+    <li className={cls}>
+      <div className="swipe-bg" aria-hidden="true"><span>✓ Erledigt</span></div>
+      <SwipeFront onCommit={() => onDone(m.id)}>
+        {link}
+        {m.open && (
+          <button type="button" className="done-btn" aria-label={`Als erledigt markieren: ${m.subject || "(ohne Betreff)"}`} onClick={() => onDone(m.id)}>
+            <span aria-hidden="true">✓</span>
+          </button>
+        )}
+      </SwipeFront>
     </li>
   );
 }
 
-function CardGroups({ emails, now, timeZone }: { emails: ApiEmail[]; now: Date; timeZone?: string }): React.JSX.Element {
+function CardGroups(
+  { emails, now, timeZone, onDone }: { emails: ApiEmail[]; now: Date; timeZone?: string; onDone?: (id: number) => void },
+): React.JSX.Element {
   return (
     <>
       {groupByUrgency(emails).map((g, i) => (
         <section key={`${g.key}-${i}`} className="group">
           <h2 className="group-title">{g.label}</h2>
           <ul className="cards">
-            {g.items.map((m) => <EmailCard key={m.id} m={m} now={now} timeZone={timeZone} />)}
+            {g.items.map((m) => <EmailCard key={m.id} m={m} now={now} timeZone={timeZone} onDone={onDone} />)}
           </ul>
         </section>
       ))}
@@ -158,7 +238,25 @@ export interface ReviewListProps {
   onMore?: () => void;
   onNoiseToggle?: () => void;
   onNoiseMore?: () => void;
+  /** Marks a mail done (swipe or button); without it the list is read-only. */
+  onDone?: (id: number) => void;
+  toast?: { text: string; canUndo: boolean; error?: boolean } | null;
+  onUndo?: () => void;
+  onToastClose?: () => void;
   sentinelRef?: Ref<HTMLDivElement>;
+}
+
+/** Bottom toast with Rückgängig (T64). A polite status, or an alert for a failed save. */
+export function UndoToast(
+  { text, error, onUndo, onClose }: { text: string; error?: boolean; onUndo?: () => void; onClose: () => void },
+): React.JSX.Element {
+  return (
+    <div className={error ? "toast toast-error" : "toast"} role={error ? "alert" : "status"}>
+      <span className="toast-text">{text}</span>
+      {onUndo && !error && <button type="button" className="toast-btn" onClick={onUndo}>Rückgängig</button>}
+      <button type="button" className="toast-close" aria-label="Schließen" onClick={onClose}><span aria-hidden="true">×</span></button>
+    </div>
+  );
 }
 
 const noop = (): void => {};
@@ -242,7 +340,7 @@ export function ReviewListView(p: ReviewListProps): React.JSX.Element {
         </div>
       )}
       <main>
-        {p.emails.length > 0 && <CardGroups emails={p.emails} now={p.now} timeZone={p.timeZone} />}
+        {p.emails.length > 0 && <CardGroups emails={p.emails} now={p.now} timeZone={p.timeZone} onDone={p.onDone} />}
         {p.emails.length === 0 && !p.loading && p.error === null && (
           <div className="empty">
             <p className="empty-icon" aria-hidden="true">✉</p>
@@ -271,6 +369,14 @@ export function ReviewListView(p: ReviewListProps): React.JSX.Element {
           />
         )}
       </main>
+      {p.toast && (
+        <UndoToast
+          text={p.toast.text}
+          error={p.toast.error}
+          onUndo={p.toast.canUndo ? (p.onUndo ?? noop) : undefined}
+          onClose={p.onToastClose ?? noop}
+        />
+      )}
     </div>
   );
 }
@@ -317,9 +423,13 @@ export interface EmailDetailProps {
   email: ApiEmailDetail;
   now: Date;
   timeZone?: string;
+  /** Marks done or reopens; without it the detail is read-only. */
+  onToggleDone?: () => void;
+  busy?: boolean;
+  error?: string | null;
 }
 
-export function EmailDetailView({ email: m, now, timeZone }: EmailDetailProps): React.JSX.Element {
+export function EmailDetailView({ email: m, now, timeZone, onToggleDone, busy, error }: EmailDetailProps): React.JSX.Element {
   const a = m.classification?.answers ?? {};
   const classified = m.classification?.status === "classified";
   const imp = scoreLevel(m.importance ?? a.importance?.value);
@@ -365,6 +475,17 @@ export function EmailDetailView({ email: m, now, timeZone }: EmailDetailProps): 
               </>
             )}
           </dl>
+          {onToggleDone && (
+            <button
+              type="button"
+              className={m.done ? "btn btn-wide done-action" : "btn btn-accent btn-wide done-action"}
+              disabled={busy === true}
+              onClick={onToggleDone}
+            >
+              {m.done ? "Wieder öffnen" : "Als erledigt markieren"}
+            </button>
+          )}
+          {error && <p className="notice notice-inline" role="alert">{error}</p>}
         </section>
 
         {m.disagreement !== null && (
@@ -415,7 +536,7 @@ export function EmailDetailView({ email: m, now, timeZone }: EmailDetailProps): 
             )}
           </section>
         </details>
-        <p className="hint foot">Das Postfach bleibt unberührt: Es wird nichts verschoben, gelöscht oder beantwortet.</p>
+        <p className="hint foot">Das Postfach bleibt unberührt. „Erledigt“ gilt nur in dieser App.</p>
       </main>
     </div>
   );

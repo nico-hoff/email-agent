@@ -2,7 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ReviewListView, type NoiseState } from '../components/review.tsx'
+import { csrfMutationHeaders } from 'veryfront/index.client'
 import { appendUnique, fetchPage, SessionExpired } from '../lib/list-client.ts'
+import { DONE_ERROR_TEXT, postEmailDone, type MutationDeps } from '../lib/mutate-client.ts'
+import { markDone, reinsert, type ListState } from '../lib/review-done.ts'
 import {
   DEFAULT_VIEW,
   isViewId,
@@ -40,6 +43,17 @@ interface Page {
 }
 
 const EMPTY_PAGE: Page = { emails: [], next: null }
+
+const mutationDeps: MutationDeps = {
+  fetch: (url, init) => fetch(url, init),
+  headers: (path, token) => csrfMutationHeaders(path, { headers: { 'x-app-csrf': token } }),
+}
+
+interface ToastState {
+  text: string
+  canUndo: boolean
+  error?: boolean
+}
 
 // The shell renders no mail data on the server: rows arrive only through client-side /api/ calls.
 export default function ReviewList(): React.JSX.Element {
@@ -163,6 +177,59 @@ export default function ReviewList(): React.JSX.Element {
 
   const canLoadMore = !loading && page.next !== null
 
+  // ---- Erledigt (T64): optimistic, with Undo; the write goes to the app database only ----
+  const [toast, setToast] = useState<ToastState | null>(null)
+  const latest = useRef<ListState | null>(null)
+  latest.current = counts === null ? null : { emails: page.emails, counts, view }
+  const undoItem = useRef<ApiEmail | null>(null)
+
+  const apply = useCallback((next: ListState): void => {
+    latest.current = next
+    setPage((p) => ({ ...p, emails: next.emails }))
+    setCounts(next.counts)
+  }, [])
+
+  const fail = useCallback((reason: keyof typeof DONE_ERROR_TEXT): void => {
+    setToast({ text: DONE_ERROR_TEXT[reason], canUndo: false, error: true })
+  }, [])
+
+  const markAsDone = useCallback((id: number): void => {
+    const s = latest.current
+    if (!s) return
+    const r = markDone(s, id, true)
+    if (!r.item) return
+    const before = r.item
+    undoItem.current = before
+    apply(r.state)
+    setToast({ text: 'Als erledigt markiert', canUndo: true })
+    void postEmailDone(id, true, mutationDeps).then((res) => {
+      if (res.ok) return
+      if (latest.current) apply(reinsert(latest.current, before))
+      undoItem.current = null
+      fail(res.reason)
+    })
+  }, [apply, fail])
+
+  const undo = useCallback((): void => {
+    const item = undoItem.current
+    const s = latest.current
+    if (!item || !s) return
+    undoItem.current = null
+    apply(reinsert(s, item))
+    setToast(null)
+    void postEmailDone(item.id, false, mutationDeps).then((res) => {
+      if (res.ok) return
+      if (latest.current) apply(markDone(latest.current, item.id, true).state)
+      fail(res.reason)
+    })
+  }, [apply, fail])
+
+  useEffect(() => {
+    if (!toast) return
+    const t = setTimeout(() => setToast(null), toast.error ? 8000 : 6000)
+    return () => clearTimeout(t)
+  }, [toast])
+
   useEffect(() => {
     const el = sentinel.current
     if (!el || !canLoadMore || typeof IntersectionObserver === 'undefined') return
@@ -199,6 +266,10 @@ export default function ReviewList(): React.JSX.Element {
       onMore={more}
       onNoiseToggle={() => setNoiseOpen((o) => !o)}
       onNoiseMore={moreNoise}
+      onDone={markAsDone}
+      toast={toast}
+      onUndo={undo}
+      onToastClose={() => setToast(null)}
       sentinelRef={sentinel}
     />
   )
