@@ -13,6 +13,9 @@ erDiagram
   emails ||--o| email_status : "gelesen / erledigt"
   emails ||--o{ classifications : "Lauf je Fragenset"
   emails ||--o{ mailbox_actions : "Postfach-Aktion"
+  emails ||--o{ feedback : "Nicos Rückmeldung"
+  classifications |o--o{ feedback : "bezieht sich auf"
+  accounts |o--o{ sender_rules : "optional je Konto"
   email_locations ||--o{ mailbox_actions : "Ziel der Aktion"
   classifications ||--o{ classification_answers : Antworten
   accounts |o--o{ audit_log : betrifft
@@ -109,6 +112,39 @@ erDiagram
     text value_json
     text updated_at
   }
+  feedback {
+    integer id PK
+    integer email_id FK
+    integer classification_id FK
+    text kind
+    text value_json
+    text actor
+    text created_at
+  }
+  senders {
+    integer id PK
+    text address UK
+    text domain
+    text first_seen_at
+    text last_seen_at
+    integer mails_seen
+    integer marked_spam
+    integer marked_not_spam
+    integer jev_spam_count
+    integer dmarc_pass
+    text hitl_asked_at
+    integer hitl_asked_count
+  }
+  sender_rules {
+    integer id PK
+    text kind
+    text match
+    text value
+    text account_id FK
+    text source
+    integer active
+    text created_at
+  }
   audit_log {
     integer id PK
     text occurred_at
@@ -128,6 +164,7 @@ Mermaid kann zusammengesetzte Eindeutigkeit nicht gruppieren. Maßgeblich sind d
 - `classifications`: `UNIQUE (email_id, question_set_version, model_requested)`.
 - `classification_answers`: `UNIQUE (classification_id, question_key)`.
 - `mailbox_actions`: partieller Unique-Index `(email_id, rule) WHERE rule <> 'undo'` (je Mail und Regel höchstens eine Aktion; Undo-Zeilen dürfen sich wiederholen).
+- `sender_rules`: Unique-Index `(kind, match, value, COALESCE(account_id, ''))` (ein Ausdrucksindex, damit auch Regeln ohne Konto nicht doppelt vorkommen; SQLite behandelt NULL in UNIQUE sonst als verschieden).
 
 ## Entwurfsentscheidungen
 
@@ -149,6 +186,10 @@ Mermaid kann zusammengesetzte Eindeutigkeit nicht gruppieren. Maßgeblich sind d
 
 15. **App-Zustand (005, M6).** `user_state` ist ein kleiner Schlüssel-Wert-Speicher für Zustand der App selbst, der zu keiner Mail gehört. Erster Schlüssel: `last_opened_at` (`{"at":"<ISO-8601 UTC>"}`), gesetzt, wenn das Briefing erzeugt wurde; er begrenzt die Zähler „neu seit dem letzten Öffnen“. `value_json` enthält nur Zeitstempel, Zahlen und kurze Codes, nie Text aus Mails, Briefings oder Entwürfen. Die Migration trägt die Nummer 005, weil 004 für die Feedback-/Absender-Tabellen (M5) reserviert ist; sie hängt von keiner dieser Tabellen ab. Das Briefing selbst wird nicht gespeichert (D28).
 16. **Audit des Briefings.** `briefing_generated` steht mit `actor = 'system'` im `audit_log`, ohne `email_id`; `details_json` enthält nur Modell, Latenz, Tokenzahlen und die Anzahl der Mails im Kontext (`mails`). Entwürfe: `draft_generated` (ohne Text).
+17. **Feedback, Absender und Absender-Regeln (004, M5).** `feedback` ist ein Anhängeprotokoll von Nicos Rückmeldungen je Mail (`kind` aus fünf festen Werten; `value_json` nur ein kurzer Code, z. B. `{"category":"business"}` bei `category_wrong`; nie Freitext). `actor` ist hier immer `nico`, weil es eine eigene Tabelle ist. Ein Klick, der den letzten Stand desselben Themas (Spam-Urteil, Antwortbedarf, Kategorie) wiederholt, legt keine zweite Zeile an. `senders` führt je Adresse (klein geschrieben, nur die Adresse, nie Betreff oder Name) Zähler: `mails_seen`, `dmarc_pass` (Mails mit bestandenem DMARC), `jev_spam_count` (Mails, die Jev bei der ersten Klassifikation als Spam urteilte, Schwelle aus der Kalibrierung), `marked_spam` und `marked_not_spam` (Nicos jeweils letztes Urteil je Mail). Die Migration füllt `senders` aus den vorhandenen Mails (`mails_seen`, erster und letzter Zeitpunkt); die anderen Zähler beginnen bei 0.
+18. **HITL-Marker (004).** `hitl_asked_at` und `hitl_asked_count` merken, wann Nico gefragt wurde und wie hoch `jev_spam_count` damals war. Ein Absender wird erst wieder Kandidat, wenn `jev_spam_count` darüber liegt (Plan v5, E7: „noch nicht gefragt oder seit der Frage weitere Urteile“). Plan v5, Abschnitt 4, hatte nur `hitl_asked_at`; ohne den Zählerstand lässt sich „seitdem weitere Urteile“ nicht entscheiden (Abweichung, `docs/DEVIATIONS.md`). Bei Domain-Vorschlägen gilt die Summe über alle Adressen der Domain.
+19. **`sender_rules` (004).** Eine Regel gilt für eine Adresse oder eine Domain (`match`), optional für ein Konto (`account_id`), dauerhaft, bis Nico sie deaktiviert (`active = 0`; Zeilen werden nie gelöscht, die Eindeutigkeit bleibt erhalten, ein erneutes Anlegen aktiviert die Zeile wieder). `source` ist `nico` (Nicos ausdrückliche Entscheidung); `suggested_confirmed` ist für spätere, vom Agenten vorgeschlagene und von Nico bestätigte Regeln reserviert. Ein aktiver Eintrag je Ziel: Legt Nico die Gegenregel an, wird die bisherige im selben Schritt deaktiviert. `value` ist kleingeschrieben (Adresse oder Domain).
+20. **Audit der Rückmeldungen und Regeln (004).** `feedback_recorded`, `sender_rule_created`, `sender_rule_deactivated` und `sender_hitl_dismissed` stehen mit `actor = 'system'` im `audit_log`; `details_json.source = 'nico'` hält die Herkunft fest, weil ein neuer Akteur `nico` den Umbau der append-only-Tabelle verlangt (siehe Nr. 12 und 14). `details_json` enthält nur IDs und Codes (`kind`, `match`, `rule_id`), nie Adressen, Domains oder Betreffs.
 
 ## Verbindungs-Pragmas (nicht Teil der Migration, bei jeder Verbindung setzen)
 
@@ -309,6 +350,58 @@ CREATE INDEX mailbox_actions_list ON mailbox_actions (mode, created_at DESC, id 
 ```
 
 `audit_log.action` kennt zusätzlich `mailbox_action`.
+
+## DDL (`db/migrations/004_feedback_senders.sql`)
+
+```sql
+CREATE TABLE feedback (
+  id                INTEGER PRIMARY KEY,
+  email_id          INTEGER NOT NULL REFERENCES emails (id),
+  classification_id INTEGER REFERENCES classifications (id),
+  kind              TEXT NOT NULL CHECK (kind IN ('spam_correct', 'not_spam', 'category_wrong', 'reply_needed', 'no_reply_needed')),
+  value_json        TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(value_json)),
+  actor             TEXT NOT NULL CHECK (actor IN ('nico')),
+  created_at        TEXT NOT NULL
+);
+CREATE INDEX feedback_email ON feedback (email_id, id DESC);
+
+CREATE TABLE senders (
+  id               INTEGER PRIMARY KEY,
+  address          TEXT NOT NULL UNIQUE CHECK (address = lower(address)),
+  domain           TEXT NOT NULL CHECK (domain = lower(domain)),
+  first_seen_at    TEXT NOT NULL,
+  last_seen_at     TEXT NOT NULL,
+  mails_seen       INTEGER NOT NULL DEFAULT 0 CHECK (mails_seen >= 0),
+  marked_spam      INTEGER NOT NULL DEFAULT 0 CHECK (marked_spam >= 0),
+  marked_not_spam  INTEGER NOT NULL DEFAULT 0 CHECK (marked_not_spam >= 0),
+  jev_spam_count   INTEGER NOT NULL DEFAULT 0 CHECK (jev_spam_count >= 0),
+  dmarc_pass       INTEGER NOT NULL DEFAULT 0 CHECK (dmarc_pass >= 0),
+  hitl_asked_at    TEXT,
+  hitl_asked_count INTEGER NOT NULL DEFAULT 0 CHECK (hitl_asked_count >= 0)
+);
+CREATE INDEX senders_domain ON senders (domain);
+
+CREATE TABLE sender_rules (
+  id         INTEGER PRIMARY KEY,
+  kind       TEXT NOT NULL CHECK (kind IN ('blacklist', 'allowlist')),
+  match      TEXT NOT NULL CHECK (match IN ('address', 'domain')),
+  value      TEXT NOT NULL CHECK (value = lower(value) AND length(value) BETWEEN 1 AND 254),
+  account_id TEXT REFERENCES accounts (id),
+  source     TEXT NOT NULL CHECK (source IN ('nico', 'suggested_confirmed')),
+  active     INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+  created_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX sender_rules_once ON sender_rules (kind, match, value, COALESCE(account_id, ''));
+CREATE INDEX sender_rules_lookup ON sender_rules (match, value) WHERE active = 1;
+
+INSERT INTO senders (address, domain, first_seen_at, last_seen_at, mails_seen)
+SELECT lower(sender), substr(lower(sender), instr(sender, '@') + 1), MIN(first_seen_at), MAX(first_seen_at), COUNT(*)
+FROM emails
+WHERE instr(sender, '@') > 1 AND instr(sender, '@') < length(sender) AND sender NOT LIKE '%@%@%'
+GROUP BY lower(sender);
+```
+
+`audit_log.action` kennt zusätzlich `feedback_recorded`, `sender_rule_created`, `sender_rule_deactivated` und `sender_hitl_dismissed`.
 
 ## DDL (`db/migrations/005_user_state.sql`)
 

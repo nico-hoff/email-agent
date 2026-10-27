@@ -90,7 +90,7 @@ describe("validateDatabasePath / startup", () => {
     const root = mkdtempSync(join(tmpdir(), "email-agent-accdb-root-"));
     const s = startup({ env: {}, projectRoot: root });
     assert.equal(s.config.status, "disabled");
-    assert.equal(rows(s.db, "SELECT count(*) AS n FROM schema_migrations")[0].n, 4);
+    assert.equal(rows(s.db, "SELECT count(*) AS n FROM schema_migrations")[0].n, 5);
     s.db.close();
     rmSync(root, { recursive: true, force: true });
   });

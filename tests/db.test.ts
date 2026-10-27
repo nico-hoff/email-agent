@@ -43,6 +43,12 @@ const ALLOWLIST: Record<string, string[]> = {
   mailbox_actions: [
     "id", "email_id", "location_id", "rule", "action", "mode", "status", "failure_code", "reason_json", "created_at", "done_at",
   ],
+  feedback: ["id", "email_id", "classification_id", "kind", "value_json", "actor", "created_at"],
+  senders: [
+    "id", "address", "domain", "first_seen_at", "last_seen_at", "mails_seen", "marked_spam", "marked_not_spam",
+    "jev_spam_count", "dmarc_pass", "hitl_asked_at", "hitl_asked_count",
+  ],
+  sender_rules: ["id", "kind", "match", "value", "account_id", "source", "active", "created_at"],
   mailbox_state: ["account_id", "mailbox", "uid_validity", "last_uid", "updated_at"],
   worker_status: [
     "account_id",
@@ -387,7 +393,7 @@ describe("002 email_status and accounts.color", () => {
     const db = openDatabase(path);
     opened.push(db);
     assert.equal((db.prepare("SELECT COUNT(*) AS n FROM emails").get() as { n: number }).n, 1);
-    assert.deepEqual((db.prepare("SELECT version FROM schema_migrations ORDER BY version").all() as { version: number }[]).map((r) => r.version), [1, 2, 3, 5]);
+    assert.deepEqual((db.prepare("SELECT version FROM schema_migrations ORDER BY version").all() as { version: number }[]).map((r) => r.version), [1, 2, 3, 4, 5]);
     db.exec(`INSERT INTO email_status (email_id,seen,updated_at) VALUES (1,1,'${T}')`);
   });
 });
@@ -470,6 +476,78 @@ describe("005 user_state", () => {
   });
 });
 
+describe("004 feedback, senders, sender_rules", () => {
+  const fb = (kind: string, extra = "") =>
+    `INSERT INTO feedback (email_id,kind,actor,created_at${extra ? ",value_json" : ""}) VALUES (1,'${kind}','nico','${T}'${extra ? `,'${extra}'` : ""})`;
+  test("feedback: foreign keys, kind and actor lists, json check, default value", () => {
+    const db = fresh();
+    seed(db);
+    throwsSql(db, `INSERT INTO feedback (email_id,kind,actor,created_at) VALUES (99,'not_spam','nico','${T}')`, /FOREIGN KEY/);
+    throwsSql(db, `INSERT INTO feedback (email_id,classification_id,kind,actor,created_at) VALUES (1,99,'not_spam','nico','${T}')`, /FOREIGN KEY/);
+    throwsSql(db, fb("bogus"), /CHECK/);
+    throwsSql(db, `INSERT INTO feedback (email_id,kind,actor,created_at) VALUES (1,'not_spam','robot','${T}')`, /CHECK/);
+    throwsSql(db, fb("category_wrong", "{nope"), /CHECK/);
+    for (const k of ["spam_correct", "not_spam", "category_wrong", "reply_needed", "no_reply_needed"]) db.exec(fb(k));
+    db.exec(`INSERT INTO feedback (email_id,classification_id,kind,actor,created_at) VALUES (1,1,'not_spam','nico','${T}')`);
+    assert.deepEqual({ ...db.prepare("SELECT value_json FROM feedback WHERE id = 1").get() }, { value_json: "{}" });
+  });
+  test("senders: unique lower-case address, non-negative counters, defaults", () => {
+    const db = fresh();
+    const ins = (a: string, d: string, extra = "") => `INSERT INTO senders (address,domain,first_seen_at,last_seen_at${extra ? "," + extra.split("=")[0] : ""}) VALUES ('${a}','${d}','${T}','${T}'${extra ? "," + extra.split("=")[1] : ""})`;
+    db.exec(ins("a@x.test", "x.test"));
+    throwsSql(db, ins("a@x.test", "x.test"), /UNIQUE/);
+    throwsSql(db, ins("A@x.test", "x.test"), /CHECK/);
+    throwsSql(db, ins("b@x.test", "X.test"), /CHECK/);
+    for (const c of ["mails_seen", "marked_spam", "marked_not_spam", "jev_spam_count", "dmarc_pass", "hitl_asked_count"]) {
+      throwsSql(db, ins("c@x.test", "x.test", `${c}=-1`), /CHECK/);
+    }
+    assert.deepEqual({ ...db.prepare("SELECT mails_seen,marked_spam,marked_not_spam,jev_spam_count,dmarc_pass,hitl_asked_at,hitl_asked_count FROM senders").get() },
+      { mails_seen: 0, marked_spam: 0, marked_not_spam: 0, jev_spam_count: 0, dmarc_pass: 0, hitl_asked_at: null, hitl_asked_count: 0 });
+  });
+  test("sender_rules: CHECK lists, foreign key, uniqueness also without an account", () => {
+    const db = fresh();
+    seed(db);
+    const ins = (kind: string, match: string, value: string, acc: string | null, source = "nico") =>
+      `INSERT INTO sender_rules (kind,"match",value,account_id,source,created_at) VALUES ('${kind}','${match}','${value}',${acc === null ? "NULL" : `'${acc}'`},'${source}','${T}')`;
+    throwsSql(db, ins("greylist", "domain", "x.test", null), /CHECK/);
+    throwsSql(db, ins("blacklist", "host", "x.test", null), /CHECK/);
+    throwsSql(db, ins("blacklist", "domain", "X.test", null), /CHECK/);
+    throwsSql(db, ins("blacklist", "domain", "", null), /CHECK/);
+    throwsSql(db, ins("blacklist", "domain", "x.test", null, "agent"), /CHECK/);
+    throwsSql(db, ins("blacklist", "domain", "x.test", "nope"), /FOREIGN KEY/);
+    db.exec(ins("blacklist", "domain", "x.test", null));
+    throwsSql(db, ins("blacklist", "domain", "x.test", null), /UNIQUE/); // NULL account must not defeat uniqueness
+    db.exec(ins("blacklist", "domain", "x.test", "a1"));
+    throwsSql(db, ins("blacklist", "domain", "x.test", "a1"), /UNIQUE/);
+    db.exec(ins("allowlist", "domain", "x.test", null));
+    db.exec(ins("blacklist", "address", "a@x.test", null, "suggested_confirmed"));
+    assert.deepEqual({ ...db.prepare("SELECT active FROM sender_rules WHERE id = 1").get() }, { active: 1 });
+    throwsSql(db, `UPDATE sender_rules SET active = 2 WHERE id = 1`, /CHECK/);
+  });
+  test("the migration backfills senders from existing mails (addresses only, no subjects)", () => {
+    const dir = join(tmp, "migs-003-only-004");
+    mkdirSync(dir);
+    for (const f of ["001_init.sql", "002_status_and_account_color.sql", "003_mailbox_actions.sql"]) writeFileSync(join(dir, f), readFileSync(join(MIGRATIONS_DIR, f), "utf8"));
+    const path = join(tmp, "upgrade3-004.db");
+    const old = openDatabase(path, dir);
+    seed(old);
+    old.exec(`INSERT INTO emails (id,account_id,message_id,sender,subject,received_at,first_seen_at) VALUES
+      (2,'a1','<m2@x>','s@x.test','s2','${T}','2026-10-27T10:00:00.000Z'),
+      (3,'a1','<m3@x>','other@y.test','s3','${T}','${T}'),
+      (4,'a1','<m4@x>','broken','s4','${T}','${T}')`);
+    old.close();
+    const db = openDatabase(path);
+    opened.push(db);
+    assert.deepEqual(
+      db.prepare("SELECT address,domain,first_seen_at,last_seen_at,mails_seen,jev_spam_count FROM senders ORDER BY address").all().map((r) => ({ ...r })),
+      [
+        { address: "other@y.test", domain: "y.test", first_seen_at: T, last_seen_at: T, mails_seen: 1, jev_spam_count: 0 },
+        { address: "s@x.test", domain: "x.test", first_seen_at: T, last_seen_at: "2026-10-27T10:00:00.000Z", mails_seen: 2, jev_spam_count: 0 },
+      ],
+    );
+  });
+});
+
 describe("audit_log append-only triggers", () => {
   test("UPDATE and DELETE are aborted", () => {
     const db = fresh();
@@ -489,7 +567,7 @@ describe("migration runner", () => {
     const b = openDatabase(path);
     opened.push(b);
     const rows = b.prepare("SELECT version FROM schema_migrations").all() as { version: number }[];
-    assert.deepEqual(rows.map((r) => r.version), [1, 2, 3, 5]);
+    assert.deepEqual(rows.map((r) => r.version), [1, 2, 3, 4, 5]);
   });
 
   test("numeric (not lexical) order, applied once", () => {
