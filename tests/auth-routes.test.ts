@@ -111,7 +111,7 @@ test("pages without session redirect to /welcome, APIs answer 401, public paths 
   assert.equal(page?.status, 303);
   assert.equal(page?.headers.get("location"), "/welcome");
   assert.equal(guardRequest(get("/emails/1", { host: HOST }), s.ctx)?.status, 303);
-  for (const p of ["/api/emails", "/api/status", "/api/emails/1", "/api/anything-new"]) {
+  for (const p of ["/api/emails", "/api/status", "/api/emails/1", "/api/emails/1/done", "/api/emails/1/undone", "/api/anything-new"]) {
     assert.equal(guardRequest(get(p, { host: HOST }), s.ctx)?.status, 401, p);
   }
   assert.equal(guardRequest(new Request("http://127.0.0.1:3000/api/emails", { method: "POST" }), s.ctx)?.status, 401);

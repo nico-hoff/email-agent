@@ -16,6 +16,8 @@ export const SECRET_FILE = "auth-secret";
 export const DEV_SECRET_FILE = "dev-synthetic-auth-secret";
 const LOGIN_LIMIT = 10;
 const LOGIN_WINDOW_MS = 10 * 60 * 1000;
+/** State changes by a signed-in user (e.g. marking a mail done): generous, but bounded per identity. */
+const MUTATION_LIMIT = 120;
 
 export interface AuthContext {
   readonly synthetic: boolean;
@@ -115,6 +117,15 @@ export function defaultLoginLimiter(): RateLimiter {
   return (defaultLimiter ??= createLoginLimiter());
 }
 
+/** Limiter for state-changing app routes. Each route module holds its own default instance (modules share no memory). */
+export function createMutationLimiter(now?: () => number, limit: number = MUTATION_LIMIT): RateLimiter {
+  return createRateLimiter({ limit, windowMs: LOGIN_WINDOW_MS, now });
+}
+let defaultMutation: RateLimiter | undefined;
+export function defaultMutationLimiter(): RateLimiter {
+  return (defaultMutation ??= createMutationLimiter());
+}
+
 // --- path policy ----------------------------------------------------------------------------------------------------
 const PUBLIC_EXACT = new Set(["/api/health", "/welcome", "/api/auth/session", "/api/auth/login", "/api/auth/logout"]);
 // Framework-served client modules, styles and HMR: code only, never mail data.
@@ -185,6 +196,30 @@ export function handleLogin(request: Request, ctx: AuthContext, limiter: RateLim
   } catch {
     return json({ error: "auth_unavailable" }, 500);
   }
+}
+
+/**
+ * Gate for state-changing routes, in the order of the login handler: session (401), rate limit per identity (429),
+ * then the same-origin and CSRF proof bound to that identity (403). Returns the verified login or the error response.
+ */
+export function guardMutation(
+  request: Request,
+  ctx: AuthContext,
+  limiter: RateLimiter,
+): { ok: true; login: string } | { ok: false; response: Response } {
+  const login = sessionLogin(request, ctx);
+  if (login === null) return { ok: false, response: json({ error: "unauthorized" }, 401) };
+  const limit = limiter.check(login);
+  if (!limit.allowed) {
+    return { ok: false, response: json({ error: "rate_limited" }, 429, { "retry-after": String(Math.ceil(limit.retryAfterMs / 1000)) }) };
+  }
+  try {
+    const csrf = verifyCsrf(request, { identity: login, secret: ctx.keys().csrf, allowedOrigins: requestOrigins(request, { synthetic: ctx.synthetic }), now: ctx.now });
+    if (!csrf.ok) return { ok: false, response: json({ error: csrf.code }, 403) };
+  } catch {
+    return { ok: false, response: json({ error: "auth_unavailable" }, 500) };
+  }
+  return { ok: true, login };
 }
 
 /** POST /api/auth/logout: needs a valid session and CSRF, clears the cookie. */
