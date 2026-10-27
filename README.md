@@ -12,7 +12,19 @@ Lokaler Dienst, der mehrere IMAP-Postfächer **nur lesend** abruft, jede Mail mi
 4. Konten-Datei anlegen: `mkdir -p data && cp docs/accounts.example.json data/accounts.json`, Platzhalter ersetzen, dann `chmod 600 data/accounts.json`. Die Datei ist von Git ignoriert und wird nie ausgegeben oder committet.
 5. `npm run dev:live` startet Server, IMAP-Worker und Klassifizierung mit der echten Datenbank (Bindung standardmäßig `127.0.0.1`). `npm run dev` startet dagegen immer mit synthetischen Daten, siehe Abschnitt Entwicklung.
 
-Endpunkte: Dashboard `/`, `GET /api/emails`, `GET /api/status`, `GET /api/health`.
+Endpunkte: Dashboard `/`, `GET /api/emails`, `GET /api/status`, `GET /api/health` (offen), Anmeldung unter `/welcome` und `/api/auth/*`. Alles außer Health und Welcome verlangt eine Session (siehe Zugang).
+
+## Zugang über das Tailnet (Tailscale Serve)
+
+Die App bindet immer an `127.0.0.1` (nie `0.0.0.0`). Von außen kommt man nur über `tailscale serve`, das HTTPS im Tailnet bereitstellt (nötig für Service Worker und PWA auf dem iPhone) und die Identität als Header `Tailscale-User-Login` mitgibt. Hintergrund und Quellen: `docs/access-contract.md`.
+
+1. Tailscale auf dem Host und auf dem iPhone installieren, beide im selben Tailnet. HTTPS-Zertifikate und MagicDNS in der Tailscale-Admin-Konsole aktivieren.
+2. App starten (`npm run start` oder `docker compose up -d`, Port 3000 nur auf `127.0.0.1`).
+3. `tailscale serve --bg 3000` (Hintergrundbetrieb; Status mit `tailscale serve status`, abschalten mit `tailscale serve reset`). **Nie** `tailscale funnel` verwenden: Funnel ist öffentlich und liefert keine Identität.
+4. Allowlist anlegen (ohne sie ist niemand zugelassen): `data/auth-allowlist.json` mit `{"logins": ["dein-login@example.com"]}`, `chmod 600`. Bei Docker liegt sie im Volume `/data`, z. B. `docker compose cp auth-allowlist.json email-agent:/data/auth-allowlist.json`. Änderungen gelten sofort, auch für bestehende Sitzungen. Das Geheimnis `auth-secret` entsteht beim ersten Start von selbst (0600, nie committen).
+5. Auf dem iPhone `https://<gerät>.<tailnet>.ts.net` öffnen, "Login" tippen, dann "Zum Home-Bildschirm". Die Session gilt 30 Tage; Abmelden per `POST /api/auth/logout`.
+
+`npm run dev` (synthetisch) braucht kein Tailscale: Der Login-Knopf meldet dort als `dev@synthetic.invalid` an.
 
 ## Datenschutz
 

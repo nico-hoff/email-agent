@@ -90,12 +90,24 @@ describe("synthetic mode of createService", () => {
       env: { ACCOUNTS_FILE: "/definitely/real/accounts.json", DATABASE_PATH: "/real/email-agent.sqlite" },
     });
     try {
-      const emails = await fetch(`http://127.0.0.1:${svc.port}/api/emails`);
+      const base = `http://127.0.0.1:${svc.port}`;
+      assert.equal((await fetch(`${base}/api/emails`)).status, 401, "guarded without a session");
+      // Real login through the running server: Veryfront double-submit cookie plus the app CSRF token (dev identity).
+      const welcome = await fetch(`${base}/welcome`, { headers: { accept: "text/html" } });
+      const vf = /__Host-vf_csrf=([^;]+)/.exec(welcome.headers.get("set-cookie") ?? "")![1];
+      const info = (await (await fetch(`${base}/api/auth/session`)).json()) as { csrfToken: string };
+      const login = await fetch(`${base}/api/auth/login`, {
+        method: "POST",
+        headers: { origin: base, "sec-fetch-site": "same-origin", "x-csrf-token": vf, cookie: `__Host-vf_csrf=${vf}`, "x-app-csrf": info.csrfToken },
+      });
+      assert.equal(login.status, 200);
+      const session = (login.headers.get("set-cookie") ?? "").split(";")[0];
+      const emails = await fetch(`${base}/api/emails`, { headers: { cookie: session } });
       assert.equal(emails.status, 200);
       const body = (await emails.json()) as { emails: { account_id: string; active_location: { folder: string } }[] };
       assert.deepEqual(body.emails.map((e) => e.account_id).sort(), ["hf-sinabis", "hf-triage"]);
       assert.equal(body.emails.find((e) => e.account_id === "hf-triage")!.active_location.folder, "Junk");
-      const status = await fetch(`http://127.0.0.1:${svc.port}/api/status`);
+      const status = await fetch(`${base}/api/status`, { headers: { cookie: session } });
       assert.equal(status.status, 200);
       const s = (await status.json()) as { workers: { account_id: string; state: string }[] };
       assert.deepEqual(s.workers.map((w) => w.account_id).sort(), ["hf-sinabis", "hf-triage"]);

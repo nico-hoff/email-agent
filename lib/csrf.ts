@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
-/** Header that carries the CSRF token on state-changing requests (D20). */
-export const CSRF_HEADER = "x-csrf-token";
+/** Header that carries the app CSRF token on state-changing requests (D20). Not x-csrf-token: Veryfront's own double-submit check owns that name. */
+export const CSRF_HEADER = "x-app-csrf";
 export const CSRF_TTL_MS = 12 * 60 * 60 * 1000;
 const MAX_CLOCK_SKEW_MS = 5_000;
 const MIN_SECRET_BYTES = 32;
