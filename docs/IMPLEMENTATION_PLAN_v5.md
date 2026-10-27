@@ -32,6 +32,7 @@
 | E8 | **Adresse oder Domain (F2)** hängt von der Menge ab: Kommen die Spam-Urteile von mehreren Adressen derselben Domain, schlägt die App die Domain vor, sonst die Adresse. Nico bestätigt im selben HITL-Dialog. |
 | E9 | **Betrieb 24/7 per Docker (F3):** auf dem Mac, einem eigenen Rechner oder ggf. fly.io. Das Container-Setup bleibt gleich; Zugang weiterhin nur übers Tailnet. |
 | E10 | **Höchstens 12 Themen-Ordner (F4)** zusätzlich zu den System-Ordnern. Jede Mail bekommt genau ein Thema (Jev-Choice). |
+| E12 | **Spam wird per IMAP als gelesen markiert** (`\Seen`), damit auch der Mailserver und jede andere Mail-App ihn als gelesen führt. Gilt für alles, was Spam ist – von Jev erkannt oder vom Provider in den Spam-Ordner sortiert. Erste und kleinste Schreibstufe (M7a), vor Quarantäne und Löschen. |
 | E11 | **Briefing = alles Offene (F5):** alles, was ungelesen oder nicht erledigt ist **und** eine Handlungsaufforderung (CTA) hat. Spam ist automatisch „gelesen“ und kommt nicht vor. Kein fester Zeitraum. |
 
 ### 2.2 Vorschläge, die mit der Freigabe dieses Plans gelten
@@ -81,11 +82,12 @@
 
 ### 3.4 Automatische Aktionen (ab M7, einziger Schreibpfad)
 
-Reihenfolge der Prüfung je neu klassifizierter Mail; die erste passende Regel gewinnt:
+Reihenfolge der Prüfung je neu klassifizierter Mail; die erste passende Regel gewinnt. Ab M7 übernehmen Blacklist und Quarantäne das Markieren als gelesen gleich mit; die Regel „Spam gelesen“ greift dann nur noch für Spam, der weder in den Papierkorb noch in die Quarantäne geht:
 
 | Regel | Bedingungen (alle) | Aktion |
 |---|---|---|
 | Schutz | Kategorie `security_auth` **oder** `transactional` **oder** Allowlist-Treffer | nichts |
+| Spam gelesen (E12, ab M7a) | Jev `is_spam` positiv (kalibriert, v1: ≥ 0.80) **oder** Mail liegt im Spam-Ordner des Providers und Jev sagt nicht ausdrücklich „kein Spam“ | nur als gelesen markieren (`\Seen`), nicht verschieben |
 | Blacklist | Blacklist-Treffer **und** `is_spam` ≥ Schwelle „sehr hoch“ (kalibriert, Startvorschlag 0.95) | als gelesen markieren + in den Papierkorb verschieben (D22) |
 | Quarantäne | `is_spam` ≥ Quarantäne-Schwelle **und** `needs_my_reply` negativ **und** `is_assessable` positiv | als gelesen markieren + in den Quarantäne-Ordner verschieben |
 | sonst | | nichts (nur App-Ordner) |
@@ -182,6 +184,7 @@ Spaltennamen-Allowlist und Marker-Test (kein `body|snippet|excerpt|raw|…`) gel
 
 - **H16 Schreibpfad nur über `ImapWritePort`:** getrennt vom Lese-Port, Methoden nur `moveTo(folder)`, `addSeen`, `removeSeen`, nie `expunge`/`delete`/`append`/`send`. Ein Test belegt, dass außerhalb von `lib/mailbox-actions.ts` niemand den Schreib-Port erzeugt.
 - **H17 Schutzregeln zuerst:** `security_auth`, `transactional` und Allowlist werden vor jeder Aktion geprüft; ein Test pro Regel, dass keine Aktion entsteht, egal wie hoch die Spam-Werte sind.
+- **H16a:** In M7a darf der Schreib-Port ausschließlich `\Seen` setzen und entfernen; ein Test belegt, dass `moveTo` erst ab M7 existiert.
 - **H18 Trockenlauf ist Standard:** `live` nur pro Konto mit ausdrücklichem Schalter in der Konten-Datei; Not-Aus und Tageslimit in jedem Pfad getestet.
 - **H19 Jede Aktion rückgängig machbar** (außer der Provider leert den Papierkorb); Undo ist ein Test-Pflichtfall.
 - **H20 Agenten sehen nur Metadaten** (Briefing, Ordner-Vorschläge); Entwürfe (T42) bleiben die einzige Ausnahme mit frischem Auszug (D18/D19).
@@ -245,11 +248,23 @@ Commit-Präfix weiter `phase N: …`, Phasen ab 11. Jeder Meilenstein endet mit 
 | T43 | Agent-Evals für Briefing und Entwürfe (Injection-Fälle in Betreffs, Judge für „nur Signal“, Kosten/Latenz-Budgets) |
 **Fertig, wenn:** Beim Öffnen erscheinen innerhalb weniger Sekunden 3 sinnvolle Bullet Points; Entwürfe kommen auf Knopfdruck.
 
-### M7 – Automatische Aktionen (Phase 17, nach M3 und M5)
+### M7a – Spam als gelesen markieren (Phase 17a, nach M2)
+
+Kleinste Schreibstufe (E12): nur `\Seen` setzen, nichts verschieben. Braucht weder Fragenset v2 noch Feedback, deshalb früh.
+
 | Task | Inhalt |
 |---|---|
-| T57 | ERD + Migration `004` Teil 2 (`mailbox_actions`); `ImapWritePort` (H16) mit Fake-Tests; Context7 `/postalsys/imapflow` zu `messageMove`, `messageFlagsAdd`, Mailbox-Locks |
-| T58 | Regel-Engine 3.4 als reine Funktion; Tests je Regel, Schutz zuerst (H17) |
+| T57 | ERD + Migration (`mailbox_actions`); `ImapWritePort` (H16), in dieser Stufe nur `addSeen`/`removeSeen`; Context7 `/postalsys/imapflow` zu `messageFlagsAdd`/`messageFlagsRemove` und Mailbox-Locks (Postfach dafür nicht read-only öffnen, aber nur in diesem Modul) |
+| T58a | Regel-Engine mit Schutz (H17) und Regel „Spam gelesen“ als reine Funktion; Tests je Regel |
+| T59a | Trockenlauf 2–3 Tage: Ansicht „Würde als gelesen markieren“ in der App |
+| T60a | Live-Schalter pro Konto, Not-Aus, Tageslimit, Undo („wieder ungelesen“) in der App |
+**Fertig, wenn:** Neu eingehender Spam steht auf dem Mailserver als gelesen; ein Tipp in der App macht es rückgängig.
+
+### M7 – Quarantäne und Blacklist-Löschen (Phase 17, nach M3, M5 und M7a)
+| Task | Inhalt |
+|---|---|
+| T57b | `ImapWritePort` um `moveTo(folder)` erweitern; Context7 `/postalsys/imapflow` zu `messageMove` |
+| T58 | Regel-Engine 3.4 um Blacklist und Quarantäne erweitern; Tests je Regel, Schutz zuerst (H17) |
 | T59 | Trockenlauf: Aktionen nur `planned`, Ordner „Würde aussortieren“ in der App, Tagesbericht im Briefing |
 | T60 | Live-Schalter pro Konto, Not-Aus, Tageslimit, Undo in der App (H18, H19); Quarantäne-Aufräumen nach 30 Tagen als Veryfront-Task (D24) |
 | T61 | Nico: 7 Tage Trockenlauf prüfen, dann pro Konto scharf schalten |
@@ -266,16 +281,18 @@ Commit-Präfix weiter `phase N: …`, Phasen ab 11. Jeder Meilenstein endet mit 
 ## 7. Abhängigkeiten und Parallelisierung
 
 ```
-M1 (Nico + T46/T47) ─────────────────────────────────────────────┐
-M2 (T35, T48, T49) ──┬─► M5 (T37, T54, T55) ──┐                   │
-                     └─► M6 (T56, T42, T43)   ├─► M7 (T57–T61) ─► M8
-M3 (T26, T23/T28, T25b, T27) ──► M4 (T50–T53) │
-                     └───────────────────────┘
+M1 (Nico + T46/T47) ──────────────────────────────────────────────────────┐
+M2 (T35, T48, T49, T64) ──┬─► M7a (Spam gelesen) ──────────┐               │
+                          ├─► M5 (T37, T54, T55) ──────────┼─► M7 ─► M8 ◄─┘
+                          └─► M6 (T56, T42, T43)           │
+M3 (T26, T23/T28, T25b, T27) ──► M4 (T50–T53)              │
+                          └────────────────────────────────┘
 ```
 
 - **Sofort startbar ohne Entscheidung:** M2 komplett, T47, T26 (ohne Live-Fixture), T27.
 - **Braucht Nico:** M1 (Tailscale, Echtbetrieb), T23/T28 (Samples), Live-Fixtures/Proben, F1–F5 vor M4/M5/M7.
-- **Kritischer Pfad für Auto-Spam:** M3 → M5 → M7. Vorher keine Postfach-Aktion.
+- **Erste Postfach-Aktion:** M7a (Spam als gelesen) direkt nach M2.
+- **Kritischer Pfad für Quarantäne/Löschen:** M3 → M5 → M7.
 
 ## 8. Risiken
 
