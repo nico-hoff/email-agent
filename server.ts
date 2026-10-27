@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { createClassificationPipeline, createPersistResponse } from "./lib/classification-pipeline.ts";
 import { createJevClient, type JevClient } from "./lib/jev.ts";
 import { createImapFlowPort } from "./lib/imap.ts";
+import { applyOpenRouterEnv } from "./lib/openrouter-env.ts";
 import { DEFAULT_SPAM_THRESHOLD } from "./lib/accounts-config.ts";
 import { startServer } from "veryfront/server";
 import { register, tryResolve } from "veryfront/extensions/contracts";
@@ -134,6 +135,9 @@ export async function createService(options: CreateServiceOptions = {}): Promise
   const log = options.log ?? ((m: string) => console.log(m));
   const synthetic = options.synthetic === true;
   const useWorkers = options.workers !== false && !synthetic;
+
+  // O1a: the OpenAI provider of the reply agent talks to OpenRouter; derived from OPENROUTER_API_KEY, never overwritten.
+  applyOpenRouterEnv(options.env ?? process.env);
 
   if (synthetic) {
     // The route modules read process.env.DATABASE_PATH themselves, so it is forced before anything listens.

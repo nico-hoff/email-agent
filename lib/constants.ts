@@ -17,3 +17,6 @@ export const QUESTION_SET_VERSION = "email-classification-v1";
 export const DEFAULT_ACCOUNTS_FILE = "data/accounts.json";
 export const DEFAULT_DATABASE_PATH = "data/email-agent.sqlite";
 export const DEV_SYNTHETIC_DATABASE_PATH = "data/dev-synthetic.sqlite";
+/** Reply agent model (O1a): Veryfront OpenAI provider routed to OpenRouter; the model id itself is `openai/gpt-6-luna`. */
+export const REPLY_DRAFTER_MODEL = "openai/openai/gpt-6-luna";
+export const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";

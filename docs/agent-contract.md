@@ -50,6 +50,14 @@ Optionen:
 
 Die konkrete Modell-ID (O1) wird nach der Wahl in T41 bestätigt.
 
+### Gewählte Umsetzung (O1a, T41)
+
+- **Option A ohne neue Pflicht-Variablen.** `lib/openrouter-env.ts` (`applyOpenRouterEnv`) setzt beim Start in `createService` (`server.ts`) `OPENAI_API_KEY` aus `OPENROUTER_API_KEY` und `OPENAI_BASE_URL=https://openrouter.ai/api/v1`, jeweils nur wenn noch nicht gesetzt. Es überschreibt nichts und loggt keine Werte.
+- **Modell:** Veryfront-String `openai/openai/gpt-6-luna` (Konstante `REPLY_DRAFTER_MODEL`), gepinnt, nicht `~openai/gpt-luna-latest`. Veryfront trennt am ersten `/`: Provider `openai`, Modell-ID `openai/gpt-6-luna` (`provider/model-registry.js`, `resolveModel`). Der OpenAI-Provider liest `OPENAI_API_KEY`/`OPENAI_BASE_URL` bei jeder Auflösung neu (`config/env.js` `getOpenAIEnvConfig`, aufgerufen in der Factory in `model-registry.js`).
+- **Preis** laut OpenRouter-Modellliste: 0,10 $ pro Million Input-Token, 0,50 $ pro Million Output-Token.
+- **Aufrufpfad:** `lib/draft-reply.ts` (`draftReply`): Sperre und IMAP-Refetch zuerst (`buildAgentInput`, H11), dann `agent.generate`, Rückgabe nur im Speicher. Audit `draft_generated` (Actor `system`) enthält nur Modell, Latenz und Tokenzahlen. Ohne Route; die kommt mit T42.
+- **Live-Probe:** `npm run agent:probe -- --confirm-live` (`scripts/agent-live-probe.ts`), ein Aufruf mit fest eingebauter synthetischer Mail.
+
 ## 4. Datenweitergabe (Risiko aus Plan v4, Abschnitt 6)
 
 Der Agent schickt Absenderdomain, Betreff und einen Auszug von höchstens 1200 Zeichen an den gewählten Modellanbieter. Vor T41 prüft Nico im OpenRouter-Konto die Einstellungen zu Logging/Prompt-Speicherung und zur Nutzung durch Anbieter fürs Training. Diese Einstellungen liegen im Konto, nicht im Code, und sind hier nicht prüfbar. Ob sich OpenRouters Provider-Routing (z. B. Ausschluss von Anbietern mit Datensammlung) bei Option A über `providerOptions`/Header pro Anfrage setzen lässt, ist nicht belegt und wird in T41 per Doku geprüft, bevor der Live-Aufruf läuft.
