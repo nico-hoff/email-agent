@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadAccountsConfig } from "../lib/accounts-config.ts";
+import { autoActionMode, loadAccountsConfig } from "../lib/accounts-config.ts";
 
 const repoRoot = join(import.meta.dirname, "..");
 let tmp: string; // simulated project root
@@ -67,6 +67,25 @@ describe("accounts-config", () => {
     assert.equal(res.accounts[0].spam_threshold, 0.95);
     assert.equal(res.accounts[0].spam_mailbox, undefined);
     assert.equal(res.accounts[1].spam_threshold, 0.8);
+  });
+
+  test("auto_actions.spam_seen defaults to dry_run (H18); live must be written out", () => {
+    const res = loadAccountsConfig({
+      env: { ACCOUNTS_FILE: write(outside, [
+        account(),
+        account({ id: "a2", auto_actions: {} }),
+        account({ id: "a3", auto_actions: { spam_seen: "live" } }),
+        account({ id: "a4", auto_actions: { spam_seen: "off" } }),
+        account({ id: "a5", auto_actions: { spam_seen: "dry_run" } }),
+      ]) },
+      projectRoot: tmp,
+    });
+    assert.equal(res.status, "ok");
+    if (res.status !== "ok") return;
+    assert.deepEqual(res.accounts.map((a) => autoActionMode(a, "spam_seen")), ["dry_run", "dry_run", "live", "off", "dry_run"]);
+    for (const bad of [{ spam_seen: "on" }, { spam_seen: true }, { move: "live" }, "live"]) {
+      rejects(write(outside, [account({ auto_actions: bad })]), /auto_actions/);
+    }
   });
 
   test("color is optional, must be #rrggbb, and is normalised to lower case", () => {

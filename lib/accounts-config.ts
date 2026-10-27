@@ -9,6 +9,12 @@ export const DEFAULT_SPAM_THRESHOLD = 0.95;
 
 const nonEmpty = z.string().min(1);
 
+/** Per-account switch of an automatic mailbox action (Plan v5 H18). `dry_run` only records what would happen. */
+export const AUTO_ACTION_MODES = ["off", "dry_run", "live"] as const;
+export type AutoActionMode = (typeof AUTO_ACTION_MODES)[number];
+/** Without an explicit `live` nothing is ever written to a mailbox. */
+export const DEFAULT_AUTO_ACTION_MODE: AutoActionMode = "dry_run";
+
 const accountSchema = z.strictObject({
   id: nonEmpty,
   label: nonEmpty,
@@ -24,10 +30,16 @@ const accountSchema = z.strictObject({
   spam_mailbox: nonEmpty.optional(),
   spam_threshold: z.number().min(0).max(1).default(DEFAULT_SPAM_THRESHOLD),
   enabled: z.boolean(),
+  /** Automatic mailbox actions (M7a). Absent = every action in dry_run. */
+  auto_actions: z.strictObject({ spam_seen: z.enum(AUTO_ACTION_MODES).default(DEFAULT_AUTO_ACTION_MODE) }).optional(),
 });
 const accountsSchema = z.array(accountSchema);
 
 export type AccountConfig = z.infer<typeof accountSchema>;
+export function autoActionMode(account: Pick<AccountConfig, "auto_actions">, action: "spam_seen"): AutoActionMode {
+  // No dynamic key access: the Veryfront API loader rejects it in modules that routes import.
+  return action === "spam_seen" ? account.auto_actions?.spam_seen ?? DEFAULT_AUTO_ACTION_MODE : DEFAULT_AUTO_ACTION_MODE;
+}
 export type AccountsConfigResult =
   | { status: "disabled" }
   | { status: "ok"; accounts: AccountConfig[] };

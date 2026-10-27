@@ -32,3 +32,10 @@ export const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 export const FLAG_REFRESH_WINDOW_DAYS = 30;
 /** UIDs per FETCH FLAGS command. */
 export const FLAG_REFRESH_CHUNK = 200;
+/** Automatic mailbox actions (M7a): global kill switch file (in the data directory, next to the database). */
+export const KILL_SWITCH_FILE = "auto-actions.disabled";
+/** Live actions per account in a rolling 24 hours; further mails wait (no row) until the window frees up. */
+export const DAILY_ACTION_LIMIT = 200;
+/** One-time pass over already classified mails at start-up: newest first, only recent mails. */
+export const BACKFILL_LIMIT = 1000;
+export const BACKFILL_WINDOW_DAYS = 14;
