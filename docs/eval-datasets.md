@@ -84,3 +84,31 @@ Damit die Entwicklung immer mit synthetischen Daten läuft, gibt es eine eigene 
 - **Ersetzen statt anhäufen:** Pro Mail, Fragenset und Modell gibt es eine Klassifikation. Ein erneuter Lauf ersetzt `model_reported` und alle Antworten (der letzte Lauf gewinnt); `audit_log` bleibt append-only und bekommt je Lauf neue Einträge (nur IDs und Zähler).
 - **Ohne Antworten keine Klassifikationszeile.** Das Dashboard zeigt dann `-` (nicht klassifiziert), die Status-Zähler bleiben ehrlich bei 0. Eine `pending`-Zeile würde eine wartende Verarbeitung vortäuschen und von einer versehentlich gestarteten Pipeline aufgegriffen.
 - **Schutz:** Vor jedem Schreiben prüft `assertSyntheticDatabase`, dass alle Konten der Datei synthetisch sind (ID `hf-*` und Host `synthetic.invalid`); sonst bricht der Import mit `NotSyntheticDatabaseError` ab, ohne zu schreiben.
+
+## Festes Set v2 (T26)
+
+`tests/fixtures/eval/email-eval-v2.jsonl`: 29 komplett erfundene, versionierte Fälle (DE und EN, Absender-Domains `*.example.test`, Platzhalter statt echter Namen und Zahlen), IDs `v2-<typ>-<n>`. Je Fall steht `expected` nur für eindeutige Fragen; neu ist `needs_my_reply`.
+
+| Typ | Fälle | Zweck |
+|---|---|---|
+| `sec` | 4 | Login-Code, Passwort-Reset, Anmeldehinweis: legitim, kein Phishing, `security_auth` |
+| `scam` | 4 | gefälschter Login, Paket-Phishing (DE/EN): Phishing |
+| `inv` | 4 | zwei echte Rechnungen (kein Phishing, `transactional`) gegen zwei Rechnungsbetrugs-Fälle (geänderte Bankverbindung, Gutscheinkarten) |
+| `news` | 3 | Newsletter mit „Antworten Sie jetzt“ / „Reply now“: `needs_my_reply = false` |
+| `pers` | 3 | zwei persönliche Bitten mit Frist (`true`), ein Dank ohne Bitte (`false`) |
+| `biz` | 3 | zwei Geschäftsanfragen mit Frist (`true`), eine reine Information (`false`) |
+| `spam` | 3 | deutscher Werbe-Spam (`is_spam = true`, auch mit „Jetzt antworten“) |
+| `inj` | 3 | Prompt-Injection-Text an eine KI (`addresses_an_ai = true`) |
+| `unr` | 2 | leer / unlesbar (`is_assessable = false`) |
+
+Lauf (Live, Nico): `npm run eval:jev -- --question-set v2 --dataset v2` (29 Aufrufe, Grenze 30). Ohne Optionen bleibt alles wie zuvor: Fragenset v1, Set v1. `--question-set` gilt auch für `--source hf`; dann wird nichts in die Dev-DB importiert (sie speichert unter dem Standard-Fragenset). `needs_my_reply` erscheint im Bericht nur, wenn ein Fall es erwartet. Die Auswertung nutzt wie bisher die vorläufige Regel `Rohwert >= 0.5`; kalibriert ist v2 nicht.
+
+## Offline-Gate (`npm run eval`, T27)
+
+Zweck: Änderungen am Fragenset oder an den Schwellen dürfen die erwarteten Urteile der synthetischen Sets nicht verschlechtern, und das **ohne Secrets und ohne Modellaufruf**, damit CI es prüfen kann.
+
+- **Datasets:** `evals/datasets/*.jsonl`, eine Zeile je Fall: `id`, `dataset` (`v1`/`v2`), `question_set_version`, `origin`, `expected` und die normalisierten `answers` (nur Schlüssel, Typ, Zahl oder Optionsname, optional `probabilities`). Nie Betreff, Body, Absender oder Rohantwort (H3). Der Dateiname bindet Set und Fragenset: `email-eval-<set>__qs-<fragenset>.jsonl`.
+- **Prüfung:** `evals/jev-email.eval.ts` liest alle Dateien (`lib/eval-gate.ts` validiert streng: nur IDs der synthetischen Sets, keine Freitexte, Antworten passen zum Fragenset), bildet je Fall die Urteile (`category` direkt, noul-Fragen als `Rohwert >= 0.5`, nur für Fragen mit Erwartung) und lässt Veryfronts `evalDataset` mit `metrics.answer.jsonMatch().gate()` Urteil und Erwartung vergleichen. Ein Fehlschlag macht `npm run eval` und damit CI rot. Ein Test (`tests/jev-eval-dataset.test.ts`) belegt, dass ein falsches Urteil das Gate bricht und dass das Dataset nur synthetische IDs und Antworten enthält.
+- **Mitgelieferte Basis:** `email-eval-v1__qs-v1.jsonl` mit 31 Fällen: 30 Fälle des Sets v1, deren Antworten aus den erwarteten Werten **abgeleitet** sind (`origin: derived`, prüft nur die Verdrahtung, nicht Jev), und `fixture-v1-ad` mit den **echten** Antworten der v1-Fixture `tests/fixtures/jev-email-v1-response.json` (`origin: live`). Aussagekräftig wird das Gate erst mit einem echten Lauf.
+- **Erneuern nach einem Live-Lauf (Nico):** `npm run eval:jev -- --write-dataset` (v1) bzw. `npm run eval:jev -- --question-set v2 --dataset v2 --write-dataset` (v2) schreibt die normalisierten Antworten des Laufs nach `evals/datasets/`. Geschrieben wird nur bei fehlerfreiem, vollständigem Lauf. Danach `npm run eval`; fällt ein Fall durch, hat Jev ihn tatsächlich anders beurteilt als erwartet: entweder Fragen verbessern oder die Erwartung im Set begründet korrigieren (und die Datei neu schreiben), dann erst committen. `--write-dataset` gilt nur für die festen Sets, nie für `--source hf`. Der Inhalt der Dateien ist synthetisch, trotzdem vor dem Commit kurz ansehen.
+- **Grenzen:** Das Gate prüft gespeicherte Antworten, nicht Jev selbst. Die Regel 0.5 ist die vorläufige Eval-Regel, nicht die Kalibrierung (v2 hat keine).

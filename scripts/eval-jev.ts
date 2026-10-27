@@ -3,6 +3,9 @@
 // Aufruf: node --env-file=.env.local scripts/eval-jev.ts --confirm-live
 //   optional: --source hf --seed <s> --n <N> [--split test|calib] [--strategy balanced|proportional]
 //             [--max-cost <usd>] [--no-dev-db]  (Stichprobe aus data/eval-datasets/)
+//   Fragenset/Set waehlbar (Standard bleibt v1/v1): --question-set v1|v2, beim festen Set --dataset v1|v2 (T26).
+//   --write-dataset (nur festes Set): schreibt die normalisierten Antworten nach evals/datasets/ als Gate-Dataset
+//   fuer `npm run eval` (T27); nur bei fehlerfreiem Lauf, nie Mailtexte.
 // Partitionen: Schwellen werden nur auf `calib` gewaehlt, berichtet wird auf `test` (Standard).
 // Der hf-Lauf schreibt die Faelle samt normalisierten Antworten zusaetzlich in data/dev-synthetic.sqlite
 // (getrennte Dev-DB); --no-dev-db schaltet das ab. Die eval_run-Auditzeile geht bei JEDEM Lauf (auch beim festen Set)
@@ -22,9 +25,10 @@ import {
   type EvalSplit,
   type SampleStrategy,
 } from "../lib/eval-sources.ts";
-import { buildState, QUESTIONS } from "../lib/jev-questions.ts";
+import { buildState, QUESTIONS, questionsFor, type JevQuestion } from "../lib/jev-questions.ts";
 import { normalizeAnswers, type NormalizedAnswer } from "../lib/jev-response.ts";
-import { JEV_MODEL } from "../lib/constants.ts";
+import { JEV_MODEL, QUESTION_SET_VERSION, QUESTION_SET_VERSION_V1, QUESTION_SET_VERSION_V2 } from "../lib/constants.ts";
+import { gateDatasetFileName, gateLinesFromReport, GATE_DATASET_DIR, serializeGateDataset } from "../lib/eval-gate.ts";
 import {
   importSyntheticCases,
   openSyntheticDevDatabase,
@@ -68,6 +72,9 @@ export type EvalReport = {
 };
 
 const NOUL_QUESTIONS = ["is_spam", "is_phishing_or_scam", "addresses_an_ai", "is_assessable"] as const;
+// needs_my_reply is only scored where a set expects it (v2 set); it is added to the report on first use so that
+// v1 runs and reports keep their shape.
+const SCORED_ON_DEMAND = ["needs_my_reply"] as const;
 const SCORED = ["category", ...NOUL_QUESTIONS] as const;
 
 export function loadDataset(path: string): EvalCase[] {
@@ -82,7 +89,10 @@ export async function runEvalSet(input: {
   cases: EvalCase[];
   maxCalls?: number;
   maxCost?: number | null;
+  /** Question set to send and to validate against (default: QUESTIONS, i.e. QUESTION_SET_VERSION). */
+  questions?: Record<string, JevQuestion>;
 }): Promise<EvalReport> {
+  const questions = input.questions ?? QUESTIONS;
   if (input.maxCalls !== undefined && input.cases.length > input.maxCalls) {
     throw new Error("call_limit_exceeded");
   }
@@ -111,7 +121,7 @@ export async function runEvalSet(input: {
       untrusted_subject: c.subject,
       untrusted_body: c.body,
     });
-    const res = await input.jev.classify({ questions: QUESTIONS, state });
+    const res = await input.jev.classify({ questions, state });
     if (!res.ok) {
       const cls = `${res.kind}:${res.statusCode ?? "-"}:${res.errorName}`;
       bump(cls);
@@ -125,7 +135,7 @@ export async function runEvalSet(input: {
       cost += usage.cost;
       costedCalls++;
     }
-    const norm = normalizeAnswers(res.response.answers, QUESTIONS);
+    const norm = normalizeAnswers(res.response.answers, questions);
     if (!norm.ok) {
       const cls = `invalid:${norm.code}`;
       bump(cls);
@@ -135,6 +145,7 @@ export async function runEvalSet(input: {
     const byKey = new Map<string, NormalizedAnswer>(norm.answers.map((a) => [a.key, a]));
     const hits: Record<string, boolean> = {};
     const hit = (q: string, ok: boolean) => {
+      perQuestion[q] ??= { n: 0, hits: 0, rate: 0 };
       perQuestion[q].n++;
       if (ok) perQuestion[q].hits++;
       hits[q] = ok;
@@ -142,7 +153,7 @@ export async function runEvalSet(input: {
     if (c.expected.category !== undefined) {
       hit("category", byKey.get("category")?.value === c.expected.category);
     }
-    for (const q of NOUL_QUESTIONS) {
+    for (const q of [...NOUL_QUESTIONS, ...SCORED_ON_DEMAND]) {
       const exp = c.expected[q];
       if (exp === undefined) continue;
       const raw = byKey.get(q)?.value;
@@ -208,7 +219,7 @@ export type RunReport = {
   costPerMail: number | null;
   noulThreshold: number;
   cases: CaseResult[];
-} & Partial<SamplingInfo>;
+} & Partial<SamplingInfo> & { question_set_version?: string };
 
 /** Beschreibung der Stichprobe: Population und Stichprobe je Schicht (Quelle|Klasse), nur Zaehler und Namen. */
 export type SamplingInfo = {
@@ -231,10 +242,12 @@ export function buildRunReport(input: {
   revisions: Record<string, string>;
   createdAt: Date;
   sampling?: SamplingInfo;
+  questionSet?: string;
 }): RunReport {
   const r = input.report;
   return {
     ...(input.sampling ?? {}),
+    ...(input.questionSet !== undefined ? { question_set_version: input.questionSet } : {}),
     version: 1,
     created_at: input.createdAt.toISOString(),
     source: "hf",
@@ -326,8 +339,25 @@ export function prepareHfSample(
   };
 }
 
+export type EvalDatasetName = "v1" | "v2";
+export const DATASET_NAMES: readonly EvalDatasetName[] = ["v1", "v2"];
+
+/** File of a fixed synthetic eval set (T26: v2 adds the hard cases). */
+export function datasetPath(root: string, dataset: EvalDatasetName): string {
+  return join(root, "tests", "fixtures", "eval", `email-eval-${dataset}.jsonl`);
+}
+
+// Short names of the CLI (`--question-set v2`) to question set versions.
+const QUESTION_SET_BY_SHORT = new Map<string, string>([
+  ["v1", QUESTION_SET_VERSION_V1],
+  ["v2", QUESTION_SET_VERSION_V2],
+]);
+
+// Optional keys are present only when the option was given, so the default result stays { mode, maxCost }.
+type SetOptions = { questionSet?: string; dataset?: EvalDatasetName; writeDataset?: true };
+
 export type EvalArgs =
-  | { ok: true; mode: "fixed"; maxCost: number | null }
+  | ({ ok: true; mode: "fixed"; maxCost: number | null } & SetOptions)
   | {
       ok: true;
       mode: "hf";
@@ -337,10 +367,14 @@ export type EvalArgs =
       devDb: boolean;
       split: EvalSplit;
       strategy: SampleStrategy;
+      questionSet?: string;
     }
   | { ok: false };
 
 export function parseEvalArgs(argv: string[]): EvalArgs {
+  let questionShort: string | null = null;
+  let datasetShort: string | null = null;
+  let writeDataset = false;
   let source: string | null = null;
   let seed: number | null = null;
   let n: number | null = null;
@@ -358,21 +392,37 @@ export function parseEvalArgs(argv: string[]): EvalArgs {
     else if (a === "--split") split = argv[++i] ?? "";
     else if (a === "--strategy") strategy = argv[++i] ?? "";
     else if (a === "--no-dev-db") devDb = false;
+    else if (a === "--question-set") questionShort = argv[++i] ?? "";
+    else if (a === "--dataset") datasetShort = argv[++i] ?? "";
+    else if (a === "--write-dataset") writeDataset = true;
     else return { ok: false };
   }
   if (maxCost !== null && !(Number.isFinite(maxCost) && maxCost > 0)) return { ok: false };
+  const questionSet = questionShort === null ? undefined : QUESTION_SET_BY_SHORT.get(questionShort);
+  if (questionShort !== null && questionSet === undefined) return { ok: false };
+  if (datasetShort !== null && !DATASET_NAMES.includes(datasetShort as EvalDatasetName)) return { ok: false };
   if (source === null) {
     return seed === null && n === null && devDb && split === null && strategy === null
-      ? { ok: true, mode: "fixed", maxCost }
+      ? {
+        ok: true,
+        mode: "fixed",
+        maxCost,
+        ...(questionSet !== undefined ? { questionSet } : {}),
+        ...(datasetShort !== null ? { dataset: datasetShort as EvalDatasetName } : {}),
+        ...(writeDataset ? { writeDataset: true as const } : {}),
+      }
       : { ok: false };
   }
-  if (source !== "hf") return { ok: false };
+  if (source !== "hf" || datasetShort !== null || writeDataset) return { ok: false };
   if (seed === null || n === null) return { ok: false };
   if (!Number.isInteger(seed) || !Number.isInteger(n) || n < 1 || n > HF_MAX_CALLS) return { ok: false };
   const chosenSplit = (split ?? "test") as EvalSplit;
   const chosenStrategy = (strategy ?? "balanced") as SampleStrategy;
   if (!SPLITS.includes(chosenSplit) || !SAMPLE_STRATEGIES.includes(chosenStrategy)) return { ok: false };
-  return { ok: true, mode: "hf", seed, n, maxCost, devDb, split: chosenSplit, strategy: chosenStrategy };
+  return {
+    ok: true, mode: "hf", seed, n, maxCost, devDb, split: chosenSplit, strategy: chosenStrategy,
+    ...(questionSet !== undefined ? { questionSet } : {}),
+  };
 }
 
 function writeEvalAudit(
@@ -438,7 +488,7 @@ async function main(): Promise<void> {
   const args = parseEvalArgs(process.argv.slice(2));
   if (!args.ok) {
     console.error(
-      `usage: eval:jev [--source hf --seed <s> --n <1..${HF_MAX_CALLS}> [--split test|calib] [--strategy balanced|proportional]] [--max-cost <usd>] [--no-dev-db]  (error: args_invalid)`,
+      `usage: eval:jev [--source hf --seed <s> --n <1..${HF_MAX_CALLS}> [--split test|calib] [--strategy balanced|proportional]] [--max-cost <usd>] [--no-dev-db] [--question-set v1|v2] [--dataset v1|v2 --write-dataset (fixed set only)]  (error: args_invalid)`,
     );
     process.exit(2);
   }
@@ -466,15 +516,33 @@ async function main(): Promise<void> {
     }
     maxCalls = HF_MAX_CALLS;
   } else {
-    cases = loadDataset(join(root, "tests", "fixtures", "eval", "email-eval-v1.jsonl"));
+    cases = loadDataset(datasetPath(root, args.dataset ?? "v1"));
   }
   if (cases.length > maxCalls) {
     console.error(`${cases.length} cases, limit is ${maxCalls}`);
     process.exit(2);
   }
+  const questionSetVersion = args.questionSet ?? QUESTION_SET_VERSION;
   const jev = createJevClient({ apiKey, timeoutMs: 60_000 });
-  const report = await runEvalSet({ jev, cases, maxCalls, maxCost: args.maxCost });
+  const report = await runEvalSet({ jev, cases, maxCalls, maxCost: args.maxCost, questions: questionsFor(questionSetVersion) });
+  console.log(`  question set: ${questionSetVersion}`);
   console.log(formatReport(report));
+
+  // T27: normalized answers of the fixed synthetic set become the offline gate dataset (never mail text).
+  let datasetWriteFailed = false;
+  if (args.mode === "fixed" && args.writeDataset) {
+    const dataset = args.dataset ?? "v1";
+    const lines = gateLinesFromReport({ dataset, questionSetVersion, cases, report, origin: "live" });
+    if (!lines) {
+      datasetWriteFailed = true;
+      console.error("  gate dataset not written: the run had errors or was aborted (a partial dataset would weaken the gate)");
+    } else {
+      const file = join(root, GATE_DATASET_DIR, gateDatasetFileName(dataset, questionSetVersion === QUESTION_SET_VERSION_V2 ? "v2" : "v1"));
+      mkdirSync(join(root, GATE_DATASET_DIR), { recursive: true });
+      writeFileSync(file, serializeGateDataset(lines));
+      console.log(`  gate dataset: ${GATE_DATASET_DIR}/${file.split("/").pop()} (${lines.length} cases)`);
+    }
+  }
 
   if (args.mode === "hf" && sampling) {
     console.log(`  split=${sampling.split} strategy=${sampling.strategy} duplicates removed=${sampling.duplicates_removed}`);
@@ -484,7 +552,7 @@ async function main(): Promise<void> {
     if (sampling.short_strata.length) console.log(`  smaller than share, taken fully: ${sampling.short_strata.join(", ")}`);
     const run = buildRunReport({
       report, model: JEV_MODEL, seed: args.seed, n: cases.length, nRequested: args.n, revisions, createdAt: new Date(),
-      sampling,
+      sampling, ...(args.questionSet !== undefined ? { questionSet: args.questionSet } : {}),
     });
     const path = writeRunReport(join(root, "data", "eval-runs"), run);
     console.log(`  run report: data/eval-runs/${path.split("/").pop()}`);
@@ -497,13 +565,14 @@ async function main(): Promise<void> {
       cases,
       report,
       hf: args.mode === "hf" ? { seed: args.seed, split: args.split, strategy: args.strategy } : null,
-      importDevDb: args.mode === "hf" && args.devDb,
+      // The dev database stores answers under the default question set version: no import for another set.
+      importDevDb: args.mode === "hf" && args.devDb && questionSetVersion === QUESTION_SET_VERSION,
     });
     if (r.imported) console.log(`  dev database: ${r.imported.cases} mails, ${r.imported.classified} with answers (data/dev-synthetic.sqlite)`);
   } catch (e) {
     console.error(`  dev database not written (${e instanceof Error ? e.name : "unknown"})`);
   }
-  process.exit(report.errors.count > 0 || report.aborted ? 1 : 0);
+  process.exit(report.errors.count > 0 || report.aborted || datasetWriteFailed ? 1 : 0);
 }
 
 if (import.meta.main) await main();

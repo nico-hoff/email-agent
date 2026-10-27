@@ -17,3 +17,5 @@ jobs:
       - run: npm run typecheck
       - run: npm test -- --test-reporter=spec tests/*.test.ts
       - run: npm run build
+      # Offline gate (T27): stored Jev verdicts of the synthetic sets vs. expected values; no secrets, no model call.
+      - run: npm run eval

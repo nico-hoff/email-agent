@@ -9,6 +9,8 @@ export type EvalExpected = {
   is_phishing_or_scam?: boolean;
   addresses_an_ai?: boolean;
   is_assessable?: boolean;
+  /** Only set in the question set v2 eval set (T26); the public datasets cannot give it. */
+  needs_my_reply?: boolean;
 };
 
 export type EvalCase = {
