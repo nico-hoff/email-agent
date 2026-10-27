@@ -8,6 +8,7 @@ import { createClassificationPipeline, createPersistResponse } from "./lib/class
 import { createJevClient, type JevClient } from "./lib/jev.ts";
 import { createImapFlowPort } from "./lib/imap.ts";
 import { applyOpenRouterEnv } from "./lib/openrouter-env.ts";
+import { findStyleScanHazards } from "./lib/dev-hazards.ts";
 import { DEFAULT_SPAM_THRESHOLD } from "./lib/accounts-config.ts";
 import { startServer } from "veryfront/server";
 import { register, tryResolve } from "veryfront/extensions/contracts";
@@ -154,12 +155,20 @@ export async function createService(options: CreateServiceOptions = {}): Promise
   let workers: ImapWorkers | undefined;
   let workerStatus: Service["workerStatus"] = "disabled";
   let http: HttpHandle;
+  const mode = options.mode ?? "development";
   try {
     const port = requested === 0 && !options.startHttp ? await pickFreePort(bindAddress) : requested;
-    http = await (options.startHttp ?? defaultStartHttp)({ port, bindAddress, mode: options.mode ?? "development" });
+    http = await (options.startHttp ?? defaultStartHttp)({ port, bindAddress, mode });
   } catch (err) {
     started?.db.close();
     throw err;
+  }
+
+  if (mode === "development") {
+    const hazards = findStyleScanHazards(options.projectRoot ?? PROJECT_ROOT);
+    if (hazards.length > 0) {
+      log(`warning: ${hazards.length} agent worktree(s) with node_modules under .claude/worktrees break Veryfront styles (CSS candidate limit); remove them with git worktree remove after checking for unsaved work`);
+    }
   }
 
   if (started && started.config.status === "ok") {
