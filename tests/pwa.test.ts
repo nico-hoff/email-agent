@@ -214,5 +214,5 @@ test("activate deletes the old shell-v1 cache", async () => {
   const waits: Promise<unknown>[] = [];
   sw.handlers.activate({ waitUntil: (p: Promise<unknown>) => { waits.push(p); } });
   await Promise.all(waits);
-  assert.deepEqual([...sw.store.keys()], ["shell-v2"]);
+  assert.deepEqual([...sw.store.keys()], ["shell-v3"]);
 });

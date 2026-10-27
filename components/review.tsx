@@ -9,6 +9,7 @@ import {
   EMPTY_TITLE,
   emptyText,
   filterByView,
+  formatNumber,
   formatTime,
   importanceText,
   locationText,
@@ -39,6 +40,30 @@ function categoryOf(m: ApiEmail): string {
   return m.classification?.status === "classified" && typeof v === "string" ? v : "none";
 }
 
+interface Verdict { key: string; text: string; detail: string | null }
+
+// Subtle Jev verdicts on the card: only positive Spam/Phishing readings, with raw value vs threshold when known.
+const VERDICTS: [string, string][] = [["is_spam", "Spam"], ["is_phishing_or_scam", "Phishing"]];
+
+function verdicts(m: ApiEmail): Verdict[] {
+  if (m.classification?.status !== "classified") return [];
+  const out: Verdict[] = [];
+  for (const [key, text] of VERDICTS) {
+    const a = m.classification.answers[key];
+    if (a === undefined || a.reading !== "positive" || typeof a.value !== "number") continue;
+    out.push({
+      key, text,
+      detail: typeof a.threshold === "number" ? `${formatNumber(a.value)} / ${formatNumber(a.threshold)}` : formatNumber(a.value),
+    });
+  }
+  return out;
+}
+
+function initial(sender: string): string {
+  const c = sender.replace(/^[^\p{L}\p{N}]+/u, "").charAt(0);
+  return c === "" ? "?" : c.toUpperCase();
+}
+
 export function EmailCard(
   { m, now, timeZone, showAccount }: { m: ApiEmail; now: Date; timeZone?: string; showAccount: boolean },
 ): React.JSX.Element {
@@ -46,13 +71,26 @@ export function EmailCard(
   return (
     <li>
       <a className="card" href={`/emails/${m.id}`} data-cat={categoryOf(m)}>
-        <span className="card-head">
-          <span className="sender">{m.sender}</span>
-          <time className="time" dateTime={m.received_at}>{formatTime(m.received_at, now, timeZone)}</time>
+        <span className="avatar" aria-hidden="true">{initial(m.sender)}</span>
+        <span className="card-body">
+          <span className="card-head">
+            <span className="sender">{m.sender}</span>
+            <time className="time" dateTime={m.received_at}>{formatTime(m.received_at, now, timeZone)}</time>
+          </span>
+          <span className="subject">{m.subject || "(ohne Betreff)"}</span>
+          <BadgeList badges={cardBadges(m)} />
+          {verdicts(m).length > 0 && (
+            <span className="verdicts">
+              {verdicts(m).map((v) => (
+                <span key={v.key} className="verdict">
+                  <strong>{v.text}</strong>
+                  <span className="verdict-raw" title="Rohwert / Schwelle">{v.detail}</span>
+                </span>
+              ))}
+            </span>
+          )}
+          {meta !== "" && <span className="meta">{meta}</span>}
         </span>
-        <span className="subject">{m.subject || "(ohne Betreff)"}</span>
-        <BadgeList badges={cardBadges(m)} />
-        {meta !== "" && <span className="meta">{meta}</span>}
       </a>
     </li>
   );
@@ -85,7 +123,10 @@ export function ReviewListView(p: ReviewListProps): React.JSX.Element {
     <div className="screen">
       <header className="bar">
         <div className="bar-row">
-          <h1>Mails</h1>
+          <div className="title">
+            <h1>Mails</h1>
+            <p className="mode">Beobachtungsmodus · nur lesend</p>
+          </div>
           <button type="button" className="btn btn-accent" onClick={p.onReload ?? noop} disabled={p.loading}>Neu laden</button>
         </div>
         <div className="segmented" role="group" aria-label="Ansicht">
@@ -132,6 +173,11 @@ export function ReviewListView(p: ReviewListProps): React.JSX.Element {
             <p className="hint">{emptyText(p.view)}</p>
           </div>
         )}
+        {p.loading && visible.length === 0 && (
+          <ul className="cards skeletons" aria-hidden="true">
+            {[0, 1, 2, 3].map((i) => <li key={i} className="skeleton" />)}
+          </ul>
+        )}
         {p.loading && <p className="notice" role="status"><span className="spinner" aria-hidden="true" />Lädt …</p>}
         {p.canLoadMore && !p.loading && (
           <button type="button" className="btn btn-wide" onClick={p.onMore ?? noop}>Mehr laden</button>
@@ -150,7 +196,7 @@ function AnswerBlock({ item }: { item: AnswerItem }): React.JSX.Element {
     <li className="qa">
       <div className="qa-row">
         <p className="q">{item.question}</p>
-        <p className="a">{item.answer}</p>
+        <p className={item.kind === "noul" && (item.answer === "Ja" || item.answer === "Nein") ? `a pill ${item.answer === "Ja" ? "pill-yes" : "pill-no"}` : "a"}>{item.answer}</p>
       </div>
       {item.bar && (
         <div className="bar-wrap">
@@ -194,7 +240,7 @@ export function EmailDetailView(
   return (
     <div className="screen">
       <header className="bar">
-        <a className="back" href="/">‹ Liste</a>
+        <a className="back" href="/"><span aria-hidden="true">‹</span> Liste</a>
       </header>
       <main className="detail">
         <h1 className="detail-subject">{m.subject || "(ohne Betreff)"}</h1>

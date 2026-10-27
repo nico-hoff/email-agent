@@ -53,12 +53,13 @@ export default function Welcome(): React.JSX.Element {
 
   return (
     <main className="welcome">
-      <style>{CSS}</style>
+      <img className="welcome-logo" src="/icon-192.png" alt="" width={72} height={72} />
       <h1>E-Mail-Agent</h1>
+      <p className="welcome-sub">Dein ruhiger Blick auf die Mailbox. Nur lesend.</p>
       {state.kind === 'loading' && <p>Einen Moment ...</p>}
       {state.kind === 'ready' && (
         <>
-          <p>Angemeldet als <strong>{state.login}</strong></p>
+          <p className="welcome-sub">Angemeldet als <strong>{state.login}</strong></p>
           <button type="button" disabled={busy} onClick={() => void login(state.csrfToken)}>Login</button>
           {failed && <p role="alert">Anmeldung fehlgeschlagen. Bitte neu laden und erneut versuchen.</p>}
         </>
@@ -73,12 +74,3 @@ export default function Welcome(): React.JSX.Element {
     </main>
   )
 }
-
-const CSS = `
-.welcome{min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem;padding:2rem 1rem;text-align:center;font-family:system-ui,sans-serif;background:#fff;color:#111}
-.welcome h1{font-size:1.5rem;margin:0}
-.welcome p{margin:0;max-width:28rem}
-.welcome button{min-width:12rem;min-height:48px;padding:0 1.5rem;font-size:1.125rem;border-radius:12px;border:0;background:#0a58ca;color:#fff;cursor:pointer}
-.welcome button:disabled{opacity:.6}
-@media (prefers-color-scheme:dark){.welcome{background:#0b0f14;color:#e8edf2}.welcome button{background:#4c8dff;color:#0b0f14}}
-`
