@@ -9,6 +9,9 @@ type Env = Record<string, string | undefined>;
  */
 export function applyOpenRouterEnv(env: Env = process.env): void {
   const key = env.OPENROUTER_API_KEY;
-  if (!env.OPENAI_API_KEY && key) env.OPENAI_API_KEY = key;
+  // Only route to OpenRouter when the OpenRouter key is the one in use: an own OPENAI_API_KEY
+  // must never be sent to openrouter.ai.
+  if (env.OPENAI_API_KEY || !key) return;
+  env.OPENAI_API_KEY = key;
   if (!env.OPENAI_BASE_URL) env.OPENAI_BASE_URL = OPENROUTER_BASE_URL;
 }

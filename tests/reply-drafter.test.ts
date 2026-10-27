@@ -136,3 +136,16 @@ test("createService derives the OpenAI variables from OPENROUTER_API_KEY at star
     if (savedDb === undefined) delete process.env.DATABASE_PATH; else process.env.DATABASE_PATH = savedDb;
   }
 });
+
+test("an existing OpenAI key is never redirected to OpenRouter", () => {
+  const env: Record<string, string | undefined> = { OPENAI_API_KEY: "sk-openai-own", OPENROUTER_API_KEY: "sk-or-x" };
+  applyOpenRouterEnv(env);
+  assert.equal(env.OPENAI_API_KEY, "sk-openai-own");
+  assert.equal(env.OPENAI_BASE_URL, undefined, "base URL must stay unset so the own key keeps going to OpenAI");
+});
+
+test("without any key nothing is set", () => {
+  const env: Record<string, string | undefined> = {};
+  applyOpenRouterEnv(env);
+  assert.deepEqual(env, {});
+});

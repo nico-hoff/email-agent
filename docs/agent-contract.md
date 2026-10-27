@@ -6,7 +6,7 @@
 
 ## 1. Agent definieren
 
-`agent()` aus `veryfront/agent`, Datei `agents/reply-drafter.ts`, Aufruf aus der Route über `getAgent("reply-drafter")` (Rückgabe `Agent | undefined`, vorher prüfen) und `agent.generate({ input, outputSchema?, abortSignal? })`. Die Antwort enthält `text`, `toolCalls`, `usage` und bei `outputSchema` die geparsten Daten in `data`/`object`. Ein Aufruf aus einer Route braucht keine Chat-UI: `createAgUiHandler` und `agent.respond()` sind optional und werden nicht genutzt.
+`agent()` aus `veryfront/agent`, Datei `agents/reply-drafter.ts`, Aufruf aus der Route über `getAgent("replyDrafter")` (Veryfront leitet die ID aus dem Dateinamen `agents/reply-drafter.ts` ab) (Rückgabe `Agent | undefined`, vorher prüfen) und `agent.generate({ input, outputSchema?, abortSignal? })`. Die Antwort enthält `text`, `toolCalls`, `usage` und bei `outputSchema` die geparsten Daten in `data`/`object`. Ein Aufruf aus einer Route braucht keine Chat-UI: `createAgUiHandler` und `agent.respond()` sind optional und werden nicht genutzt.
 
 Pflichtfelder für D17/D19 (Typen: `AgentConfig` in `esm/src/agent/types.d.ts`):
 
