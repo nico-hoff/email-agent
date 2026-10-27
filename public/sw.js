@@ -6,7 +6,7 @@
 // navigation response that gets cached. Data reaches the page only through
 // /api/ calls made by the client. Every other navigation (e.g. /emails/:id)
 // is network-only; if the network fails, the cached "/" shell is served.
-const CACHE = "shell-v3";
+const CACHE = "shell-v4";
 const SHELL = [
   "/",
   "/manifest.webmanifest",

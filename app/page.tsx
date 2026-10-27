@@ -1,17 +1,18 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ReviewListView } from '../components/review.tsx'
+import { ReviewListView, type NoiseState } from '../components/review.tsx'
+import { appendUnique, fetchPage, SessionExpired } from '../lib/list-client.ts'
 import {
-  API_MAX_LIMIT,
-  availableViews,
-  defaultView,
+  DEFAULT_VIEW,
+  isViewId,
+  listUrl,
   PAGE_SIZE,
+  type ApiAccount,
+  type ApiCounts,
   type ApiEmail,
   type ViewId,
 } from '../lib/review-ui.ts'
-
-interface StatusBody { workers: { account_id: string }[] }
 
 const STORE_KEY = 'review-ui'
 
@@ -19,8 +20,7 @@ const STORE_KEY = 'review-ui'
 function restore(): { view?: ViewId; account?: string } {
   try {
     const raw = JSON.parse(sessionStorage.getItem(STORE_KEY) ?? '{}') as { view?: string; account?: string }
-    const view = availableViews().find((v) => v === raw.view)
-    return { view, account: typeof raw.account === 'string' ? raw.account : undefined }
+    return { view: isViewId(raw.view) ? raw.view : undefined, account: typeof raw.account === 'string' ? raw.account : undefined }
   } catch {
     return {}
   }
@@ -34,19 +34,39 @@ function persist(view: ViewId, account: string): void {
   }
 }
 
+interface Page {
+  emails: ApiEmail[]
+  next: string | null
+}
+
+const EMPTY_PAGE: Page = { emails: [], next: null }
+
 // The shell renders no mail data on the server: rows arrive only through client-side /api/ calls.
 export default function ReviewList(): React.JSX.Element {
-  const [emails, setEmails] = useState<ApiEmail[]>([])
-  const [accounts, setAccounts] = useState<string[]>([])
-  const [view, setView] = useState<ViewId>(defaultView())
+  const [view, setView] = useState<ViewId>(DEFAULT_VIEW)
   const [account, setAccount] = useState('')
-  const [limit, setLimit] = useState(PAGE_SIZE)
-  const [tick, setTick] = useState(0)
   const [ready, setReady] = useState(false)
+  const [tick, setTick] = useState(0)
+  const [page, setPage] = useState<Page>(EMPTY_PAGE)
+  const [counts, setCounts] = useState<ApiCounts | null>(null)
+  const [accounts, setAccounts] = useState<ApiAccount[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [now, setNow] = useState(() => new Date())
+  const [noiseOpen, setNoiseOpen] = useState(false)
+  const [noisePage, setNoisePage] = useState<Page>(EMPTY_PAGE)
+  const [noiseLoading, setNoiseLoading] = useState(false)
+  const [noiseError, setNoiseError] = useState(false)
   const sentinel = useRef<HTMLDivElement | null>(null)
+  const loadingMore = useRef(false)
+  const generation = useRef(0)
+  const noiseGeneration = useRef(0)
+
+  const expired = useCallback((e: unknown): boolean => {
+    if (!(e instanceof SessionExpired)) return false
+    window.location.replace('/welcome')
+    return true
+  }, [])
 
   useEffect(() => {
     const saved = restore()
@@ -61,38 +81,87 @@ export default function ReviewList(): React.JSX.Element {
 
   useEffect(() => {
     if (!ready) return
-    let cancelled = false
+    const mine = ++generation.current
+    loadingMore.current = false
     setLoading(true)
-    const q = new URLSearchParams({ limit: String(limit) })
-    if (account) q.set('account', account)
-    Promise.all([
-      fetch('/api/status').then((r) => r.json() as Promise<StatusBody & { error?: string }>),
-      fetch(`/api/emails?${q}`).then((r) => r.json() as Promise<{ emails: ApiEmail[]; error?: string }>),
-    ])
-      .then(([s, e]) => {
-        if (cancelled) return
-        if (s.error || e.error) throw new Error('unavailable')
-        setAccounts(s.workers.map((w) => w.account_id))
-        setEmails(e.emails)
+    fetchPage(listUrl({ view, account, limit: PAGE_SIZE }))
+      .then((r) => {
+        if (mine !== generation.current) return
+        setPage({ emails: r.emails, next: r.next_cursor })
+        setCounts(r.counts)
+        if (r.accounts.length > 0) setAccounts(r.accounts)
         setNow(new Date())
         setError(null)
       })
-      .catch(() => {
-        if (!cancelled) setError('Daten nicht verfügbar')
+      .catch((e: unknown) => {
+        if (mine !== generation.current || expired(e)) return
+        setError('Daten nicht verfügbar')
       })
       .finally(() => {
-        if (!cancelled) setLoading(false)
+        if (mine === generation.current) setLoading(false)
       })
-    return () => {
-      cancelled = true
-    }
-  }, [ready, account, limit, tick])
+  }, [ready, view, account, tick, expired])
 
-  // The API returns exactly `limit` rows while more exist (up to its maximum).
-  const canLoadMore = !loading && emails.length >= limit && limit < API_MAX_LIMIT
-  const atApiLimit = !loading && emails.length >= API_MAX_LIMIT
+  // The folded section loads only once it is opened (view=noise) and follows account and reload.
+  useEffect(() => {
+    if (!ready || !noiseOpen || view !== 'important') return
+    const mine = ++noiseGeneration.current
+    setNoiseLoading(true)
+    setNoiseError(false)
+    fetchPage(listUrl({ view: 'noise', account, limit: PAGE_SIZE }))
+      .then((r) => {
+        if (mine === noiseGeneration.current) setNoisePage({ emails: r.emails, next: r.next_cursor })
+      })
+      .catch((e: unknown) => {
+        if (mine !== noiseGeneration.current || expired(e)) return
+        setNoiseError(true)
+      })
+      .finally(() => {
+        if (mine === noiseGeneration.current) setNoiseLoading(false)
+      })
+  }, [ready, noiseOpen, view, account, tick, expired])
 
-  const more = useCallback(() => setLimit((l) => Math.min(l + PAGE_SIZE, API_MAX_LIMIT)), [])
+  const more = useCallback(() => {
+    const cursor = page.next
+    if (cursor === null || loadingMore.current) return
+    loadingMore.current = true
+    const mine = generation.current
+    setLoading(true)
+    fetchPage(listUrl({ view, account, cursor, limit: PAGE_SIZE }))
+      .then((r) => {
+        if (mine !== generation.current) return
+        setPage((p) => ({ emails: appendUnique(p.emails, r.emails), next: r.next_cursor }))
+        setCounts(r.counts)
+      })
+      .catch((e: unknown) => {
+        if (mine !== generation.current || expired(e)) return
+        setError('Daten nicht verfügbar')
+      })
+      .finally(() => {
+        loadingMore.current = false
+        if (mine === generation.current) setLoading(false)
+      })
+  }, [page.next, view, account, expired])
+
+  const moreNoise = useCallback(() => {
+    const cursor = noisePage.next
+    if (cursor === null) return
+    const mine = noiseGeneration.current
+    setNoiseLoading(true)
+    fetchPage(listUrl({ view: 'noise', account, cursor, limit: PAGE_SIZE }))
+      .then((r) => {
+        if (mine === noiseGeneration.current) setNoisePage((p) => ({ emails: appendUnique(p.emails, r.emails), next: r.next_cursor }))
+      })
+      .catch((e: unknown) => {
+        if (mine !== noiseGeneration.current || expired(e)) return
+        setNoiseError(true)
+      })
+      .finally(() => {
+        if (mine === noiseGeneration.current) setNoiseLoading(false)
+      })
+  }, [noisePage.next, account, expired])
+
+  const canLoadMore = !loading && page.next !== null
 
   useEffect(() => {
     const el = sentinel.current
@@ -102,26 +171,34 @@ export default function ReviewList(): React.JSX.Element {
     }, { rootMargin: '300px' })
     io.observe(el)
     return () => io.disconnect()
-  }, [canLoadMore, more, emails.length, view])
+  }, [canLoadMore, more, page.emails.length, view])
+
+  const noise: NoiseState = {
+    open: noiseOpen,
+    emails: noisePage.emails,
+    loading: noiseLoading,
+    canLoadMore: noisePage.next !== null,
+    error: noiseError,
+  }
 
   return (
     <ReviewListView
-      emails={emails}
+      emails={page.emails}
       view={view}
+      counts={counts}
       accounts={accounts}
       account={account}
       now={now}
       loading={loading}
       error={error}
       canLoadMore={canLoadMore}
-      atApiLimit={atApiLimit}
+      noise={noise}
       onView={setView}
-      onAccount={(a) => {
-        setAccount(a)
-        setLimit(PAGE_SIZE)
-      }}
+      onAccount={setAccount}
       onReload={() => setTick((t) => t + 1)}
       onMore={more}
+      onNoiseToggle={() => setNoiseOpen((o) => !o)}
+      onNoiseMore={moreNoise}
       sentinelRef={sentinel}
     />
   )

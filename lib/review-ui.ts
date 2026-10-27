@@ -1,5 +1,6 @@
-// Pure helpers for the mobile review UI (T36): types of the /api/emails rows, view filters, German
-// formulations and formatting. No React, no I/O, no mail content: the API exposes metadata only.
+// Pure helpers for the mobile review UI (T36, T48, T49, T64, T47): types of the /api/emails rows, view requests,
+// grouping, optimistic done updates, swipe maths, German formulations and formatting. No React, no I/O, no mail
+// content: the API exposes metadata only.
 import type { NoulInterpreter, NoulReading, NormalizedAnswer } from "./jev-response.ts";
 
 export interface ApiAnswer {
@@ -19,14 +20,32 @@ export interface ApiShadow {
   applied_threshold: number;
 }
 
+/** Account tag (T47): short name and color from the accounts file; never host or user. */
+export interface ApiAccount {
+  id: string;
+  label: string;
+  color: string;
+}
+
 export interface ApiEmail {
   id: number;
-  account_id: string;
+  account: ApiAccount;
   sender: string;
   subject: string;
   received_at: string;
-  active_location: { folder: string; uid: number } | null;
+  active_location: { folder: string; uid?: number | null } | null;
   provider_spam: boolean;
+  /** Provider flag \Seen, read-only. */
+  seen: boolean;
+  /** Nico's decision in the app. */
+  done: boolean;
+  /** Call to action, neither seen nor done (Plan v5, 3.6). */
+  open: boolean;
+  category: string | null;
+  route: string | null;
+  urgency: number | null;
+  importance: number | null;
+  needs_my_reply: NoulReading | null;
   classification: {
     status: string | null;
     failure_code?: string | null;
@@ -36,8 +55,71 @@ export interface ApiEmail {
   disagreement: string | null;
 }
 
-export type ViewId = "needs_reply" | "today" | "disagreements" | "all";
+export interface FolderMove {
+  at: string;
+  from: string | null;
+  to: string | null;
+}
+
+/** GET /api/emails/:id */
+export interface ApiEmailDetail extends ApiEmail {
+  folder_history: FolderMove[];
+  locations: { folder: string; is_active: boolean; first_seen_at: string; last_seen_at: string }[];
+}
+
+export interface ApiCounts {
+  important: number;
+  open: number;
+  noise: number;
+  all: number;
+}
+
+/** GET /api/emails */
+export interface ListResponse {
+  emails: ApiEmail[];
+  next_cursor: string | null;
+  counts: ApiCounts;
+  accounts: ApiAccount[];
+  view: string;
+}
+
+/** Segments of the head. "noise" is not a segment: it is the folded section under "Wichtig". */
+export const VIEWS = ["important", "open", "all"] as const;
+export type ViewId = (typeof VIEWS)[number];
 export type Interpreter = NoulInterpreter;
+
+export const DEFAULT_VIEW: ViewId = "important";
+export const PAGE_SIZE = 30;
+
+export const VIEW_LABEL: Record<ViewId, string> = {
+  important: "Wichtig",
+  open: "Offen",
+  all: "Alle",
+};
+
+export const NOISE_TITLE = "Newsletter & Werbung / Aussortiert";
+
+export function isViewId(v: unknown): v is ViewId {
+  return typeof v === "string" && (VIEWS as readonly string[]).includes(v);
+}
+
+export interface ListRequest {
+  view: ViewId | "noise";
+  account?: string;
+  cursor?: string | null;
+  limit: number;
+}
+
+export function listUrl(r: ListRequest): string {
+  const q = new URLSearchParams({ view: r.view, limit: String(r.limit) });
+  if (r.account) q.set("account", r.account);
+  if (r.cursor) q.set("cursor", r.cursor);
+  return `/api/emails?${q}`;
+}
+
+export function formatCount(n: number): string {
+  return n > 999 ? "999+" : String(n);
+}
 
 /**
  * Client code has no calibration (the config is read server-side only): the readings come from GET /api/emails
@@ -45,32 +127,57 @@ export type Interpreter = NoulInterpreter;
  */
 const apiReadingOnly: Interpreter = () => "unmapped";
 
-export const PAGE_SIZE = 50;
-/** Upper bound of GET /api/emails (limit). Older mails need the cursor API (T35). */
-export const API_MAX_LIMIT = 200;
-
-export const VIEW_LABEL: Record<ViewId, string> = {
-  needs_reply: "Braucht Antwort",
-  today: "Heute",
-  disagreements: "Abweichungen",
-  all: "Alle",
-};
-
 const noulAnswer = (key: string, value: number): NormalizedAnswer => ({ key, type: "noul", value });
 
-/** O4: "Braucht Antwort" exists only once needs_my_reply is calibrated (a reading for it exists). */
-export function isNeedsReplyCalibrated(interpret: Interpreter = apiReadingOnly): boolean {
-  return [0, 0.5, 1].some((v) => interpret(noulAnswer("needs_my_reply", v)) !== "unmapped");
+export const EMPTY_TITLE = "Keine Mails in dieser Ansicht";
+
+export function emptyText(view: ViewId): string {
+  switch (view) {
+    case "important": return "Nichts Wichtiges. Alles ruhig.";
+    case "open": return "Nichts offen. Alles erledigt.";
+    case "all": return "Noch keine Mails vorhanden.";
+  }
 }
 
-export function availableViews(interpret: Interpreter = apiReadingOnly): ViewId[] {
-  const rest: ViewId[] = ["today", "disagreements", "all"];
-  return isNeedsReplyCalibrated(interpret) ? ["needs_reply", ...rest] : rest;
+// ---- Gruppierung nach Dringlichkeit ------------------------------------------------------------------------------
+
+export type UrgencyGroupKey = "now" | "soon" | "later";
+
+export interface UrgencyGroup {
+  key: UrgencyGroupKey;
+  label: string;
+  items: ApiEmail[];
 }
 
-export function defaultView(interpret: Interpreter = apiReadingOnly): ViewId {
-  return availableViews(interpret)[0];
+const GROUP_LABEL: Record<UrgencyGroupKey, string> = { now: "Heute", soon: "In 48 Stunden", later: "Später" };
+
+function groupKey(m: ApiEmail): UrgencyGroupKey {
+  const level = scoreLevel(m.urgency);
+  return level === 3 ? "now" : level === 2 ? "soon" : "later";
 }
+
+/** The API order is urgency first, so contiguous runs form the groups; the order itself is never changed. */
+export function groupByUrgency(emails: ApiEmail[]): UrgencyGroup[] {
+  const out: UrgencyGroup[] = [];
+  for (const m of emails) {
+    const key = groupKey(m);
+    const last = out.at(-1);
+    if (last && last.key === key) last.items.push(m);
+    else out.push({ key, label: GROUP_LABEL[key], items: [m] });
+  }
+  return out;
+}
+
+// ---- Konto-Tag ----------------------------------------------------------------------------------------------------
+
+const FALLBACK_COLOR = "#98a2b3";
+
+/** The color goes into a style attribute: accept hex colors only. */
+export function safeColor(c: string | null | undefined): string {
+  return typeof c === "string" && /^#[0-9a-fA-F]{3,8}$/.test(c) ? c : FALLBACK_COLOR;
+}
+
+// ---- Formatierung -------------------------------------------------------------------------------
 
 function dayKey(iso: string, timeZone?: string): string | null {
   const d = new Date(iso);
@@ -82,46 +189,6 @@ export function isSameDay(iso: string, now: Date, timeZone?: string): boolean {
   const a = dayKey(iso, timeZone);
   return a !== null && a === dayKey(now.toISOString(), timeZone);
 }
-
-export interface FilterOptions {
-  now?: Date;
-  timeZone?: string;
-  interpret?: Interpreter;
-}
-
-/** Client-side view filter (the API has no view parameter yet, see T35). Keeps the API order. */
-export function filterByView(emails: ApiEmail[], view: ViewId, o: FilterOptions = {}): ApiEmail[] {
-  const now = o.now ?? new Date();
-  switch (view) {
-    case "all":
-      return emails;
-    case "today":
-      return emails.filter((m) => isSameDay(m.received_at, now, o.timeZone));
-    case "disagreements":
-      return emails.filter((m) => m.disagreement !== null);
-    case "needs_reply": {
-      const interpret = o.interpret ?? apiReadingOnly;
-      return emails.filter((m) => {
-        const a = m.classification?.answers.needs_my_reply;
-        return a !== undefined && typeof a.value === "number" &&
-          (a.reading ?? interpret(noulAnswer("needs_my_reply", a.value))) === "positive";
-      });
-    }
-  }
-}
-
-export const EMPTY_TITLE = "Keine Mails in dieser Ansicht";
-
-export function emptyText(view: ViewId): string {
-  switch (view) {
-    case "today": return "Heute ist noch keine Mail eingegangen.";
-    case "disagreements": return "Keine Abweichungen zwischen Provider und Jev.";
-    case "needs_reply": return "Keine Mail braucht eine Antwort.";
-    case "all": return "Noch keine Mails vorhanden.";
-  }
-}
-
-// ---- Formatierung -------------------------------------------------------------------------------
 
 const WEEKDAYS: Record<string, string> = { Sun: "So", Mon: "Mo", Tue: "Di", Wed: "Mi", Thu: "Do", Fri: "Fr", Sat: "Sa" };
 
@@ -224,7 +291,7 @@ export function urgencyText(level: number): string {
 export interface Badge {
   key: string;
   text: string;
-  tone: "neutral" | "info" | "warn" | "danger" | "good" | "category";
+  tone: "neutral" | "info" | "warn" | "danger" | "good" | "category" | "accent";
   level?: number;
   /** category badges only: raw category key, drives the semantic colour. */
   category?: string;
@@ -232,10 +299,25 @@ export interface Badge {
 
 const LEVEL_TONE: Badge["tone"][] = ["neutral", "info", "warn", "danger"];
 
-/** Badges of a card: category, importance, urgency, shadow hint, disagreement, classification status. */
+/** Value of a top-level field, else of the Jev answer (older rows). */
+function answerNumber(m: ApiEmail, key: string): number | null {
+  const v = key === "importance" ? m.importance : m.urgency;
+  if (v !== null) return v;
+  const a = m.classification?.answers[key]?.value;
+  return typeof a === "number" ? a : null;
+}
+
+export function categoryOf(m: ApiEmail): string | null {
+  if (m.category !== null) return m.category;
+  const v = m.classification?.answers.category?.value;
+  return typeof v === "string" ? v : null;
+}
+
+/** Badges of a card: Offen/Erledigt, category, importance, urgency, shadow hint, disagreement, classification status. */
 export function cardBadges(m: ApiEmail): Badge[] {
   const out: Badge[] = [];
-  const a = m.classification?.answers ?? {};
+  if (m.done) out.push({ key: "done", text: "Erledigt", tone: "good" });
+  else if (m.open) out.push({ key: "open", text: "Offen", tone: "accent" });
   if (m.classification === null || m.classification.status !== "classified") {
     const s = m.classification?.status ?? null;
     out.push({
@@ -244,10 +326,11 @@ export function cardBadges(m: ApiEmail): Badge[] {
       tone: s === "failed" ? "danger" : "neutral",
     });
   } else {
-    if (typeof a.category?.value === "string") out.push({ key: "category", text: categoryLabel(a.category.value), tone: "category", category: a.category.value });
-    const imp = scoreLevel(a.importance?.value);
+    const cat = categoryOf(m);
+    if (cat !== null) out.push({ key: "category", text: categoryLabel(cat), tone: "category", category: cat });
+    const imp = scoreLevel(answerNumber(m, "importance"));
     if (imp !== null) out.push({ key: "importance", text: `Wichtig: ${IMPORTANCE_SHORT[imp]}`, tone: LEVEL_TONE[imp], level: imp });
-    const urg = scoreLevel(a.urgency?.value);
+    const urg = scoreLevel(answerNumber(m, "urgency"));
     if (urg !== null) out.push({ key: "urgency", text: `Dringend: ${URGENCY_SHORT[urg]}`, tone: LEVEL_TONE[urg], level: urg });
   }
   if (m.shadow_quarantine?.candidate === true) out.push({ key: "shadow", text: "Shadow: Spam-Kandidat", tone: "warn" });
@@ -255,6 +338,40 @@ export function cardBadges(m: ApiEmail): Badge[] {
     out.push({ key: "disagreement", text: DISAGREEMENT_LABEL[m.disagreement] ?? "Abweichung", tone: "danger" });
   }
   return out;
+}
+
+// ---- Detail ---------------------------------------------------------------------------------------------------------
+
+export type WorkState = "open" | "done" | "seen" | "none";
+
+export function workState(m: Pick<ApiEmail, "open" | "done" | "seen">): WorkState {
+  return m.done ? "done" : m.open ? "open" : m.seen ? "seen" : "none";
+}
+
+export const WORK_LABEL: Record<WorkState, string> = {
+  open: "Offen",
+  done: "Erledigt",
+  seen: "Gelesen",
+  none: "Ungelesen",
+};
+
+export interface HistoryRow {
+  key: string;
+  when: string;
+  text: string;
+}
+
+/** Provider-side moves, newest first. Folder names only, never content. */
+export function folderHistoryRows(history: FolderMove[], now: Date, timeZone?: string): HistoryRow[] {
+  return history
+    .map((h, i) => ({
+      key: String(i),
+      at: h.at,
+      when: formatTime(h.at, now, timeZone),
+      text: `${h.from ?? "unbekannt"} → ${h.to ?? "unbekannt"}`,
+    }))
+    .reverse()
+    .map(({ key, when, text }) => ({ key, when, text }));
 }
 
 // ---- Detail: Jev-Antworten verständlich ---------------------------------------------------------------

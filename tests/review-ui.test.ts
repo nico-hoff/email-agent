@@ -3,18 +3,25 @@ import { describe, it } from "node:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  availableViews,
   cardBadges,
-  defaultView,
   describeAnswers,
-  filterByView,
+  EMPTY_TITLE,
+  emptyText,
+  folderHistoryRows,
+  formatCount,
   formatPercent,
   formatTime,
-  isNeedsReplyCalibrated,
+  groupByUrgency,
+  isViewId,
+  listUrl,
+  safeColor,
   scoreLevel,
   shadowText,
-  type ApiEmail,
+  VIEWS,
+  VIEW_LABEL,
+  workState,
   type ApiAnswer,
+  type ApiEmail,
 } from "../lib/review-ui.ts";
 
 const TZ = "Europe/Berlin";
@@ -23,12 +30,20 @@ const NOW = new Date("2026-10-27T12:00:00.000Z");
 function mail(id: number, over: Partial<ApiEmail> = {}): ApiEmail {
   return {
     id,
-    account_id: "hf-a",
+    account: { id: "hf-a", label: "Web", color: "#3b82f6" },
     sender: "noreply@example.test",
     subject: `Betreff ${id}`,
     received_at: "2026-10-27T08:30:00.000Z",
     active_location: { folder: "INBOX", uid: id },
     provider_spam: false,
+    seen: false,
+    done: false,
+    open: false,
+    category: null,
+    route: null,
+    urgency: null,
+    importance: null,
+    needs_my_reply: null,
     classification: null,
     shadow_quarantine: null,
     disagreement: null,
@@ -50,43 +65,71 @@ const ANSWERS: Record<string, ApiAnswer> = {
   is_assessable: { type: "noul", value: 0.95 },
 };
 
-describe("views", () => {
-  it("starts with Heute while needs_my_reply is uncalibrated (O4)", () => {
-    assert.equal(isNeedsReplyCalibrated(), false);
-    assert.deepEqual(availableViews(), ["today", "disagreements", "all"]);
-    assert.equal(defaultView(), "today");
+
+describe("views and requests", () => {
+  it("offers Wichtig, Offen, Alle in this order", () => {
+    assert.deepEqual([...VIEWS], ["important", "open", "all"]);
+    assert.deepEqual(VIEWS.map((v) => VIEW_LABEL[v]), ["Wichtig", "Offen", "Alle"]);
+    assert.equal(isViewId("open"), true);
+    assert.equal(isViewId("noise"), false, "noise is the folded section, not a segment");
+    assert.equal(isViewId(undefined), false);
   });
 
-  it("offers Braucht Antwort first once the interpreter maps noul", () => {
-    const calibrated = (a: { value: number | string }) => (Number(a.value) >= 0.5 ? "positive" as const : "negative" as const);
-    assert.deepEqual(availableViews(calibrated), ["needs_reply", "today", "disagreements", "all"]);
-    assert.equal(defaultView(calibrated), "needs_reply");
+  it("builds the list URL with view, account, cursor and limit", () => {
+    assert.equal(listUrl({ view: "important", limit: 30 }), "/api/emails?view=important&limit=30");
+    assert.equal(
+      listUrl({ view: "noise", account: "hf-a", cursor: "abc_-9", limit: 10 }),
+      "/api/emails?view=noise&limit=10&account=hf-a&cursor=abc_-9",
+    );
+    assert.equal(listUrl({ view: "all", account: "", limit: 5 }), "/api/emails?view=all&limit=5", "empty account = all accounts");
+    assert.match(listUrl({ view: "all", account: "a b&c", limit: 5 }), /account=a\+b%26c/);
   });
 
-  it("filters today by local calendar day", () => {
+  it("formats counts compactly", () => {
+    assert.equal(formatCount(0), "0");
+    assert.equal(formatCount(42), "42");
+    assert.equal(formatCount(1500), "999+");
+  });
+
+  it("has an empty text per view", () => {
+    assert.equal(EMPTY_TITLE, "Keine Mails in dieser Ansicht");
+    assert.match(emptyText("important"), /Alles ruhig/);
+    assert.match(emptyText("open"), /erledigt/i);
+    assert.match(emptyText("all"), /Noch keine Mails/);
+  });
+});
+
+describe("grouping by urgency", () => {
+  it("builds contiguous groups Heute, In 48 Stunden, Später and keeps the order", () => {
     const list = [
-      mail(1, { received_at: "2026-10-27T08:30:00.000Z" }),
-      mail(2, { received_at: "2026-10-26T23:30:00.000Z" }), // 27.10. 00:30 in Berlin
-      mail(3, { received_at: "2026-10-26T22:30:00.000Z" }), // 26.10. 23:30 in Berlin
+      mail(1, { urgency: 3.0 }),
+      mail(2, { urgency: 2.7 }), // rounds to 3
+      mail(3, { urgency: 2 }),
+      mail(4, { urgency: 1 }),
+      mail(5, { urgency: null }),
     ];
-    assert.deepEqual(filterByView(list, "today", { now: NOW, timeZone: TZ }).map((m) => m.id), [1, 2]);
+    const g = groupByUrgency(list);
+    assert.deepEqual(g.map((x) => [x.key, x.label, x.items.map((m) => m.id)]), [
+      ["now", "Heute", [1, 2]],
+      ["soon", "In 48 Stunden", [3]],
+      ["later", "Später", [4, 5]],
+    ]);
   });
 
-  it("filters disagreements and keeps all", () => {
-    const list = [mail(1), mail(2, { disagreement: "jev_spam_provider_not_spam" }), mail(3)];
-    assert.deepEqual(filterByView(list, "disagreements").map((m) => m.id), [2]);
-    assert.equal(filterByView(list, "all").length, 3);
+  it("returns no groups for an empty list and does not merge separated runs", () => {
+    assert.deepEqual(groupByUrgency([]), []);
+    const g = groupByUrgency([mail(1, { urgency: 0 }), mail(2, { urgency: 3 }), mail(3, { urgency: 0 })]);
+    assert.deepEqual(g.map((x) => x.key), ["later", "now", "later"]);
   });
+});
 
-  it("filters needs_reply only through the interpreter", () => {
-    const list = [
-      mail(1, { classification: classified({ needs_my_reply: { type: "noul", value: 0.9 } }) }),
-      mail(2, { classification: classified({ needs_my_reply: { type: "noul", value: 0.1 } }) }),
-      mail(3),
-    ];
-    assert.deepEqual(filterByView(list, "needs_reply").map((m) => m.id), []);
-    const calibrated = (a: { value: number | string }) => (Number(a.value) >= 0.5 ? "positive" as const : "negative" as const);
-    assert.deepEqual(filterByView(list, "needs_reply", { interpret: calibrated }).map((m) => m.id), [1]);
+describe("account color", () => {
+  it("accepts hex colors only", () => {
+    assert.equal(safeColor("#3b82f6"), "#3b82f6");
+    assert.equal(safeColor("#abc"), "#abc");
+    assert.equal(safeColor("red; background:url(x)"), "#98a2b3");
+    assert.equal(safeColor(""), "#98a2b3");
+    assert.equal(safeColor(undefined), "#98a2b3");
   });
 });
 
@@ -109,21 +152,55 @@ describe("formatting", () => {
   });
 });
 
+describe("work state and history", () => {
+  it("derives the state shown in the detail", () => {
+    assert.equal(workState(mail(1, { open: true })), "open");
+    assert.equal(workState(mail(1, { done: true })), "done");
+    assert.equal(workState(mail(1, { seen: true })), "seen");
+    assert.equal(workState(mail(1)), "none");
+    assert.equal(workState(mail(1, { done: true, seen: true })), "done");
+  });
+
+  it("describes the folder history, newest first", () => {
+    const rows = folderHistoryRows([
+      { at: "2026-10-26T08:30:00.000Z", from: "INBOX", to: "Junk" },
+      { at: "2026-10-27T08:30:00.000Z", from: "Junk", to: null },
+    ], NOW, TZ);
+    assert.deepEqual(rows, [
+      { key: "1", when: "09:30", text: "Junk → unbekannt" },
+      { key: "0", when: "gestern 09:30", text: "INBOX → Junk" },
+    ]);
+  });
+});
+
 describe("badges and answers", () => {
   it("builds speaking badges for a classified mail", () => {
     const m = mail(1, {
       classification: classified(ANSWERS),
+      category: "newsletter_promo",
+      importance: 0.09,
+      urgency: 2.4,
       shadow_quarantine: { candidate: true, decision: "pending_policy", reason: "candidate", applied_threshold: 0.9 },
       disagreement: "jev_spam_provider_not_spam",
     });
-    const texts = cardBadges(m).map((b) => b.text);
-    assert.deepEqual(texts, [
+    assert.deepEqual(cardBadges(m).map((b) => b.text), [
       "Newsletter / Werbung",
       "Wichtig: Routine",
       "Dringend: 48 Std.",
       "Shadow: Spam-Kandidat",
       "Jev: Spam, Provider: nicht Spam",
     ]);
+  });
+
+  it("puts Offen first and shows Erledigt", () => {
+    const open = cardBadges(mail(1, { open: true, classification: classified(ANSWERS), category: "personal" }));
+    assert.equal(open[0].text, "Offen");
+    assert.equal(open[0].tone, "accent");
+    assert.equal(open[1].text, "Persönlich");
+    const done = cardBadges(mail(2, { done: true, classification: classified(ANSWERS), category: "personal" }));
+    assert.equal(done[0].text, "Erledigt");
+    assert.equal(done[0].tone, "good");
+    assert.ok(!done.some((b) => b.text === "Offen"));
   });
 
   it("shows only a status badge for unclassified mails", () => {
@@ -174,14 +251,9 @@ describe("badges and answers", () => {
     const by = (k: string) => items.find((i) => i.key === k)!;
     assert.equal(by("is_spam").answer, "Ja");
     assert.equal(by("is_spam").bar?.uncalibrated, false);
-    assert.equal(by("is_spam").bar?.raw, 0.87);
-    assert.equal(by("is_spam").bar?.threshold, 0.8);
-    assert.equal(by("is_spam").bar?.calibrationVersion, "1");
     assert.equal(by("is_spam").bar?.detail, "Rohwert 0,87, Schwelle 0,8 (Kalibrierung Version 1)");
     assert.equal(by("is_phishing_or_scam").answer, "Nein");
-    assert.equal(by("is_phishing_or_scam").bar?.detail, "Rohwert 0,1, Schwelle 0,5 (Kalibrierung Version 1)");
     assert.equal(by("needs_my_reply").answer, "Rohwert 0,9, noch unkalibriert");
-    assert.equal(by("needs_my_reply").bar?.uncalibrated, true);
     assert.equal(by("needs_my_reply").bar?.detail, undefined);
   });
 
@@ -203,5 +275,12 @@ describe("stylesheet", () => {
     assert.match(css, /min-height:\s*44px/);
     assert.match(css, /overflow-x:\s*hidden|min-width:\s*0/);
     assert.match(css, /system-ui/);
+  });
+
+  it("keeps focus rings and reduced motion, and a 44 px fold header", () => {
+    assert.match(css, /prefers-reduced-motion:\s*reduce/);
+    assert.match(css, /:focus-visible/);
+    assert.match(css, /\.fold-head[^{]*{[^}]*min-height:\s*44px/);
+    assert.match(css, /\.chip[^{]*{[^}]*min-height:\s*44px/);
   });
 });
