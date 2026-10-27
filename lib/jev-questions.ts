@@ -138,7 +138,11 @@ export const STATE_KEYS = [
 ] as const;
 
 const UNTRUSTED_KEYS = new Set<string>(["untrusted_subject", "untrusted_body"]);
-const SENDER_HISTORY_KEYS = new Set<string>(["mails_seen_from_sender", "days_since_first_seen"]);
+const SENDER_HISTORY_KEYS = new Set<string>([
+  "mails_seen_from_sender", "days_since_first_seen", "user_marked_spam", "user_marked_not_spam",
+]);
+/** Nico's feedback counters (T55): only for an authenticated sender, so buildState drops them unless dmarc is "pass". */
+const FEEDBACK_HISTORY_KEYS = new Set<string>(["user_marked_spam", "user_marked_not_spam"]);
 const SHORT_TEXT_MAX = 255;
 
 export type JevStateInput = {
@@ -149,7 +153,12 @@ export type JevStateInput = {
   dmarc?: string;
   list_unsubscribe_present?: boolean;
   reply_to_differs_from_from?: boolean;
-  sender_history?: { mails_seen_from_sender?: number; days_since_first_seen?: number };
+  sender_history?: {
+    mails_seen_from_sender?: number;
+    days_since_first_seen?: number;
+    user_marked_spam?: number;
+    user_marked_not_spam?: number;
+  };
   untrusted_subject?: string;
   untrusted_body?: string;
 };
@@ -169,9 +178,10 @@ export function buildState(input: JevStateInput): Record<string, unknown> {
       for (const [hk, hv] of Object.entries(value)) {
         if (!SENDER_HISTORY_KEYS.has(hk)) throw new Error(`sender_history key not allowed: ${hk}`);
         if (typeof hv !== "number" || !Number.isFinite(hv)) throw new Error(`sender_history value invalid: ${hk}`);
+        if (FEEDBACK_HISTORY_KEYS.has(hk) && input.dmarc !== "pass") continue;
         hist[hk] = hv;
       }
-      out[key] = hist;
+      if (Object.keys(hist).length > 0) out[key] = hist;
     } else if (typeof value === "boolean") {
       out[key] = value;
     } else if (typeof value === "string" && value.length <= SHORT_TEXT_MAX) {

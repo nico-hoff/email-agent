@@ -5,8 +5,9 @@ import { JEV_MAX_ATTEMPTS, JEV_MODEL, QUESTION_SET_VERSION, SCHEDULER_TICK_MS } 
 import { parseMessage, type ImapPort, type TransientInput } from "./imap.ts";
 import type { JevClient } from "./jev.ts";
 import { buildState, QUESTIONS } from "./jev-questions.ts";
+import { feedbackHistory, recordJevSpam } from "./senders.ts";
 import { backoffMs, classifyFailure } from "./retry-policy.ts";
-import { normalizeAnswers, type NormalizedAnswer } from "./jev-response.ts";
+import { interpretNoul, normalizeAnswers, type NormalizedAnswer } from "./jev-response.ts";
 import { assertCalibrationMatchesQuestions, NOUL_CALIBRATION } from "./noul-calibration.ts";
 import { computeShadowQuarantine, type ShadowQuarantine } from "./shadow.ts";
 
@@ -36,6 +37,11 @@ export function createPersistResponse(spamThresholdFor: (accountId: string) => n
     const n = normalizeAnswers(ctx.response.answers, QUESTIONS);
     if (!n.ok) throw new ResponseRejectedError(`invalid_response_${n.code}`);
     persistNormalizedAnswers(ctx, n.answers, spamThresholdFor(ctx.accountId), "pipeline", QUESTION_SET_VERSION);
+    // E7: Jev's spam verdicts per sender feed the HITL question. Same transaction as the answers.
+    const spam = n.answers.find((a) => a.key === "is_spam");
+    if (spam && interpretNoul(spam, QUESTION_SET_VERSION) === "positive") {
+      recordJevSpam(ctx.db, ctx.emailId, ctx.classificationId, ctx.now.toISOString());
+    }
   };
 }
 
@@ -180,6 +186,8 @@ export function createClassificationPipeline(opts: PipelineOptions): Classificat
   function buildRequest(accountId: string, input: TransientInput) {
     const at = input.sender.lastIndexOf("@");
     const ctx = opts.accountContext?.(accountId);
+    // T55/H21: two numbers, only for an authenticated sender (DMARC pass) with feedback; otherwise absent.
+    const history = feedbackHistory(db, input.sender, input.dmarc);
     return {
       questions: QUESTIONS,
       state: buildState({
@@ -190,6 +198,7 @@ export function createClassificationPipeline(opts: PipelineOptions): Classificat
         dmarc: input.dmarc,
         list_unsubscribe_present: input.listUnsubscribePresent,
         reply_to_differs_from_from: input.replyToDiffersFromFrom,
+        ...(history ? { sender_history: history } : {}),
         untrusted_subject: input.subject,
         untrusted_body: input.excerpt,
       }),
