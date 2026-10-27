@@ -12,6 +12,8 @@ erDiagram
   emails ||--|{ email_locations : "liegt in Ordner"
   emails ||--o| email_status : "gelesen / erledigt"
   emails ||--o{ classifications : "Lauf je Fragenset"
+  emails ||--o{ mailbox_actions : "Postfach-Aktion"
+  email_locations ||--o{ mailbox_actions : "Ziel der Aktion"
   classifications ||--o{ classification_answers : Antworten
   accounts |o--o{ audit_log : betrifft
   emails |o--o{ audit_log : betrifft
@@ -89,6 +91,19 @@ erDiagram
     text answer_json
     text probabilities_json
   }
+  mailbox_actions {
+    integer id PK
+    integer email_id FK
+    integer location_id FK
+    text rule
+    text action
+    text mode
+    text status
+    text failure_code
+    text reason_json
+    text created_at
+    text done_at
+  }
   audit_log {
     integer id PK
     text occurred_at
@@ -107,6 +122,7 @@ Mermaid kann zusammengesetzte Eindeutigkeit nicht gruppieren. Maßgeblich sind d
 - `email_locations`: `UNIQUE (account_id, folder, uid_validity, uid)`.
 - `classifications`: `UNIQUE (email_id, question_set_version, model_requested)`.
 - `classification_answers`: `UNIQUE (classification_id, question_key)`.
+- `mailbox_actions`: partieller Unique-Index `(email_id, rule) WHERE rule <> 'undo'` (je Mail und Regel höchstens eine Aktion; Undo-Zeilen dürfen sich wiederholen).
 
 ## Entwurfsentscheidungen
 
@@ -122,6 +138,9 @@ Mermaid kann zusammengesetzte Eindeutigkeit nicht gruppieren. Maßgeblich sind d
 10. **Lese- und Erledigt-Status getrennt von der Mail (002).** `email_status` hat höchstens eine Zeile je Mail. `seen` kommt ausschließlich vom Provider (IMAP-Flag `\Seen`, nur gelesen, nie geschrieben); `done` setzt allein Nico in der App (nur App-DB). Eine fehlende Zeile bedeutet `seen = 0, done = 0`. Beide Werte sind unabhängig: Der Worker überschreibt nie `done`, die App nie `seen`. „Offen“ ist keine Spalte, sondern eine reine Funktion (Plan v5, 3.6).
 11. **Kontofarbe in der DB (002).** `accounts.color` (`#rrggbb`, klein geschrieben, optional) wird beim Start wie `label` aus der Konten-Datei synchronisiert. Dadurch muss die API nie die Konten-Datei (mit Zugangsdaten) lesen, und der synthetische Modus hat Farben. Abweichung von Plan v5 D29 („kein Schema nötig“), begründet in `docs/DEVIATIONS.md`.
 12. **Audit der App-Aktionen.** `email_done` und `email_undone` stehen mit `actor = 'system'` im `audit_log` (nur `email_id` und `account_id`, `details_json` leer). Ein eigener Akteur `nico` kommt erst mit der Rebuild-Migration von `audit_log` (Plan v5, Abschnitt 4), nicht vorher.
+
+13. **Postfach-Aktionen (003, M7a).** `mailbox_actions` protokolliert jede automatische Schreibaktion auf dem Mailserver und jede, die nur geplant wäre (Trockenlauf). Sie speichert nur IDs, Codes und Zeitstempel; `reason_json` enthält nur kurze Codes und Zahlen (z. B. `{"rule_reason":"jev_spam"}`), nie Betreff, Absender oder Inhalt. `location_id` ist der aktive Ort der Mail zum Zeitpunkt der Aktion (Ordner, UIDVALIDITY und UID stehen dort). Die CHECK-Listen enthalten schon die Werte von M7 (`blacklist`, `quarantine`, `purge`, `move_*`), weil eine CHECK-Liste in SQLite nur per Tabellenumbau erweiterbar ist; M7a nutzt nur `rule` ∈ {`spam_seen`, `undo`} und `action` ∈ {`mark_seen`, `unmark_seen`}. Die Paarung ist per CHECK erzwungen (`undo` gehört zu `unmark_seen`/`move_inbox`, alle anderen Regeln zu den übrigen Aktionen). Status: `planned` (nur Trockenlauf), `done`, `failed` (mit `failure_code`), `undone` (die ursprüngliche Aktion wurde per Undo zurückgenommen). Der partielle Unique-Index macht die Ausführung idempotent und verhindert, dass eine zurückgenommene Aktion erneut greift. Die Migration trägt die Nummer 003, weil Plan v5 (Abschnitt 4) die geplante Migration `003` für Feedback/Absender (M5) erst später baut; diese wird `004`.
+14. **Audit der Postfach-Aktionen.** `mailbox_action` steht mit `actor = 'system'` im `audit_log` (`details_json` nur mit `action_id`, `rule`, `action`, `mode`, `status`, `failure_code`). Ein eigener Akteur `rules` kommt erst mit der Rebuild-Migration von `audit_log` (zusammen mit `nico`).
 
 ## Verbindungs-Pragmas (nicht Teil der Migration, bei jeder Verbindung setzen)
 
@@ -258,6 +277,30 @@ ALTER TABLE accounts ADD COLUMN color TEXT
 ```
 
 `audit_log.action` kennt zusätzlich `email_done` und `email_undone`.
+
+## DDL (`db/migrations/003_mailbox_actions.sql`)
+
+```sql
+CREATE TABLE mailbox_actions (
+  id           INTEGER PRIMARY KEY,
+  email_id     INTEGER NOT NULL REFERENCES emails (id),
+  location_id  INTEGER NOT NULL REFERENCES email_locations (id),
+  rule         TEXT NOT NULL CHECK (rule IN ('spam_seen', 'blacklist', 'quarantine', 'purge', 'undo')),
+  action       TEXT NOT NULL CHECK (action IN ('mark_seen', 'move_quarantine', 'move_trash', 'move_inbox', 'unmark_seen')),
+  mode         TEXT NOT NULL CHECK (mode IN ('dry_run', 'live')),
+  status       TEXT NOT NULL CHECK (status IN ('planned', 'done', 'failed', 'undone')),
+  failure_code TEXT,
+  reason_json  TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(reason_json)),
+  created_at   TEXT NOT NULL,
+  done_at      TEXT,
+  CHECK ((rule = 'undo') = (action IN ('move_inbox', 'unmark_seen'))),
+  CHECK (status <> 'failed' OR failure_code IS NOT NULL)
+);
+CREATE UNIQUE INDEX mailbox_actions_once ON mailbox_actions (email_id, rule) WHERE rule <> 'undo';
+CREATE INDEX mailbox_actions_list ON mailbox_actions (mode, created_at DESC, id DESC);
+```
+
+`audit_log.action` kennt zusätzlich `mailbox_action`.
 
 ## Schema-Test (`tests/db.test.ts`)
 

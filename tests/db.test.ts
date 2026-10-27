@@ -40,6 +40,9 @@ const norm = (s: string) => s.replace(/\s+/g, " ").trim();
 const ALLOWLIST: Record<string, string[]> = {
   accounts: ["id", "label", "host", "port", "mailbox", "spam_mailbox", "enabled", "color"],
   email_status: ["email_id", "seen", "done", "updated_at"],
+  mailbox_actions: [
+    "id", "email_id", "location_id", "rule", "action", "mode", "status", "failure_code", "reason_json", "created_at", "done_at",
+  ],
   mailbox_state: ["account_id", "mailbox", "uid_validity", "last_uid", "updated_at"],
   worker_status: [
     "account_id",
@@ -383,8 +386,63 @@ describe("002 email_status and accounts.color", () => {
     const db = openDatabase(path);
     opened.push(db);
     assert.equal((db.prepare("SELECT COUNT(*) AS n FROM emails").get() as { n: number }).n, 1);
-    assert.deepEqual((db.prepare("SELECT version FROM schema_migrations ORDER BY version").all() as { version: number }[]).map((r) => r.version), [1, 2]);
+    assert.deepEqual((db.prepare("SELECT version FROM schema_migrations ORDER BY version").all() as { version: number }[]).map((r) => r.version), [1, 2, 3]);
     db.exec(`INSERT INTO email_status (email_id,seen,updated_at) VALUES (1,1,'${T}')`);
+  });
+});
+
+describe("003 mailbox_actions", () => {
+  const ins = (cols: string, vals: string) => `INSERT INTO mailbox_actions (email_id,location_id,${cols},created_at) VALUES (1,1,${vals},'${T}')`;
+  const base = "'spam_seen','mark_seen','dry_run','planned'";
+  function withLocation(): DatabaseSync {
+    const db = fresh();
+    seed(db);
+    db.exec(`INSERT INTO email_locations (email_id,account_id,folder,uid_validity,uid,first_seen_at,last_seen_at) VALUES (1,'a1','INBOX',1,1,'${T}','${T}')`);
+    return db;
+  }
+  test("foreign keys, CHECK lists and the rule/action pairing", () => {
+    const db = withLocation();
+    throwsSql(db, `INSERT INTO mailbox_actions (email_id,location_id,rule,action,mode,status,created_at) VALUES (99,1,${base},'${T}')`, /FOREIGN KEY/);
+    throwsSql(db, `INSERT INTO mailbox_actions (email_id,location_id,rule,action,mode,status,created_at) VALUES (1,99,${base},'${T}')`, /FOREIGN KEY/);
+    const cols = "rule,action,mode,status";
+    throwsSql(db, ins(cols, "'bogus','mark_seen','dry_run','planned'"), /CHECK/);
+    throwsSql(db, ins(cols, "'spam_seen','delete','dry_run','planned'"), /CHECK/);
+    throwsSql(db, ins(cols, "'spam_seen','mark_seen','maybe','planned'"), /CHECK/);
+    throwsSql(db, ins(cols, "'spam_seen','mark_seen','dry_run','weird'"), /CHECK/);
+    throwsSql(db, ins(cols, "'spam_seen','unmark_seen','live','done'"), /CHECK/); // undo action needs rule undo
+    throwsSql(db, ins(cols, "'undo','mark_seen','live','done'"), /CHECK/);
+    throwsSql(db, ins(cols, "'spam_seen','mark_seen','live','failed'"), /CHECK/); // failed needs a failure_code
+    throwsSql(db, ins(`${cols},reason_json`, `${base},'{nope'`), /CHECK/);
+    db.exec(ins(cols, base));
+    db.exec(ins("rule,action,mode,status,failure_code", "'undo','unmark_seen','live','failed','store_rejected'"));
+    // M7 values are accepted now (an SQLite CHECK cannot be altered later)
+    for (const [r, a] of [["blacklist", "move_trash"], ["quarantine", "move_quarantine"], ["purge", "move_trash"], ["undo", "move_inbox"]]) {
+      db.exec(`DELETE FROM mailbox_actions WHERE rule = '${r}'`);
+      db.exec(ins(cols, `'${r}','${a}','dry_run','planned'`));
+    }
+    assert.deepEqual({ ...db.prepare("SELECT reason_json FROM mailbox_actions WHERE id = 1").get() }, { reason_json: "{}" });
+  });
+  test("at most one non-undo action per mail and rule; undo rows may repeat", () => {
+    const db = withLocation();
+    const cols = "rule,action,mode,status";
+    db.exec(ins(cols, base));
+    throwsSql(db, ins(cols, "'spam_seen','mark_seen','live','done'"), /UNIQUE/);
+    db.exec(ins(cols, "'quarantine','move_quarantine','dry_run','planned'"));
+    db.exec(ins(cols, "'undo','unmark_seen','live','done'"));
+    db.exec(ins(cols, "'undo','unmark_seen','live','done'"));
+  });
+  test("a database with 001 and 002 only upgrades", () => {
+    const dir = join(tmp, "migs-002-only");
+    mkdirSync(dir);
+    for (const f of ["001_init.sql", "002_status_and_account_color.sql"]) writeFileSync(join(dir, f), readFileSync(join(MIGRATIONS_DIR, f), "utf8"));
+    const path = join(tmp, "upgrade2.db");
+    const old = openDatabase(path, dir);
+    seed(old);
+    old.close();
+    const db = openDatabase(path);
+    opened.push(db);
+    assert.equal((db.prepare("SELECT COUNT(*) AS n FROM emails").get() as { n: number }).n, 1);
+    assert.equal((db.prepare("SELECT COUNT(*) AS n FROM mailbox_actions").get() as { n: number }).n, 0);
   });
 });
 
@@ -407,7 +465,7 @@ describe("migration runner", () => {
     const b = openDatabase(path);
     opened.push(b);
     const rows = b.prepare("SELECT version FROM schema_migrations").all() as { version: number }[];
-    assert.deepEqual(rows.map((r) => r.version), [1, 2]);
+    assert.deepEqual(rows.map((r) => r.version), [1, 2, 3]);
   });
 
   test("numeric (not lexical) order, applied once", () => {
