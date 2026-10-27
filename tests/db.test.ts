@@ -1,6 +1,6 @@
 import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
@@ -38,7 +38,8 @@ function throwsSql(db: DatabaseSync, sql: string, pattern: RegExp): void {
 const norm = (s: string) => s.replace(/\s+/g, " ").trim();
 
 const ALLOWLIST: Record<string, string[]> = {
-  accounts: ["id", "label", "host", "port", "mailbox", "spam_mailbox", "enabled"],
+  accounts: ["id", "label", "host", "port", "mailbox", "spam_mailbox", "enabled", "color"],
+  email_status: ["email_id", "seen", "done", "updated_at"],
   mailbox_state: ["account_id", "mailbox", "uid_validity", "last_uid", "updated_at"],
   worker_status: [
     "account_id",
@@ -108,13 +109,16 @@ function seed(db: DatabaseSync): void {
 }
 
 describe("DDL", () => {
-  test("001_init.sql equals the DDL block in docs/erd.md (whitespace-normalised)", () => {
+  test("every migration equals the DDL block of its section in docs/erd.md (whitespace-normalised)", () => {
     const md = readFileSync(join(root, "docs", "erd.md"), "utf8");
-    const section = md.slice(md.search(/^## DDL/m));
-    const blocks = [...section.matchAll(/```sql\n([\s\S]*?)```/g)];
-    assert.equal(blocks.length, 1);
-    const sql = readFileSync(join(MIGRATIONS_DIR, "001_init.sql"), "utf8");
-    assert.equal(norm(sql), norm(blocks[0][1]));
+    const sections = [...md.matchAll(/^## DDL \(`db\/migrations\/([^`]+)`\)\n([\s\S]*?)(?=^## |(?![\s\S]))/gm)];
+    const files = readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql")).sort();
+    assert.deepEqual(sections.map((m) => m[1]).sort(), files, "one DDL section per migration file");
+    for (const m of sections) {
+      const blocks = [...m[2].matchAll(/```sql\n([\s\S]*?)```/g)];
+      assert.equal(blocks.length, 1, m[1]);
+      assert.equal(norm(readFileSync(join(MIGRATIONS_DIR, m[1]), "utf8")), norm(blocks[0][1]), m[1]);
+    }
   });
 
   test("column sets match allowlist and contain no content columns", () => {
@@ -347,6 +351,43 @@ describe("CHECK and json_valid", () => {
   });
 });
 
+describe("002 email_status and accounts.color", () => {
+  test("email_status -> emails, one row per mail, seen/done are 0/1, defaults are 0", () => {
+    const db = fresh();
+    seed(db);
+    throwsSql(db, `INSERT INTO email_status (email_id,updated_at) VALUES (99,'${T}')`, /FOREIGN KEY/);
+    db.exec(`INSERT INTO email_status (email_id,updated_at) VALUES (1,'${T}')`);
+    assert.deepEqual({ ...db.prepare("SELECT seen, done FROM email_status WHERE email_id = 1").get() }, { seen: 0, done: 0 });
+    throwsSql(db, `INSERT INTO email_status (email_id,updated_at) VALUES (1,'${T}')`, /UNIQUE|PRIMARY/);
+    db.exec("DELETE FROM email_status");
+    throwsSql(db, `INSERT INTO email_status (email_id,seen,updated_at) VALUES (1,2,'${T}')`, /CHECK/);
+    throwsSql(db, `INSERT INTO email_status (email_id,done,updated_at) VALUES (1,-1,'${T}')`, /CHECK/);
+  });
+  test("accounts.color is optional and only #rrggbb in lower case", () => {
+    const db = fresh();
+    db.exec(`INSERT INTO accounts (id,label,host,port,mailbox) VALUES ('n','l','h',993,'INBOX')`);
+    db.exec(`INSERT INTO accounts (id,label,host,port,mailbox,color) VALUES ('c','l','h',993,'INBOX','#0a1b2c')`);
+    for (const bad of ["red", "#fff", "#0A1B2C", "#0a1b2g", "0a1b2c", "#0a1b2c0"]) {
+      throwsSql(db, `INSERT INTO accounts (id,label,host,port,mailbox,color) VALUES ('x','l','h',993,'INBOX','${bad}')`, /CHECK/);
+    }
+    assert.equal((db.prepare("SELECT color FROM accounts WHERE id = 'n'").get() as { color: string | null }).color, null);
+  });
+  test("a database that only has 001 upgrades without losing rows", () => {
+    const dir = join(tmp, "migs-001-only");
+    mkdirSync(dir);
+    writeFileSync(join(dir, "001_init.sql"), readFileSync(join(MIGRATIONS_DIR, "001_init.sql"), "utf8"));
+    const path = join(tmp, "upgrade.db");
+    const old = openDatabase(path, dir);
+    seed(old);
+    old.close();
+    const db = openDatabase(path);
+    opened.push(db);
+    assert.equal((db.prepare("SELECT COUNT(*) AS n FROM emails").get() as { n: number }).n, 1);
+    assert.deepEqual((db.prepare("SELECT version FROM schema_migrations ORDER BY version").all() as { version: number }[]).map((r) => r.version), [1, 2]);
+    db.exec(`INSERT INTO email_status (email_id,seen,updated_at) VALUES (1,1,'${T}')`);
+  });
+});
+
 describe("audit_log append-only triggers", () => {
   test("UPDATE and DELETE are aborted", () => {
     const db = fresh();
@@ -366,7 +407,7 @@ describe("migration runner", () => {
     const b = openDatabase(path);
     opened.push(b);
     const rows = b.prepare("SELECT version FROM schema_migrations").all() as { version: number }[];
-    assert.deepEqual(rows.map((r) => r.version), [1]);
+    assert.deepEqual(rows.map((r) => r.version), [1, 2]);
   });
 
   test("numeric (not lexical) order, applied once", () => {

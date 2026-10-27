@@ -1,6 +1,6 @@
 # E-Mail-Agent – Datenmodell (ERD + DDL)
 
-Quelle der Wahrheit für das SQLite-Schema. `db/migrations/001_init.sql` enthält den DDL-Block aus diesem Dokument **wörtlich**; ein Test vergleicht beides (siehe unten). Das Schema speichert ausschließlich Metadaten, Klassifikationsantworten und Betriebszustand – nie Mailinhalte.
+Quelle der Wahrheit für das SQLite-Schema. Jede Migration `db/migrations/NNN_*.sql` enthält den DDL-Block ihres Abschnitts „DDL“ in diesem Dokument **wörtlich**; ein Test vergleicht beides (siehe unten). Das Schema speichert ausschließlich Metadaten, Klassifikationsantworten und Betriebszustand – nie Mailinhalte.
 
 ## ERD
 
@@ -10,6 +10,7 @@ erDiagram
   accounts ||--o| worker_status : "Betriebszustand"
   accounts ||--o{ emails : empfaengt
   emails ||--|{ email_locations : "liegt in Ordner"
+  emails ||--o| email_status : "gelesen / erledigt"
   emails ||--o{ classifications : "Lauf je Fragenset"
   classifications ||--o{ classification_answers : Antworten
   accounts |o--o{ audit_log : betrifft
@@ -23,6 +24,7 @@ erDiagram
     text mailbox
     text spam_mailbox
     integer enabled
+    text color
   }
   mailbox_state {
     text account_id PK, FK
@@ -47,6 +49,12 @@ erDiagram
     text subject
     text received_at
     text first_seen_at
+  }
+  email_status {
+    integer email_id PK, FK
+    integer seen
+    integer done
+    text updated_at
   }
   email_locations {
     integer id PK
@@ -111,6 +119,9 @@ Mermaid kann zusammengesetzte Eindeutigkeit nicht gruppieren. Maßgeblich sind d
 7. **Kein Schwellwert in der DB.** `spam_threshold` kommt aus der Konten-JSON; der je Lauf angewandte Wert steht in der abgeleiteten Antwort.
 8. **Zeitstempel** sind ISO-8601 UTC als TEXT (`2026-10-26T19:48:46.692Z`).
 9. **Keine Inhaltsspalten.** Kein Body, Auszug, Rohquelle, Header-Rohdaten, Anhang oder Roh-Response. Absender (nur Adresse, kleingeschrieben) und Betreff sind die einzigen Mailinhalte in der DB; sie dürfen nie in Logs.
+10. **Lese- und Erledigt-Status getrennt von der Mail (002).** `email_status` hat höchstens eine Zeile je Mail. `seen` kommt ausschließlich vom Provider (IMAP-Flag `\Seen`, nur gelesen, nie geschrieben); `done` setzt allein Nico in der App (nur App-DB). Eine fehlende Zeile bedeutet `seen = 0, done = 0`. Beide Werte sind unabhängig: Der Worker überschreibt nie `done`, die App nie `seen`. „Offen“ ist keine Spalte, sondern eine reine Funktion (Plan v5, 3.6).
+11. **Kontofarbe in der DB (002).** `accounts.color` (`#rrggbb`, klein geschrieben, optional) wird beim Start wie `label` aus der Konten-Datei synchronisiert. Dadurch muss die API nie die Konten-Datei (mit Zugangsdaten) lesen, und der synthetische Modus hat Farben. Abweichung von Plan v5 D29 („kein Schema nötig“), begründet in `docs/DEVIATIONS.md`.
+12. **Audit der App-Aktionen.** `email_done` und `email_undone` stehen mit `actor = 'system'` im `audit_log` (nur `email_id` und `account_id`, `details_json` leer). Ein eigener Akteur `nico` kommt erst mit der Rebuild-Migration von `audit_log` (Plan v5, Abschnitt 4), nicht vorher.
 
 ## Verbindungs-Pragmas (nicht Teil der Migration, bei jeder Verbindung setzen)
 
@@ -232,9 +243,25 @@ BEGIN SELECT RAISE(ABORT, 'audit_log is append-only'); END;
 
 `audit_log.action` ist bewusst frei erweiterbar; im Code gibt es dafür einen Union-Typ. Vorgesehene Werte: `worker_connected`, `worker_backoff`, `worker_paused`, `worker_reconnect_forced`, `uidvalidity_reset`, `folder_changed`, `source_gone`, `classification_failed`, `jev_paused`, `shadow_quarantine_computed`, `sample_previewed`, `sample_started`, `sample_finished`, `eval_run`. `details_json` enthält nur IDs, Codes, Zähler und Ordnernamen, nie Betreff, Absender, Body oder Credentials.
 
+## DDL (`db/migrations/002_status_and_account_color.sql`)
+
+```sql
+CREATE TABLE email_status (
+  email_id   INTEGER PRIMARY KEY REFERENCES emails (id),
+  seen       INTEGER NOT NULL DEFAULT 0 CHECK (seen IN (0, 1)),
+  done       INTEGER NOT NULL DEFAULT 0 CHECK (done IN (0, 1)),
+  updated_at TEXT NOT NULL
+);
+
+ALTER TABLE accounts ADD COLUMN color TEXT
+  CHECK (color IS NULL OR (length(color) = 7 AND color GLOB '#[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]'));
+```
+
+`audit_log.action` kennt zusätzlich `email_done` und `email_undone`.
+
 ## Schema-Test (`tests/db.test.ts`)
 
-- Der einzige SQL-Codeblock unter der Überschrift „DDL“ ist nach Whitespace-Normalisierung identisch mit `db/migrations/001_init.sql` (der Pragma-Block darüber ist bewusst als `text` ausgezeichnet und gehört nicht dazu).
+- Jeder Abschnitt „## DDL (`db/migrations/NNN_name.sql`)“ hat genau einen SQL-Codeblock, der nach Whitespace-Normalisierung identisch mit der benannten Migrationsdatei ist; jede Migrationsdatei hat einen solchen Abschnitt (der Pragma-Block ist bewusst als `text` ausgezeichnet und gehört nicht dazu).
 - Die Spaltenmenge jeder Tabelle (`PRAGMA table_info`) entspricht einer Allowlist im Test. Kein Spaltenname passt auf `/(^|_)(body|snippet|excerpt|raw|attachment|html|content|spam_threshold)($|_)/i`.
 - FK-Verstöße, zusammengesetzter FK (Location eines fremden Kontos), alle UNIQUE- und CHECK-Klauseln, `json_valid`-Checks und beide Append-only-Trigger werden mit je einem Verstoß-Test belegt.
 - Die drei Pragmas sind auf **jeder** geöffneten Verbindung aktiv.
