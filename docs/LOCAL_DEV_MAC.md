@@ -1,131 +1,142 @@
-# Lokale Entwicklung auf Nicos Mac: Übernahme aus der Cloud-Session
+# Lokale Entwicklung auf Nicos Mac: Übernahme, UI und Eval
 
-> Für den Coding-Agenten auf dem Mac. Ziel: den Stand von `origin/main-3jijzg` in das lokale `main` übernehmen, die Abhängigkeiten sauber installieren und `npm run dev` lokal laufen lassen. Verbindlich bleiben `CLAUDE.md`, `AGENTS.md`, `docs/IMPLEMENTATION_PLAN.md` (Abschnitt 3, H1–H10, STOP-Punkte) und `docs/IMPLEMENTATION_PLAN_v4.md` (H11–H15).
+> Für den Coding-Agenten auf dem Mac. Ziel:
+> 1. den Stand von `origin/main-3jijzg` in das lokale `main` übernehmen,
+> 2. die UI lokal starten, damit Nico sie ansehen kann,
+> 3. einen Eval-Lauf auf öffentlichen synthetischen Datensets durchführen und Nico die erzeugte Datei `data/eval-runs/insights.md` zurückgeben.
+>
+> Verbindlich bleiben `CLAUDE.md`, `AGENTS.md`, `docs/IMPLEMENTATION_PLAN.md` (Abschnitt 3, H1–H10, STOP-Punkte) und `docs/IMPLEMENTATION_PLAN_v4.md` (H11–H15).
 
 ## 0. Harte Regeln für diesen Ablauf
 
-- Secrets nie lesen oder ausgeben: `.env`, `.env.local`, `.mcp.json`, Konten-Datei (`data/accounts.json` bzw. `ACCOUNTS_FILE`). Prüfen ist nur über Variablennamen erlaubt, z. B. `grep -c '^OPENROUTER_API_KEY=' .env.local`.
-- Kein `sample`, kein `eval:jev`, keine IMAP- oder OpenRouter-Aufrufe. Die startet Nico selbst (H5/H14).
-- Nie pushen, nie `git add -A`/`git add .`, kein Force, kein Rebase von `main`. Fragen an Nico statt raten.
-- Bei einem Schritt, der anders ausgeht als hier beschrieben: anhalten und Nico berichten.
+- Secrets nie lesen oder ausgeben: `.env`, `.env.local`, `.mcp.json`, Konten-Datei (`data/accounts.json` bzw. `ACCOUNTS_FILE`). Prüfen nur über Variablennamen, z. B. `grep -c '^OPENROUTER_API_KEY=' .env.local`.
+- Kein `npm run sample`, keine IMAP-Verbindung zu echten Konten. Die UI läuft in diesem Ablauf **ohne** IMAP-Worker (Abschnitt 5).
+- Der einzige erlaubte externe Aufruf ist der Eval-Lauf aus Abschnitt 6: synthetische Mails, Modell `typesafe/jev-1.13`, höchstens 3 × 100 Aufrufe (ca. 1,5 Cent). Nico hat ihn ausdrücklich beauftragt.
+- Nie pushen, nie `git add -A`/`git add .`, kein Force, kein Rebase. Nichts committen, was unter `data/` liegt.
+- Mailinhalte aus `data/` nie in Chat oder Berichte kopieren. Weitergeben darf der Agent nur `data/eval-runs/insights.md` (enthält nur Aggregate und Fall-IDs).
+- Geht ein Schritt anders aus als beschrieben: anhalten und Nico berichten, nicht improvisieren.
 
-## 1. Ausgangslage (Stand 2026-10-27)
+## 1. Ausgangslage
 
 | Ref | Commit | Bedeutung |
 |---|---|---|
 | `origin/main` | `e4f1f36` | letzter gepushter Stand |
-| lokales `main` auf dem Mac | `6a54bf6` | 5 Commits weiter (Notizen, Sample-Fix, Plan v4), nie gepusht |
-| `origin/main-3jijzg` | `e9252f2` oder neuer | baut direkt auf `6a54bf6` auf, Fast-Forward möglich |
+| lokales `main` | `6a54bf6` | 5 Commits weiter, nie gepusht |
+| `origin/main-3jijzg` | neuester Stand | baut direkt auf `6a54bf6` auf (Fast-Forward) |
 
-Inhalt von `main-3jijzg` über `6a54bf6` hinaus:
-1. `19b301f` WIP-Snapshot der Desktop-App: `HANDOVER.md` (jetzt getrackt) und `node_modules/.package-lock.json`. Das sind genau die nicht committeten Änderungen, die auf dem Mac noch im Arbeitsverzeichnis liegen.
-2. T29 `scripts/`: `sample.ts` und `eval-jev.ts` liegen jetzt unter `scripts/`, `tools/` ist nur noch für Veryfront-Tools.
-3. T24 `npm run calibrate` (nur Aggregate aus der lokalen DB).
-4. T30: `node_modules/` ist **nicht mehr getrackt**. Dazu Signal-Handler-Fix in `server.ts` und ein Status-Route-Test.
-5. T39 `docs/agent-contract.md` mit offener Entscheidung O1 (siehe Abschnitt 6).
-6. T40 `lib/agent-eligibility.ts`, `lib/agent-input.ts` (Sperre und Eingabe für den Antwort-Agenten).
-7. T33 `lib/csrf.ts`, `lib/rate-limit.ts` (noch nicht an Routen angeschlossen, siehe `docs/DEVIATIONS.md`).
-8. Fix: `calibrate` gibt im Fehlerfall nur Fehlerklasse und Code aus.
-9. T41 (Teil) `tools/get-email-context.ts`, Lese-Tool für den Agenten.
-10. T38 PWA: `public/manifest.webmanifest`, Icons, `public/sw.js`, `app/register-sw.tsx`, Head-Tags in `app/layout.tsx`.
+Wesentliche Neuerungen auf `main-3jijzg`: CLIs unter `scripts/`, `node_modules` nicht mehr getrackt, `npm run calibrate`, Agent-Sperre und -Eingabe, CSRF/Rate-Limit-Bausteine, Lese-Tool `tools/get-email-context.ts`, PWA (Manifest, Icons, Service Worker), Eval-Pipeline auf Hugging-Face-Daten (`eval:fetch`, `eval:jev --source hf`, `eval:compare` mit `insights.md`). Details: `git log --oneline 6a54bf6..origin/main-3jijzg`.
 
 ## 2. Übernehmen
 
 ```sh
 cd <repo>
-git status --short            # erwartet: M node_modules/.package-lock.json, ?? HANDOVER.md (evtl. mehr: dann STOP)
+git status --short            # erwartet: M node_modules/.package-lock.json und ?? HANDOVER.md, sonst nichts
 git log --oneline -1          # erwartet: 6a54bf6 docs: approve plan v4 ...
 ```
 
-Stimmt `git status` nicht mit der Erwartung überein (weitere geänderte oder neue Dateien): **anhalten** und Nico die Liste zeigen, nichts verwerfen.
+Weitere geänderte oder neue Dateien: **anhalten**, Nico die Liste zeigen, nichts verwerfen.
 
-Die zwei erwarteten Änderungen sind im WIP-Commit enthalten. Erst beiseitelegen, nach dem Merge vergleichen:
+Beide erwarteten Änderungen stecken im WIP-Commit `19b301f`. Beiseitelegen, übernehmen, vergleichen:
 
 ```sh
 mkdir -p ../email-agent-backup
-cp HANDOVER.md ../email-agent-backup/HANDOVER.md
 mv HANDOVER.md ../email-agent-backup/HANDOVER.local.md
 git restore node_modules/.package-lock.json
 
 git fetch origin main-3jijzg
-git merge --ff-only origin/main-3jijzg     # muss ohne Merge-Commit durchgehen
+git merge --ff-only origin/main-3jijzg
 diff -q HANDOVER.md ../email-agent-backup/HANDOVER.local.md && echo "HANDOVER identisch"
 ```
 
-Ist `HANDOVER.md` nicht identisch: Nico fragen, welche Fassung gilt. `--ff-only` scheitert: anhalten, nicht mergen oder rebasen.
+`--ff-only` scheitert oder `HANDOVER.md` weicht ab: anhalten und Nico fragen.
 
 ## 3. Abhängigkeiten
 
-Beim Merge löscht Git die bisher getrackten Dateien unter `node_modules/`. Das ist erwartet. Danach komplett neu installieren:
+Beim Merge löscht Git die bisher getrackten Dateien unter `node_modules/`. Das ist erwartet.
 
 ```sh
 nvm use                        # liest .nvmrc
-node -v                        # muss exakt v26.12.1 sein, sonst STOP-1
+node -v                        # exakt v26.12.1, sonst STOP-1
 rm -rf node_modules
 npm ci
 ```
 
-`node_modules` **nicht** als Symlink anlegen: Veryfront lädt API-Routen dann mit "Import escapes the project directory" und antwortet mit 500.
+`node_modules` nie als Symlink anlegen; Veryfront-API-Routen antworten sonst mit 500 („Import escapes the project directory“).
 
 ## 4. Prüfen
 
 ```sh
 npm run typecheck
-npm test -- --test-reporter=spec tests/*.test.ts     # erwartet: 219 Tests, 0 fail (oder mehr, falls neuer)
+npm test -- --test-reporter=spec tests/*.test.ts     # 0 fail erwartet
 npm run build
+graphify update .                                    # lokaler Code-Graph, nur AST
 ```
 
-Code-Graph neu bauen (lokal, nur AST, keine API-Kosten):
+## 5. UI starten (ohne IMAP-Worker)
 
-```sh
-graphify update .
-```
-
-## 5. Dev-Server starten
-
-Env-Variablen nur per Name prüfen, Werte nie anzeigen:
+Env-Variablen nur per Name prüfen:
 
 ```sh
 for v in OPENROUTER_API_KEY ACCOUNTS_FILE DATABASE_PATH; do printf '%s: ' $v; grep -c "^$v=" .env.local; done
 ```
 
-`npm run dev` lädt `.env.local`, falls vorhanden. Mit `ACCOUNTS_FILE` starten die IMAP-Worker gegen echte Konten (nur lesend). Für einen reinen UI-Check ohne Worker eine Wegwerf-DB nehmen und die Konten-Datei weglassen:
+Die lokale Datenbank (`DATABASE_PATH`, Standard `data/email-agent.sqlite`) enthält die Mails aus Nicos erstem Sample. Die UI zeigt sie, ohne dass IMAP-Worker laufen. Die Worker starten nur, wenn die Konten-Datei existiert. Deshalb zeigt `ACCOUNTS_FILE` für diesen Start auf einen nicht existierenden Pfad. Bereits gesetzte Variablen haben Vorrang vor `.env.local`, `DATABASE_PATH` kommt weiter aus `.env.local`:
 
 ```sh
-mkdir -m 700 -p /tmp/ea-dev && env -u ACCOUNTS_FILE DATABASE_PATH=/tmp/ea-dev/dev.sqlite node server.ts --development
+ACCOUNTS_FILE=/nonexistent/accounts.json npm run dev
 ```
 
-Achtung: `node --env-file-if-exists=.env.local` (aus `npm run dev`) würde `ACCOUNTS_FILE` wieder setzen. Deshalb hier `node server.ts` direkt ohne `--env-file`.
+Die Startzeile muss `workers=disabled` zeigen. Steht dort `workers=running`: sofort mit Ctrl-C stoppen und Nico berichten.
 
-Ob echte Worker laufen sollen, entscheidet Nico. Das wäre `npm run dev` mit seiner `.env.local`.
-
-Checks, wenn der Server läuft:
+Checks in einem zweiten Terminal:
 
 ```sh
-curl -s http://127.0.0.1:3000/api/health     # {"status":"ok"}
-curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3000/api/status    # 200
-curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3000/api/emails    # 200
+curl -s http://127.0.0.1:3000/api/health                                          # {"status":"ok"}
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3000/api/status          # 200
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3000/api/emails          # 200
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3000/manifest.webmanifest   # 200
+curl -s http://127.0.0.1:3000/api/status | python3 -c 'import json,sys; print(json.load(sys.stdin)["classifications"])'   # nur Zähler
 ```
 
-Dashboard: http://127.0.0.1:3000
+`/api/emails` liefert Absender und Betreff echter Mails: den Inhalt nicht ausgeben oder kopieren, nur den Statuscode prüfen.
 
-## 6. Bekannte Punkte (nicht selbst „reparieren“, nur berichten)
+Dann Nico Bescheid geben: **UI unter http://127.0.0.1:3000 im Browser öffnen.** Den Server laufen lassen, bis Nico fertig ist.
 
-- **Service Worker im Dev-Modus:** `public/sw.js` registriert sich auch auf `127.0.0.1` und liefert gecachte JS/CSS-Module zuerst aus (stale-while-revalidate). Nach Codeänderungen kann der erste Reload alten Code zeigen. Workaround: in den Chrome DevTools unter Application → Service Workers „Update on reload“ oder „Bypass for network“ setzen bzw. den SW abmelden. Ob die Registrierung im Dev-Modus abgeschaltet wird, ist ein offener Punkt für Nico.
-- **POST gibt 403:** Veryfront lehnt im Dev-Server jeden POST ab, auch mit passender `Origin`. Heute gibt es keine eigenen POST-Routen; relevant ab T37/T42.
-- **O1 offen:** Der Antwort-Agent braucht eine Provider-Entscheidung (Optionen A–D in `docs/agent-contract.md`, Abschnitt 3). Bis dahin kein `agents/reply-drafter.ts`.
-- **Agent-Sperre:** Weil `interpretNoul` noch unkalibriert ist (`unmapped`), sperrt `agentEligibility` jede Mail. Das ist gewollt.
-- **Commit-Autor:** Die Cloud-Commits stehen mit Autor „Claude <noreply@anthropic.com>“. Nicht umschreiben (H7).
-- **`main` pushen:** Der Fast-Forward ist nur lokal. Ob und wann `main` gepusht wird, entscheidet Nico.
+Hinweis Service Worker: `public/sw.js` registriert sich auch lokal und liefert gecachte JS/CSS zuerst aus. Zeigt die Seite nach Codeänderungen alten Stand: Chrome DevTools → Application → Service Workers → „Update on reload“ aktivieren oder den SW abmelden.
 
-## 7. Nächste Schritte für Nico (nicht für den Agenten)
+## 6. Eval-Lauf (öffentliche synthetische Datensets)
 
-1. T23: Kontroll-Sample mit dem Custom-Domain-Konto, danach `npm run calibrate`.
-2. T25: Schwellen aus dem Bericht festlegen.
-3. T31: Tailscale-Serve-Probe im eigenen Tailnet.
-4. O1: Provider-Option A–D wählen.
+Voraussetzung: `OPENROUTER_API_KEY` ist in `.env.local` gesetzt (nur per Name prüfen, siehe oben). Kann parallel zum laufenden Dev-Server in einem weiteren Terminal laufen.
 
-## 8. Bericht an Nico
+```sh
+npm run eval:fetch                                        # lädt 2 synthetische Sets nach data/eval-datasets/ (kein Jev-Aufruf)
+npm run eval:jev -- --source hf --seed 1 --n 100 --max-cost 0.05
+npm run eval:jev -- --source hf --seed 2 --n 100 --max-cost 0.05
+npm run eval:jev -- --source hf --seed 3 --n 100 --max-cost 0.05
+npm run eval:compare                                      # schreibt data/eval-runs/insights.md
+```
 
-Kurz: Ergebnis von `git status` vor dem Merge, Fast-Forward ok/nicht ok, `HANDOVER.md` identisch ja/nein, `node -v`, Testzahlen, Build ok, Ergebnisse der vier `curl`-Checks, Auffälligkeiten.
+- Jeder `eval:jev`-Lauf macht höchstens 100 Aufrufe (harte Grenze 200) und bricht über 0,05 $ ab. Erwartet sind ca. 0,005 $ pro Lauf.
+- Endet ein Lauf mit Fehlern (z. B. `401`, `402`, `429`): nicht wiederholen, anhalten und Nico die Fehlerklassen aus der Ausgabe nennen (ohne Key oder Header).
+- Laufberichte liegen unter `data/eval-runs/*.json`, nichts davon committen.
+- Datenquellen, Lizenzen und Label-Mapping: `docs/eval-datasets.md`.
+
+## 7. Rückgabe an Nico
+
+Ein kurzer Bericht plus der vollständige Inhalt von `data/eval-runs/insights.md`:
+
+1. `git status` vor dem Merge, Fast-Forward ok/nicht ok, `HANDOVER.md` identisch ja/nein.
+2. `node -v`, Testzahlen, Build ok.
+3. UI: Startzeile mit `workers=…`, die vier Statuscodes, Klassifikationszähler aus `/api/status`.
+4. Eval: je Lauf die Zeilen `cost total` und `cost per mail`, Fehlerklassen, dann **`data/eval-runs/insights.md` vollständig als Markdown** (die Datei enthält nur Aggregate und Fall-IDs und darf weitergegeben werden).
+5. Auffälligkeiten.
+
+Nico gibt diesen Bericht an die Cloud-Session weiter.
+
+## 8. Bekannte Punkte (nicht selbst „reparieren“, nur berichten)
+
+- POST-Anfragen gibt Veryfront im Dev-Server mit 403 zurück. Heute gibt es keine eigenen POST-Routen; relevant ab T37/T42.
+- O1 offen: Provider für den Antwort-Agenten (Optionen A–D in `docs/agent-contract.md`, Abschnitt 3).
+- `interpretNoul` ist unkalibriert (`unmapped`), daher sind Shadow-Entscheidung und Agent-Sperre fail-closed. Das ist gewollt.
+- Cloud-Commits haben als Autor „Claude <noreply@anthropic.com>“. Nicht umschreiben (H7).
+- `main` pushen entscheidet Nico.
