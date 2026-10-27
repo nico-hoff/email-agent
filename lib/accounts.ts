@@ -43,13 +43,13 @@ export function validateDatabasePath(
   return file;
 }
 
-/** Stores account metadata only (no credentials, no threshold). Accounts absent from the config are disabled, never deleted. */
+/** Stores account metadata only (label, tag color, folders; no credentials, no threshold). Accounts absent from the config are disabled, never deleted. */
 export function syncAccounts(db: DatabaseSync, accounts: AccountConfig[], now: Date = new Date()): void {
   const ts = now.toISOString();
   const upsert = db.prepare(
-    `INSERT INTO accounts (id, label, host, port, mailbox, spam_mailbox, enabled)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT (id) DO UPDATE SET label = excluded.label, host = excluded.host,
+    `INSERT INTO accounts (id, label, host, port, mailbox, spam_mailbox, enabled, color)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (id) DO UPDATE SET label = excluded.label, color = excluded.color, host = excluded.host,
        port = excluded.port, mailbox = excluded.mailbox, spam_mailbox = excluded.spam_mailbox,
        enabled = excluded.enabled`,
   );
@@ -65,7 +65,7 @@ export function syncAccounts(db: DatabaseSync, accounts: AccountConfig[], now: D
   try {
     const ids = new Set(accounts.map((a) => a.id));
     for (const a of accounts) {
-      upsert.run(a.id, a.label, a.host, a.port, a.mailbox, a.spam_mailbox ?? null, a.enabled ? 1 : 0);
+      upsert.run(a.id, a.label, a.host, a.port, a.mailbox, a.spam_mailbox ?? null, a.enabled ? 1 : 0, a.color ?? null);
       status.run(a.id, a.enabled ? "connecting" : "disabled", ts);
     }
     const known = db.prepare("SELECT id FROM accounts").all() as { id: string }[];

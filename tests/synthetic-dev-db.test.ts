@@ -82,6 +82,33 @@ describe("import of cases", () => {
     }
   });
 
+  it("gives every synthetic account a fixed, distinct tag color (the accounts file does not exist in this mode)", () => {
+    const db = memDb();
+    importSyntheticCases(db, [], { now: NOW });
+    const colors = db.prepare("SELECT id, color FROM accounts ORDER BY id").all().map((r) => ({ ...r }));
+    assert.equal(colors.length, 2);
+    for (const c of colors) assert.match(String(c.color), /^#[0-9a-f]{6}$/);
+    assert.equal(new Set(colors.map((c) => c.color)).size, colors.length);
+    importSyntheticCases(db, [], { now: new Date(NOW.getTime() + 1000) });
+    assert.deepEqual(db.prepare("SELECT id, color FROM accounts ORDER BY id").all().map((r) => ({ ...r })), colors);
+  });
+
+  it("never marks anything as read: seen comes from the provider only, so synthetic mails are all seen = 0 (and done is untouched)", () => {
+    const db = memDb();
+    const items = [
+      { case: mkCase("triage-1", { expected: { is_spam: true } }) },
+      { case: mkCase("triage-2", { expected: { is_phishing_or_scam: true } }) },
+      { case: mkCase("sinabis-3") },
+    ];
+    importSyntheticCases(db, items, { now: NOW });
+    assert.equal((db.prepare("SELECT COUNT(*) AS n FROM email_status WHERE seen <> 0").get() as { n: number }).n, 0);
+    // Nico finishes a mail in the app; a re-import must not undo it.
+    db.prepare("INSERT INTO email_status (email_id, seen, done, updated_at) VALUES (1, 0, 1, 't')").run();
+    importSyntheticCases(db, items, { now: NOW });
+    assert.deepEqual({ ...db.prepare("SELECT seen, done FROM email_status WHERE email_id = 1").get() }, { seen: 0, done: 1 });
+    assert.equal((db.prepare("SELECT COUNT(*) AS n FROM email_status WHERE seen <> 0").get() as { n: number }).n, 0);
+  });
+
   it("is idempotent: same input twice gives identical rows", () => {
     const db = memDb();
     const items = [{ case: mkCase("triage-1") }, { case: mkCase("sinabis-2") }];

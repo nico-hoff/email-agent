@@ -2,6 +2,7 @@
   {
     "id": "private",
     "label": "Private inbox",
+    "color": "#3b82f6",
     "context": "Private inbox with much bulk mail; provider spam filter is unreliable",
     "host": "imap.example.invalid",
     "port": 993,
@@ -16,6 +17,7 @@
   {
     "id": "domain",
     "label": "Custom domain",
+    "color": "#10b981",
     "context": "Custom-domain mailbox; almost only important mail",
     "host": "imap.example.invalid",
     "port": 993,
@@ -28,6 +30,7 @@
   {
     "id": "work",
     "label": "Work",
+    "color": "#f97316",
     "context": "Work mailbox; many automated notifications, humans write rarely but matter",
     "host": "imap.example.invalid",
     "port": 993,

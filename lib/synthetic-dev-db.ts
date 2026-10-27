@@ -78,10 +78,14 @@ function syntheticUid(caseId: string): number {
   return m ? Number(m[1]) + 1 : (fnv1a(caseId) % 2_000_000_000) + 1;
 }
 
+/** Fixed tag colors for the synthetic accounts, in EVAL_SOURCES order (the accounts file does not exist in this mode). */
+export const SYNTHETIC_COLORS: readonly string[] = ["#3b82f6", "#f97316", "#10b981", "#a855f7", "#ec4899", "#eab308"];
+
 function syntheticAccounts(): AccountConfig[] {
-  return EVAL_SOURCES.map((s) => ({
+  return EVAL_SOURCES.map((s, i) => ({
     id: syntheticAccountId(s.short),
     label: `Synthetic ${s.short}`,
+    color: SYNTHETIC_COLORS.at(i % SYNTHETIC_COLORS.length),
     context: "",
     host: SYNTHETIC_HOST,
     port: 993,

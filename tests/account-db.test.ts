@@ -27,6 +27,17 @@ function mem(): DatabaseSync {
 const rows = (db: DatabaseSync, sql: string) => db.prepare(sql).all().map((r) => ({ ...r })) as Record<string, unknown>[];
 
 describe("syncAccounts", () => {
+  test("color is synced like the label: set, changed and cleared by the accounts file", () => {
+    const db = mem();
+    const color = () => rows(db, "SELECT id, color FROM accounts ORDER BY id");
+    syncAccounts(db, [acc("a", { color: "#0a1b2c" }), acc("b")]);
+    assert.deepEqual(color(), [{ id: "a", color: "#0a1b2c" }, { id: "b", color: null }]);
+    syncAccounts(db, [acc("a", { color: "#ffffff" }), acc("b", { color: "#000000" })]);
+    assert.deepEqual(color(), [{ id: "a", color: "#ffffff" }, { id: "b", color: "#000000" }]);
+    syncAccounts(db, [acc("a"), acc("b", { color: "#000000" })]);
+    assert.deepEqual(color(), [{ id: "a", color: null }, { id: "b", color: "#000000" }]);
+  });
+
   test("upserts metadata and worker_status", () => {
     const db = mem();
     syncAccounts(db, [acc("a", { spam_mailbox: "Junk" }), acc("b", { enabled: false })]);

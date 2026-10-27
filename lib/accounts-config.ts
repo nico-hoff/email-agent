@@ -12,6 +12,8 @@ const nonEmpty = z.string().min(1);
 const accountSchema = z.strictObject({
   id: nonEmpty,
   label: nonEmpty,
+  /** Tag color on mail cards (#rrggbb, stored in lower case). Optional: the app falls back to a stable palette color. */
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/).transform((c) => c.toLowerCase()).optional(),
   context: z.string(),
   host: nonEmpty,
   port: z.number().int().min(1).max(65535),

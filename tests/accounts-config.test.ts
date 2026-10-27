@@ -1,7 +1,7 @@
 import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadAccountsConfig } from "../lib/accounts-config.ts";
@@ -67,6 +67,29 @@ describe("accounts-config", () => {
     assert.equal(res.accounts[0].spam_threshold, 0.95);
     assert.equal(res.accounts[0].spam_mailbox, undefined);
     assert.equal(res.accounts[1].spam_threshold, 0.8);
+  });
+
+  test("color is optional, must be #rrggbb, and is normalised to lower case", () => {
+    const ok = loadAccountsConfig({
+      env: { ACCOUNTS_FILE: write(outside, [account({ color: "#1A2b3C" }), account({ id: "a2" })]) },
+      projectRoot: tmp,
+    });
+    assert.equal(ok.status, "ok");
+    if (ok.status !== "ok") return;
+    assert.equal(ok.accounts[0].color, "#1a2b3c");
+    assert.equal(ok.accounts[1].color, undefined);
+    for (const bad of ["red", "#fff", "1a2b3c", "#1a2b3g", "#1a2b3c4d", "", 5]) {
+      rejects(write(outside, [account({ color: bad })]), /color/);
+    }
+  });
+  test("docs/accounts.example.json is valid and shows a color", () => {
+    const dir = mkdtempSync(join(tmpdir(), "email-agent-acc-example-"));
+    const file = join(dir, "accounts.json");
+    writeFileSync(file, readFileSync(join(repoRoot, "docs", "accounts.example.json")), { mode: 0o600 });
+    const res = loadAccountsConfig({ env: { ACCOUNTS_FILE: file }, projectRoot: tmp });
+    assert.equal(res.status, "ok");
+    if (res.status === "ok") assert.ok(res.accounts.some((a) => a.color !== undefined));
+    rmSync(dir, { recursive: true, force: true });
   });
 
   test("rejects invalid port, naming the field only", () => {
