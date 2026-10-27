@@ -148,7 +148,7 @@ Nico gibt diesen Bericht an die Cloud-Session weiter.
 
 ## 9. Bekannte Punkte (nicht selbst „reparieren“, nur berichten)
 
-- `interpretNoul` ist noch unkalibriert (`unmapped`): Die UI zeigt Rohwerte als „unkalibriert“, die Agent-Sperre blockt deshalb jede Mail. Die Schwellen-Datei (T25) kommt mit den Insights aus Abschnitt 6.
+- Schwellen-Datei `config/noul-calibration.ts`, Version 1 (vorläufig): `is_spam` 0.80, `is_phishing_or_scam` 0.50, `addresses_an_ai` 0.30. Die UI zeigt dafür Ja/Nein mit Rohwert und Schwelle. `needs_my_reply` und `is_assessable` bleiben „unkalibriert“, deshalb gibt es weiterhin keine Shadow-Kandidaten und keine Ansicht „Braucht Antwort“ (gewollt bis Fragenset v2). Die Werte bestätigt oder ändert Nico mit `insights-calib.md` aus Abschnitt 6a.
 - Der Login-Knopf mit fester Dev-Identität funktioniert nur im synthetischen Modus. Über das Tailnet braucht es `tailscale serve` und die Allowlist `auth-allowlist.json` neben der Datenbank (README, `docs/access-contract.md`).
 - Cloud-Commits haben als Autor „Claude <noreply@anthropic.com>“. Nicht umschreiben (H7).
 - `main` pushen entscheidet Nico.
