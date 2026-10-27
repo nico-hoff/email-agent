@@ -2,7 +2,7 @@
 
 > Für den Coding-Agenten auf dem Mac. Ziel:
 > 1. den Stand von `origin/main-3jijzg` in das lokale `main` übernehmen,
-> 2. die UI lokal starten, damit Nico sie ansehen kann,
+> 2. die UI lokal mit synthetischen Hugging-Face-Daten starten, damit Nico sie ansehen kann,
 > 3. einen Eval-Lauf auf öffentlichen synthetischen Datensets durchführen und Nico die erzeugte Datei `data/eval-runs/insights.md` zurückgeben.
 >
 > Verbindlich bleiben `CLAUDE.md`, `AGENTS.md`, `docs/IMPLEMENTATION_PLAN.md` (Abschnitt 3, H1–H10, STOP-Punkte) und `docs/IMPLEMENTATION_PLAN_v4.md` (H11–H15).
@@ -10,7 +10,7 @@
 ## 0. Harte Regeln für diesen Ablauf
 
 - Secrets nie lesen oder ausgeben: `.env`, `.env.local`, `.mcp.json`, Konten-Datei (`data/accounts.json` bzw. `ACCOUNTS_FILE`). Prüfen nur über Variablennamen, z. B. `grep -c '^OPENROUTER_API_KEY=' .env.local`.
-- Kein `npm run sample`, keine IMAP-Verbindung zu echten Konten. Die UI läuft in diesem Ablauf **ohne** IMAP-Worker (Abschnitt 5).
+- Kein `npm run sample`, kein `npm run dev:live`, keine IMAP-Verbindung zu echten Konten. `npm run dev` läuft synthetisch und ohne IMAP-Worker (Abschnitt 5).
 - Der einzige erlaubte externe Aufruf ist der Eval-Lauf aus Abschnitt 6: synthetische Mails, Modell `typesafe/jev-1.13`, höchstens 3 × 100 Aufrufe (ca. 1,5 Cent). Nico hat ihn ausdrücklich beauftragt.
 - Nie pushen, nie `git add -A`/`git add .`, kein Force, kein Rebase. Nichts committen, was unter `data/` liegt.
 - Mailinhalte aus `data/` nie in Chat oder Berichte kopieren. Weitergeben darf der Agent nur `data/eval-runs/insights.md` (enthält nur Aggregate und Fall-IDs).
@@ -24,7 +24,7 @@
 | lokales `main` | `6a54bf6` | 5 Commits weiter, nie gepusht |
 | `origin/main-3jijzg` | neuester Stand | baut direkt auf `6a54bf6` auf (Fast-Forward) |
 
-Wesentliche Neuerungen auf `main-3jijzg`: CLIs unter `scripts/`, `node_modules` nicht mehr getrackt, `npm run calibrate`, Agent-Sperre und -Eingabe, CSRF/Rate-Limit-Bausteine, Lese-Tool `tools/get-email-context.ts`, PWA (Manifest, Icons, Service Worker), Eval-Pipeline auf Hugging-Face-Daten (`eval:fetch`, `eval:jev --source hf`, `eval:compare` mit `insights.md`). Details: `git log --oneline 6a54bf6..origin/main-3jijzg`.
+Wesentliche Neuerungen auf `main-3jijzg`: CLIs unter `scripts/`, `node_modules` nicht mehr getrackt, `npm run calibrate`, Agent-Sperre und -Eingabe, CSRF/Rate-Limit-Bausteine, Lese-Tool `tools/get-email-context.ts`, PWA (Manifest, Icons, Service Worker), Eval-Pipeline auf Hugging-Face-Daten (`eval:fetch`, `eval:jev --source hf`, `eval:compare` mit `insights.md`), synthetische Dev-Datenbank (`npm run dev` ist jetzt synthetisch, `dev:seed`, altes Verhalten als `dev:live`). Details: `git log --oneline 6a54bf6..origin/main-3jijzg`.
 
 ## 2. Übernehmen
 
@@ -72,54 +72,51 @@ npm run build
 graphify update .                                    # lokaler Code-Graph, nur AST
 ```
 
-## 5. UI starten (ohne IMAP-Worker)
+## 5. UI mit synthetischen Daten starten
 
-Env-Variablen nur per Name prüfen:
-
-```sh
-for v in OPENROUTER_API_KEY ACCOUNTS_FILE DATABASE_PATH; do printf '%s: ' $v; grep -c "^$v=" .env.local; done
-```
-
-Die lokale Datenbank (`DATABASE_PATH`, Standard `data/email-agent.sqlite`) enthält die Mails aus Nicos erstem Sample. Die UI zeigt sie, ohne dass IMAP-Worker laufen. Die Worker starten nur, wenn die Konten-Datei existiert. Deshalb zeigt `ACCOUNTS_FILE` für diesen Start auf einen nicht existierenden Pfad. Bereits gesetzte Variablen haben Vorrang vor `.env.local`, `DATABASE_PATH` kommt weiter aus `.env.local`:
+`npm run dev` läuft immer synthetisch: Der Server nutzt die getrennte Datenbank `data/dev-synthetic.sqlite`, startet **keine** IMAP-Worker und ignoriert dafür `ACCOUNTS_FILE` und `DATABASE_PATH` aus `.env.local`. Die echte Datenbank wird nicht angefasst. Das alte Verhalten mit echten Konten heißt jetzt `npm run dev:live` und wird in diesem Ablauf **nicht** benutzt.
 
 ```sh
-ACCOUNTS_FILE=/nonexistent/accounts.json npm run dev
+npm run eval:fetch       # lädt die 2 synthetischen Hugging-Face-Sets nach data/eval-datasets/ (kein Jev-Aufruf)
+npm run dev:seed         # füllt data/dev-synthetic.sqlite mit diesen Mails, kostenlos und ohne Jev
+npm run dev
 ```
 
-Die Startzeile muss `workers=disabled` zeigen. Steht dort `workers=running`: sofort mit Ctrl-C stoppen und Nico berichten.
+Die Startzeile muss `workers=disabled data=synthetic` zeigen. Steht dort etwas anderes: sofort mit Ctrl-C stoppen und Nico berichten.
 
 Checks in einem zweiten Terminal:
 
 ```sh
-curl -s http://127.0.0.1:3000/api/health                                          # {"status":"ok"}
-curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3000/api/status          # 200
-curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3000/api/emails          # 200
-curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3000/manifest.webmanifest   # 200
-curl -s http://127.0.0.1:3000/api/status | python3 -c 'import json,sys; print(json.load(sys.stdin)["classifications"])'   # nur Zähler
+curl -s http://127.0.0.1:3000/api/health                                              # {"status":"ok"}
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3000/api/status              # 200
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3000/api/emails              # 200
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3000/manifest.webmanifest    # 200
+curl -s http://127.0.0.1:3000/api/status | python3 -c 'import json,sys; d=json.load(sys.stdin); print([w["account_id"] for w in d["workers"]], d["classifications"])'
 ```
 
-`/api/emails` liefert Absender und Betreff echter Mails: den Inhalt nicht ausgeben oder kopieren, nur den Statuscode prüfen.
+Erwartet: nur die Konten `hf-triage` und `hf-sinabis`. Taucht ein anderes Konto auf, ist die echte DB im Spiel: stoppen und berichten. Die Mails sind zunächst unklassifiziert (Zähler 0); die Klassifikationen kommen mit Abschnitt 6.
 
-Dann Nico Bescheid geben: **UI unter http://127.0.0.1:3000 im Browser öffnen.** Den Server laufen lassen, bis Nico fertig ist.
+Dann Nico Bescheid geben: **UI unter http://127.0.0.1:3000 öffnen.** Den Server laufen lassen.
 
 Hinweis Service Worker: `public/sw.js` registriert sich auch lokal und liefert gecachte JS/CSS zuerst aus. Zeigt die Seite nach Codeänderungen alten Stand: Chrome DevTools → Application → Service Workers → „Update on reload“ aktivieren oder den SW abmelden.
 
-## 6. Eval-Lauf (öffentliche synthetische Datensets)
+## 6. Eval-Lauf
 
-Voraussetzung: `OPENROUTER_API_KEY` ist in `.env.local` gesetzt (nur per Name prüfen, siehe oben). Kann parallel zum laufenden Dev-Server in einem weiteren Terminal laufen.
+Voraussetzung: `OPENROUTER_API_KEY` ist in `.env.local` gesetzt (nur per Name prüfen). Kann parallel zum laufenden Dev-Server in einem dritten Terminal laufen.
 
 ```sh
-npm run eval:fetch                                        # lädt 2 synthetische Sets nach data/eval-datasets/ (kein Jev-Aufruf)
 npm run eval:jev -- --source hf --seed 1 --n 100 --max-cost 0.05
 npm run eval:jev -- --source hf --seed 2 --n 100 --max-cost 0.05
 npm run eval:jev -- --source hf --seed 3 --n 100 --max-cost 0.05
-npm run eval:compare                                      # schreibt data/eval-runs/insights.md
+npm run eval:compare      # schreibt data/eval-runs/insights.md
 ```
 
-- Jeder `eval:jev`-Lauf macht höchstens 100 Aufrufe (harte Grenze 200) und bricht über 0,05 $ ab. Erwartet sind ca. 0,005 $ pro Lauf.
-- Endet ein Lauf mit Fehlern (z. B. `401`, `402`, `429`): nicht wiederholen, anhalten und Nico die Fehlerklassen aus der Ausgabe nennen (ohne Key oder Header).
-- Laufberichte liegen unter `data/eval-runs/*.json`, nichts davon committen.
-- Datenquellen, Lizenzen und Label-Mapping: `docs/eval-datasets.md`.
+- Jeder Lauf macht höchstens 100 Aufrufe (harte Grenze 200) und bricht über 0,05 $ ab. Erwartet sind ca. 0,005 $ pro Lauf.
+- Jeder Lauf schreibt die Jev-Antworten zusätzlich in `data/dev-synthetic.sqlite`. Danach im Browser neu laden: Die UI zeigt jetzt Kategorien, Jev-Antworten, Shadow-Entscheidung und Abweichungen (Phishing liegt im Ordner `Junk`).
+- Die `eval_run`-Audit-Zeile (nur Zähler und Kosten) landet wie bisher in der Datenbank aus `.env.local`. Das ist erwartet.
+- Endet ein Lauf mit Fehlern (z. B. `401`, `402`, `429`): nicht wiederholen, anhalten und Nico die Fehlerklassen nennen (ohne Key oder Header).
+- Laufberichte (`data/eval-runs/*.json`) und die Datensets nie committen.
+- Quellen, Lizenzen, Label-Mapping und Dev-DB: `docs/eval-datasets.md`.
 
 ## 7. Rückgabe an Nico
 
@@ -127,7 +124,7 @@ Ein kurzer Bericht plus der vollständige Inhalt von `data/eval-runs/insights.md
 
 1. `git status` vor dem Merge, Fast-Forward ok/nicht ok, `HANDOVER.md` identisch ja/nein.
 2. `node -v`, Testzahlen, Build ok.
-3. UI: Startzeile mit `workers=…`, die vier Statuscodes, Klassifikationszähler aus `/api/status`.
+3. UI: Startzeile (`workers=… data=…`), die vier Statuscodes, Konten und Klassifikationszähler aus `/api/status` vor und nach den Eval-Läufen.
 4. Eval: je Lauf die Zeilen `cost total` und `cost per mail`, Fehlerklassen, dann **`data/eval-runs/insights.md` vollständig als Markdown** (die Datei enthält nur Aggregate und Fall-IDs und darf weitergegeben werden).
 5. Auffälligkeiten.
 
