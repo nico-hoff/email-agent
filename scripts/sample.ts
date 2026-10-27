@@ -81,6 +81,7 @@ interface Selected {
   uid: number;
   uidValidity: number;
   messageId: string | null;
+  seen?: boolean | undefined;
 }
 
 export function parseSampleArgs(argv: string[]): {
@@ -164,7 +165,7 @@ export async function runSample(deps: SampleDeps, opts: SampleOptions): Promise<
         .slice(0, opts.limitPerFolder);
       selected[role] = headers.length;
       for (const h of headers) {
-        selection.push({ role, folder, uid: h.uid, uidValidity: status.uidValidity, messageId: h.messageId });
+        selection.push({ role, folder, uid: h.uid, uidValidity: status.uidValidity, messageId: h.messageId, seen: h.seen });
       }
     }
     const total = selection.length;
@@ -222,7 +223,7 @@ export async function runSample(deps: SampleDeps, opts: SampleOptions): Promise<
           } else {
             const parsed = await parseMessage(raw.source);
             const { emailId } = ingestMail(db, {
-              accountId: account.id, meta: parsed.meta, loc: src, now: now(), traceId,
+              accountId: account.id, meta: parsed.meta, loc: src, now: now(), traceId, seen: known === undefined ? s.seen : undefined,
             });
             touched.add(emailId);
             await pipeline.submit({ emailId, accountId: account.id, input: { ...parsed.meta, excerpt: parsed.excerpt } });

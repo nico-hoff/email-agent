@@ -50,6 +50,9 @@ class FakePort implements ImapPort {
   connectImpl: () => Promise<void> = async () => {};
   statusImpl: (f: string) => Promise<{ uidValidity: number; highestUid: number }>;
   inboxUids: number[] = [];
+  /** UIDs (any folder) the fake server reports as \\Seen. */
+  seenUids = new Set<number>();
+  flagCalls: [string, number[]][] = [];
   spamHeaders: { uid: number; messageId: string | null }[] = [];
   inflight = 0;
   maxInflight = 0;
@@ -73,8 +76,14 @@ class FakePort implements ImapPort {
   }
   async fetchHeadersSince(f: string, after: number) {
     this.headerCalls.push([f, after]);
-    if (f === "INBOX") return this.inboxUids.filter((u) => u > after).map((uid) => ({ uid, messageId: `<${uid}@x>` }));
-    return this.spamHeaders.filter((h) => h.uid > after);
+    if (f === "INBOX") {
+      return this.inboxUids.filter((u) => u > after).map((uid) => ({ uid, messageId: `<${uid}@x>`, seen: this.seenUids.has(uid) }));
+    }
+    return this.spamHeaders.filter((h) => h.uid > after).map((h) => ({ ...h, seen: this.seenUids.has(h.uid) }));
+  }
+  async fetchFlags(f: string, uids: number[]) {
+    this.flagCalls.push([f, uids]);
+    return uids.map((uid) => ({ uid, seen: this.seenUids.has(uid) }));
   }
   async fetchMessageByUid(f: string, uid: number) {
     this.fetchedBodies.push([f, uid]);
@@ -211,6 +220,44 @@ describe("imap workers", () => {
     assert.equal(h.db.prepare("SELECT last_uid FROM mailbox_state WHERE mailbox = 'Junk'").get()?.last_uid, 103);
     assert.notEqual(state(h.db, "a").last_poll_at, null);
     assert.equal(p.watched.at(-1), "INBOX");
+    await h.workers.stop();
+  });
+
+  test("provider \\Seen flag: stored for new mails, refreshed for known UIDs on every poll, never written", async () => {
+    const h = harness(["a"]);
+    h.workers.start();
+    await settle();
+    const p = h.ports.a[0];
+    const status = () =>
+      h.db.prepare("SELECT e.message_id AS m, s.seen, s.done FROM emails e LEFT JOIN email_status s ON s.email_id = e.id ORDER BY e.id").all().map((r) => ({ ...r }));
+    p.inboxUids = [11, 12];
+    p.seenUids = new Set([12]);
+    p.emit("exists");
+    await settle();
+    assert.deepEqual(status(), [{ m: "<11@x>", seen: 0, done: 0 }, { m: "<12@x>", seen: 1, done: 0 }]);
+    // Nico finishes 11 in the app; elsewhere the mail app reads 11 and un-reads 12
+    h.db.prepare("INSERT INTO email_status (email_id, seen, done, updated_at) VALUES (1, 0, 1, 't') ON CONFLICT (email_id) DO UPDATE SET done = 1").run();
+    p.seenUids = new Set([11]);
+    p.flagCalls.length = 0;
+    await h.clock.advance(POLL_INTERVAL_MS);
+    assert.deepEqual(p.flagCalls.find(([f]) => f === "INBOX"), ["INBOX", [11, 12]]);
+    assert.deepEqual(status(), [{ m: "<11@x>", seen: 1, done: 1 }, { m: "<12@x>", seen: 0, done: 0 }]);
+    await h.workers.stop();
+  });
+
+  test("provider flag of a mail the provider moved to the spam folder is read from the spam copy", async () => {
+    const h = harness(["a"]);
+    h.workers.start();
+    await settle();
+    const p = h.ports.a[0];
+    p.inboxUids = [11];
+    p.emit("exists");
+    await settle();
+    p.spamHeaders = [{ uid: 101, messageId: "<11@x>" }];
+    p.seenUids = new Set([101]);
+    await h.clock.advance(POLL_INTERVAL_MS);
+    assert.deepEqual({ ...h.db.prepare("SELECT seen FROM email_status WHERE email_id = 1").get() }, { seen: 1 });
+    assert.ok(p.flagCalls.some(([f]) => f === "Junk"));
     await h.workers.stop();
   });
 

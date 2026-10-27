@@ -11,6 +11,7 @@ import {
   reconcileCheckpoint,
   type TransientInput,
 } from "../lib/imap.ts";
+import { refreshSeenFlags } from "../lib/email-status.ts";
 import { ingestMail } from "../lib/ingest.ts";
 
 export interface Clock {
@@ -225,6 +226,12 @@ class AccountWorker {
   private async syncAll(port: ImapPort): Promise<void> {
     await this.syncInbox(port);
     if (this.account.spam_mailbox) await this.syncSpam(port, this.account.spam_mailbox);
+    // Provider \Seen flags of known mails (read-only FETCH FLAGS); the app never writes them back.
+    const now = new Date(this.clock.now());
+    await refreshSeenFlags(port, this.deps.db, { accountId: this.account.id, folder: this.account.mailbox, now });
+    if (this.account.spam_mailbox) {
+      await refreshSeenFlags(port, this.deps.db, { accountId: this.account.id, folder: this.account.spam_mailbox, now });
+    }
   }
 
   private async syncInbox(port: ImapPort): Promise<void> {
@@ -236,8 +243,8 @@ class AccountWorker {
       folder: this.account.mailbox,
       now: new Date(this.clock.now()),
       traceId,
-      writeMetadata: (meta, loc) => {
-        const r = ingestMail(db, { accountId: this.account.id, meta, loc, now: new Date(this.clock.now()), traceId });
+      writeMetadata: (meta, loc, flags) => {
+        const r = ingestMail(db, { accountId: this.account.id, meta, loc, now: new Date(this.clock.now()), traceId, seen: flags.seen });
         if (r.isNew) newIds.add(r.emailId);
         return r.emailId;
       },
@@ -270,6 +277,7 @@ class AccountWorker {
           loc: { folder, uid: h.uid, uidValidity: status.uidValidity },
           now,
           traceId,
+          seen: h.seen,
         });
       }
       advanceCheckpoint(db, this.account.id, folder, h.uid, now);

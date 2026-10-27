@@ -28,3 +28,7 @@ export const DEV_SYNTHETIC_DATABASE_PATH = "data/dev-synthetic.sqlite";
 /** Reply agent model (O1a): Veryfront OpenAI provider routed to OpenRouter; the model id itself is `openai/gpt-6-luna`. */
 export const REPLY_DRAFTER_MODEL = "openai/openai/gpt-6-luna";
 export const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
+/** Provider flags (\Seen) are re-read for mails first seen within this window, at every poll (read-only FETCH FLAGS). */
+export const FLAG_REFRESH_WINDOW_DAYS = 30;
+/** UIDs per FETCH FLAGS command. */
+export const FLAG_REFRESH_CHUNK = 200;

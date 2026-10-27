@@ -34,6 +34,8 @@ export interface MailboxStatus {
 export interface HeaderInfo {
   uid: number;
   messageId: string | null;
+  /** Provider flag \Seen, read together with the header. Undefined = the server did not say. */
+  seen?: boolean | undefined;
 }
 export interface RawMessage {
   uid: number;
@@ -90,6 +92,8 @@ export interface ImapPort {
   /** Header-only fetch of messages with UID greater than `afterUid`. */
   fetchHeadersSince(folder: string, afterUid: number): Promise<HeaderInfo[]>;
   fetchMessageByUid(folder: string, uid: number): Promise<RawMessage | null>;
+  /** Read-only FETCH of FLAGS for known UIDs (no body). Optional for fakes. */
+  fetchFlags?(folder: string, uids: number[]): Promise<{ uid: number; seen: boolean }[]>;
   /** Selects the folder read-only so that the connection IDLEs on it (call again after polling other folders). */
   watch(folder: string): Promise<void>;
   /** Read-only IMAP LIST: folder paths plus special-use flag (e.g. "\\Junk"). Optional for fakes. */
@@ -162,6 +166,13 @@ function defaultFactory(cfg: ImapConnectionConfig): FlowClient {
   });
 }
 
+/** System flags are case-insensitive (RFC 3501). */
+function hasSeen(flags: Set<string> | undefined): boolean | undefined {
+  if (!flags) return undefined;
+  for (const f of flags) if (f.toLowerCase() === "\\seen") return true;
+  return false;
+}
+
 function parseMessageId(headers: Buffer | undefined): string | null {
   if (!headers) return null;
   const m = /^message-id:[ \t]*(\S[^\r\n]*)/im.exec(headers.toString("latin1"));
@@ -196,9 +207,20 @@ export function createImapFlowPort(
       withLock(folder, async () => {
         const out: HeaderInfo[] = [];
         for await (
-          const m of client.fetch(`${afterUid + 1}:*`, { uid: true, headers: ["message-id"] }, { uid: true })
+          const m of client.fetch(`${afterUid + 1}:*`, { uid: true, flags: true, headers: ["message-id"] }, { uid: true })
         ) {
-          if (m.uid > afterUid) out.push({ uid: m.uid, messageId: parseMessageId(m.headers) });
+          if (m.uid > afterUid) out.push({ uid: m.uid, messageId: parseMessageId(m.headers), seen: hasSeen(m.flags) });
+        }
+        return out;
+      }),
+    fetchFlags: (folder, uids) =>
+      withLock(folder, async () => {
+        const out: { uid: number; seen: boolean }[] = [];
+        if (uids.length === 0) return out;
+        const asked = new Set(uids);
+        // FETCH FLAGS in an EXAMINEd mailbox: the server cannot change anything, and no body part is requested.
+        for await (const m of client.fetch(uids.join(","), { uid: true, flags: true }, { uid: true })) {
+          if (asked.has(m.uid)) out.push({ uid: m.uid, seen: hasSeen(m.flags) === true });
         }
         return out;
       }),
@@ -315,7 +337,11 @@ export interface FetchNewOptions {
   now: Date;
   traceId: string;
   /** Receives metadata only (never the excerpt); returns the email id. */
-  writeMetadata(meta: MessageMeta, loc: { folder: string; uid: number; uidValidity: number }): number;
+  writeMetadata(
+    meta: MessageMeta,
+    loc: { folder: string; uid: number; uidValidity: number },
+    flags: { seen: boolean | undefined },
+  ): number;
   /** Receives the transient input (with excerpt) in memory only. */
   onIngested(emailId: number, input: TransientInput): void | Promise<void>;
 }
@@ -335,7 +361,7 @@ export async function fetchNewMessages(
     const raw = await port.fetchMessageByUid(o.folder, h.uid);
     if (raw) {
       const { meta, excerpt } = await parseMessage(raw.source);
-      const emailId = o.writeMetadata(meta, { folder: o.folder, uid: h.uid, uidValidity: status.uidValidity });
+      const emailId = o.writeMetadata(meta, { folder: o.folder, uid: h.uid, uidValidity: status.uidValidity }, { seen: h.seen });
       await o.onIngested(emailId, { ...meta, excerpt });
       count++;
     }

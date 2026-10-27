@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import { upsertSeen } from "./email-status.ts";
 import type { MessageMeta } from "./imap.ts";
 
 export interface IngestInput {
@@ -7,6 +8,8 @@ export interface IngestInput {
   loc: { folder: string; uid: number; uidValidity: number };
   now: Date;
   traceId: string;
+  /** Provider flag \Seen of this copy; undefined = unknown, nothing is stored. */
+  seen?: boolean | undefined;
 }
 
 /** Idempotent ingest of one mail location in a single transaction. Persists metadata only. */
@@ -23,6 +26,7 @@ export function ingestMail(db: DatabaseSync, i: IngestInput): { emailId: number;
       .get(accountId, loc.folder, loc.uidValidity, loc.uid) as { id: number; email_id: number } | undefined;
     if (existing) {
       db.prepare("UPDATE email_locations SET last_seen_at = ? WHERE id = ?").run(ts, existing.id);
+      if (i.seen !== undefined) upsertSeen(db, existing.email_id, i.seen, ts);
       db.exec("COMMIT");
       return { emailId: existing.email_id, isNew: false };
     }
@@ -60,6 +64,7 @@ export function ingestMail(db: DatabaseSync, i: IngestInput): { emailId: number;
       `INSERT INTO email_locations (email_id, account_id, folder, uid_validity, uid, is_active, first_seen_at, last_seen_at)
        VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
     ).run(emailId, accountId, loc.folder, loc.uidValidity, loc.uid, ts, ts);
+    if (i.seen !== undefined) upsertSeen(db, emailId, i.seen, ts);
     db.exec("COMMIT");
     return { emailId, isNew };
   } catch (e) {

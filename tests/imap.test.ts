@@ -134,8 +134,11 @@ class FakeClient {
     this.calls.push(`fetch ${range}`);
     assert.equal(options.uid, true);
     assert.ok(!("source" in query), "bulk fetch must not request bodies");
-    yield { uid: 9, headers: Buffer.from("Message-ID: <nine@example.test>\r\n\r\n") };
-    yield { uid: 10, headers: Buffer.from("Subject: x\r\n\r\n") };
+    // Flags come back only when asked for; \Seen is matched case-insensitively (system flags are).
+    const flags = (...f: string[]) => (query.flags === true ? { flags: new Set(f) } : {});
+    yield { uid: 9, ...flags("\\Seen", "\\Answered"), headers: Buffer.from("Message-ID: <nine@example.test>\r\n\r\n") };
+    yield { uid: 10, ...flags("\\Flagged"), headers: Buffer.from("Subject: x\r\n\r\n") };
+    yield { uid: 12, ...flags("\\SEEN") };
   }
   async fetchOne(seq: string, query: Record<string, unknown>, options: Record<string, unknown>) {
     this.calls.push(`fetchOne ${seq}`);
@@ -166,9 +169,17 @@ describe("createImapFlowPort (read-only)", () => {
     await port.connect();
     assert.deepEqual(await port.mailboxStatus("INBOX"), { uidValidity: 7, highestUid: 10 });
     assert.deepEqual(await port.fetchHeadersSince("INBOX", 8), [
-      { uid: 9, messageId: "<nine@example.test>" },
-      { uid: 10, messageId: null },
+      { uid: 9, messageId: "<nine@example.test>", seen: true },
+      { uid: 10, messageId: null, seen: false },
+      { uid: 12, messageId: null, seen: true },
     ]);
+    // Flags of known UIDs (read-only FETCH of FLAGS, no body, never STORE).
+    assert.deepEqual(await port.fetchFlags!("INBOX", [9, 10]), [
+      { uid: 9, seen: true },
+      { uid: 10, seen: false },
+    ]); // uid 12 was not asked for and is dropped
+    assert.deepEqual(await port.fetchFlags!("INBOX", []), []);
+    assert.ok(fake.calls.includes("fetch 9,10"), "UID set is sent as a comma list");
     const msg = await port.fetchMessageByUid("INBOX", 5);
     assert.equal(msg?.uid, 5);
     await port.watch("INBOX");
@@ -179,7 +190,7 @@ describe("createImapFlowPort (read-only)", () => {
     ]);
     assert.equal(fake.locks.length, locksBefore, "LIST selects no mailbox");
     await port.close();
-    assert.ok(fake.locks.length >= 3);
+    assert.ok(fake.locks.length >= 4);
     for (const l of fake.locks) assert.deepEqual((l.options as { readOnly: boolean }).readOnly, true);
     assert.ok(!fake.calls.some((c) => c.startsWith("fetchOne") && c.includes("*")));
   });
@@ -255,7 +266,7 @@ describe("fetchNewMessages", () => {
       connect: async () => {},
       mailboxStatus: async () => ({ uidValidity: 5, highestUid: 12 }),
       fetchHeadersSince: async (_f, after) =>
-        [11, 12].filter((u) => u > after).map((uid) => ({ uid, messageId: `<${uid}@x>` })),
+        [11, 12].filter((u) => u > after).map((uid) => ({ uid, messageId: `<${uid}@x>`, seen: uid === 12 })),
       fetchMessageByUid: async (_f, uid) => {
         fetched.push(uid);
         return { uid, source: mime(BASE, "SECRETBODY " + uid) };
@@ -272,10 +283,12 @@ describe("fetchNewMessages", () => {
     const port = fakePort();
     const written: unknown[] = [];
     const transient: [number, unknown][] = [];
+    const seenFlags: [number, boolean | undefined][] = [];
     const res = await fetchNewMessages(port, db, {
       accountId: "a", folder: "INBOX", now: NOW, traceId: "t",
-      writeMetadata: (meta, loc) => {
+      writeMetadata: (meta, loc, flags) => {
         written.push({ meta, loc });
+        seenFlags.push([loc.uid, flags.seen]);
         return loc.uid * 100;
       },
       onIngested: (id, input) => {
@@ -284,6 +297,7 @@ describe("fetchNewMessages", () => {
     });
     assert.deepEqual(res, { kind: "continue", count: 2 });
     assert.deepEqual(port.fetched, [11, 12]);
+    assert.deepEqual(seenFlags, [[11, false], [12, true]], "the provider flag travels with the header, not with the message");
     assert.ok(!JSON.stringify(written).includes("SECRETBODY"));
     assert.ok(!JSON.stringify(written).includes("excerpt"));
     assert.deepEqual(transient.map((t) => t[0]), [1100, 1200]);
