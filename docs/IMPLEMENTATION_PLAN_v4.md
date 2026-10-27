@@ -40,6 +40,14 @@ Auf dem iPhone öffnet Nico eine installierbare Web-App (PWA). Sie zeigt je Kont
 | O6 | Kontrollkonto für die Kalibrierung | Custom-Domain-Konto (`domain`), zuerst als reines Sample |
 | O7 | Neue Abhängigkeiten | So wenige wie möglich. Was Veryfront (`veryfront/agent`, `veryfront/eval`) mitbringt, wird genutzt. Jede neue Abhängigkeit führt zu STOP-6. |
 
+### 2.3 Nachträge von Nico (2026-10-27)
+
+| ID | Thema | Entscheidung |
+|---|---|---|
+| O1a | Modell und Provider der Agenten | Alle Agenten laufen auf `openai/gpt-6-luna` über OpenRouter (exakte ID gepinnt, nicht `~openai/gpt-luna-latest`). Umsetzung nach Option A aus `docs/agent-contract.md`, aber ohne neue Pflicht-Variablen: Der Server setzt `OPENAI_API_KEY` und `OPENAI_BASE_URL` intern aus `OPENROUTER_API_KEY` bzw. `https://openrouter.ai/api/v1`, falls sie nicht gesetzt sind. Veryfront-Modellstring `openai/openai/gpt-6-luna`. |
+| O2a | Login-Erlebnis (ergänzt D16) | Beim Aufruf erscheint ein Welcome-Screen mit Knopf „Login“; ein Klick meldet an, ohne Passwort. Vertrauensgrenze bleibt das Tailnet: Die App bindet weiter an `127.0.0.1`, Zugriff von außen nur über `tailscale serve` (HTTPS, nötig für Service Worker und PWA auf dem iPhone). Der Login prüft die von Tailscale gesetzte Identität gegen die Allowlist (O3) und setzt ein Session-Cookie. Nie an `0.0.0.0` binden. |
+| O8 | Ablage der Schwellen (T25) | Versionierte Konfigurationsdatei im Repo, nicht im Code vergraben und nicht in `.env`. Werte kommen aus den Evals (Kalibrier-Partition der HF-Daten) und aus `npm run calibrate` auf Nicos Sample; im Zweifel die vorsichtigere Schwelle (Precision vor Recall bei Spam). |
+
 ## 3. Arbeitsregeln
 
 Es gelten **alle** Regeln aus v3, Abschnitt 3: Lesereihenfolge, TDD-Zyklus, H1–H10, STOP-1 bis STOP-7 und die Abweichungsdokumentation. Context7 zuerst für externe Doku, graphify zuerst für Code (`CLAUDE.md`). Zusätzlich:
