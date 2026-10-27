@@ -107,6 +107,11 @@ export interface PipelineOptions {
   /** Creates a read-only IMAP port for a retry refetch. The pipeline connects and closes it. */
   portFactory: (accountId: string) => ImapPort;
   persistResponse?: (ctx: ClassifiedContext) => void;
+  /**
+   * Called after the classification is committed (ids only). Errors, sync or async, are swallowed: a consumer such as
+   * the mailbox rules must never fail or roll back a classification.
+   */
+  onClassified?: (info: { emailId: number; accountId: string }) => void | Promise<void>;
   accountContext?: (accountId: string) => string | undefined;
   tickMs?: number;
 }
@@ -244,6 +249,11 @@ export function createClassificationPipeline(opts: PipelineOptions): Classificat
           return;
         }
         throw e;
+      }
+      try {
+        await opts.onClassified?.({ emailId: row.email_id, accountId: row.account_id });
+      } catch {
+        // see PipelineOptions.onClassified
       }
       return;
     }

@@ -6,6 +6,8 @@ import { join } from "node:path";
 import { createService, formatListening } from "../server.ts";
 import { DEV_SYNTHETIC_DATABASE_PATH } from "../lib/constants.ts";
 import { importSyntheticCases, openSyntheticDevDatabase } from "../lib/synthetic-dev-db.ts";
+import { QUESTIONS } from "../lib/jev-questions.ts";
+import type { NormalizedAnswer } from "../lib/jev-response.ts";
 
 const pkg = JSON.parse(readFileSync(join(import.meta.dirname, "..", "package.json"), "utf8")) as { scripts: Record<string, string> };
 const savedDb = process.env.DATABASE_PATH;
@@ -67,6 +69,38 @@ describe("synthetic mode of createService", () => {
     const logs: string[] = [];
     const svc = await createService({ synthetic: true, projectRoot: r, startHttp: fakeHttp, onSignal: () => {}, log: (m) => logs.push(m) });
     assert.ok(!logs.some((l) => l.includes("dev:seed")));
+    await svc.stop();
+  });
+
+  it("the rule engine runs on the synthetic database in dry_run only, and plans the Junk and spam mails", async () => {
+    const r = root();
+    const answers = (spam: number): NormalizedAnswer[] =>
+      Object.entries(QUESTIONS).map(([key, q]) =>
+        q.type === "noul" ? { key, type: "noul" as const, value: key === "is_spam" ? spam : 0.1 }
+        : q.type === "choice" ? { key, type: "choice" as const, value: key === "category" ? "business" : Object.keys(q.criteria)[0] }
+        : { key, type: "score" as const, value: 0 });
+    const db = openSyntheticDevDatabase(r);
+    const mk = (id: string, spam: number, junk: boolean) => ({
+      case: { id, source: "triage", lang: "en", sender_domain: "a.example.test", subject: "ZZSUBJECT", body: "ZZMARKER-BODY", expected: junk ? { is_spam: true } : {} } as never,
+      classification: { answers: answers(spam), modelReported: "synthetic" },
+    });
+    importSyntheticCases(db, [mk("triage-1", 0.99, true), mk("triage-2", 0.99, false), mk("triage-3", 0.05, false)], { now: new Date() });
+    db.close();
+    const logs: string[] = [];
+    // a kill-switch-free fresh root; the accounts file would say "live" but the synthetic mode never reads it
+    const svc = await createService({
+      synthetic: true, projectRoot: r, startHttp: fakeHttp, onSignal: () => {}, log: (m) => logs.push(m),
+      env: { ACCOUNTS_FILE: "/definitely/real/accounts.json" },
+    });
+    const check = openSyntheticDevDatabase(r);
+    const rows = check.prepare("SELECT rule, action, mode, status FROM mailbox_actions").all().map((x) => ({ ...x }));
+    check.close();
+    assert.deepEqual(rows, [
+      { rule: "spam_seen", action: "mark_seen", mode: "dry_run", status: "planned" },
+      { rule: "spam_seen", action: "mark_seen", mode: "dry_run", status: "planned" },
+    ]);
+    assert.ok(logs.some((l) => l.includes("2 mark-as-read")));
+    assert.ok(!logs.join("\n").includes("ZZSUBJECT"));
     await svc.stop();
   });
 

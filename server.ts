@@ -10,6 +10,11 @@ import { createImapFlowPort } from "./lib/imap.ts";
 import { applyOpenRouterEnv } from "./lib/openrouter-env.ts";
 import { findStyleScanHazards } from "./lib/dev-hazards.ts";
 import { DEFAULT_SPAM_THRESHOLD } from "./lib/accounts-config.ts";
+import { dataDirFromEnv } from "./lib/auth-runtime.ts";
+import { KILL_SWITCH_FILE } from "./lib/constants.ts";
+import { openDatabase } from "./lib/db.ts";
+import { createMailboxActions, type MailboxActions } from "./lib/mailbox-actions.ts";
+import { join } from "node:path";
 import { startServer } from "veryfront/server";
 import { register, tryResolve } from "veryfront/extensions/contracts";
 import { EsbuildBundler, EsModuleLexer } from "@veryfront/ext-bundler-esbuild";
@@ -85,13 +90,32 @@ export function createWorkersWithPipeline(
     log?: (message: string) => void;
     createJev?: (apiKey: string) => JevClient;
     createWorkers?: (d: ImapWorkersDeps) => ImapWorkers;
+    /** Global kill switch file for automatic mailbox actions (default: data/auto-actions.disabled next to the database). */
+    killSwitchFile?: string;
+    mailboxActions?: MailboxActions;
   } = {},
 ): ImapWorkers {
   const make = o.createWorkers ?? ((d) => createImapWorkers(d));
-  const apiKey = (o.env ?? process.env).OPENROUTER_API_KEY;
+  const log = o.log ?? (() => {});
+  const env = o.env ?? process.env;
+  // M7a: rule "Spam gelesen". Per-account mode comes from the accounts file (default dry_run); the executor is the
+  // only place that creates the IMAP write port. One bounded backfill at start covers already classified mails.
+  const actions = o.mailboxActions ?? createMailboxActions({
+    db: deps.db,
+    accounts: deps.accounts,
+    killSwitchFile: o.killSwitchFile ?? join(dataDirFromEnv(env, PROJECT_ROOT), KILL_SWITCH_FILE),
+  });
+  const withBackfill = (inner: ImapWorkers): ImapWorkers => ({
+    start() {
+      inner.start();
+      void actions.backfill().catch(() => log("mailbox action backfill failed"));
+    },
+    stop: () => inner.stop(),
+  });
+  const apiKey = env.OPENROUTER_API_KEY;
   if (!apiKey) {
-    (o.log ?? (() => {}))("classification disabled: OPENROUTER_API_KEY not set");
-    return make({ db: deps.db, accounts: deps.accounts });
+    log("classification disabled: OPENROUTER_API_KEY not set");
+    return withBackfill(make({ db: deps.db, accounts: deps.accounts }));
   }
   const byId = new Map(deps.accounts.map((a) => [a.id, a]));
   const pipeline = createClassificationPipeline({
@@ -104,6 +128,7 @@ export function createWorkersWithPipeline(
     },
     accountContext: (id) => byId.get(id)?.context,
     persistResponse: createPersistResponse((id) => byId.get(id)?.spam_threshold ?? DEFAULT_SPAM_THRESHOLD),
+    onClassified: ({ emailId }) => actions.onClassified(emailId),
   });
   const workers = make({
     db: deps.db,
@@ -117,13 +142,34 @@ export function createWorkersWithPipeline(
   return {
     start() {
       workers.start();
-      void pipeline.start().catch(() => (o.log ?? (() => {}))("pipeline start failed"));
+      void pipeline.start().catch(() => log("pipeline start failed"));
+      void actions.backfill().catch(() => log("mailbox action backfill failed"));
     },
     async stop() {
       pipeline.stop();
       await workers.stop();
     },
   };
+}
+
+/**
+ * Synthetic dev mode (no real mailboxes): the rule engine runs over the synthetic database, but the mode is always
+ * dry_run and no write port can be created. Gives the "Würde als gelesen markieren" view data to show.
+ */
+export async function planSyntheticActions(dbPath: string, projectRoot: string, log: (message: string) => void): Promise<void> {
+  const db = openDatabase(dbPath);
+  try {
+    const actions = createMailboxActions({
+      db, accounts: [], forceDryRun: true, killSwitchFile: join(dataDirFromEnv({ DATABASE_PATH: dbPath }, projectRoot), KILL_SWITCH_FILE),
+      writePortFor: () => undefined,
+    });
+    const r = await actions.backfill();
+    if (r.planned > 0) log(`synthetic dry run: ${r.planned} mark-as-read action(s) planned (nothing is written anywhere)`);
+  } catch {
+    log("synthetic dry run failed");
+  } finally {
+    db.close();
+  }
 }
 
 export function formatListening(svc: Pick<Service, "url" | "workerStatus" | "data">): string {
@@ -145,6 +191,7 @@ export async function createService(options: CreateServiceOptions = {}): Promise
     const prepared = prepareSyntheticDevDatabase(options.projectRoot ?? PROJECT_ROOT);
     process.env.DATABASE_PATH = prepared.path;
     if (!prepared.existed) log("synthetic dev database is empty: run `npm run eval:fetch && npm run dev:seed`");
+    await planSyntheticActions(prepared.path, options.projectRoot ?? PROJECT_ROOT, log);
   }
 
   // Startup errors (bad accounts file, DB path) reject before anything listens; messages carry no secrets.

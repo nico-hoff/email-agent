@@ -24,7 +24,7 @@ const fixture = () => JSON.parse(readFileSync(new URL("./fixtures/jev-email-v1-r
 const okWith = (answers: unknown, extra: Record<string, unknown> = {}): JevCallResult =>
   ({ ok: true, response: { ...fixture(), answers, model: "typesafe/jev-1.13-r", ...extra } as never });
 
-function setup(results: JevCallResult[] = [okWith(fixture().answers)]) {
+function setup(results: JevCallResult[] = [okWith(fixture().answers)], onClassified?: (i: { emailId: number; accountId: string }) => void | Promise<void>) {
   const db = openDatabase(":memory:");
   syncAccounts(db, [{
     id: "a", label: "a", context: "c", host: "h", port: 993, tls: true, user: "u", password: "p",
@@ -51,6 +51,7 @@ function setup(results: JevCallResult[] = [okWith(fixture().answers)]) {
   const pipeline = createClassificationPipeline({
     db, jev, portFactory: () => port, clock: { now: () => T0, setInterval: () => 0, clearInterval: () => {} },
     persistResponse: createPersistResponse(() => 0.9),
+    ...(onClassified ? { onClassified } : {}),
   });
   return { db, pipeline, emailId, seen };
 }
@@ -199,6 +200,41 @@ describe("computeShadowQuarantine", () => {
   });
 });
 
+describe("onClassified hook", () => {
+  test("runs after the commit, with ids only, once per successful classification", async () => {
+    const seen: { emailId: number; accountId: string; answers: number; status: string }[] = [];
+    let db!: ReturnType<typeof openDatabase>;
+    const s = setup(undefined, (i) => {
+      seen.push({
+        ...i,
+        answers: count(db, "SELECT COUNT(*) n FROM classification_answers"),
+        status: (db.prepare("SELECT status FROM classifications").get() as { status: string }).status,
+      });
+    });
+    db = s.db;
+    await s.pipeline.submit({ emailId: s.emailId, accountId: "a", input });
+    await s.pipeline.submit({ emailId: s.emailId, accountId: "a", input });
+    assert.deepEqual(seen, [{ emailId: s.emailId, accountId: "a", answers: 10, status: "classified" }]);
+  });
+
+  test("not called for failed, invalid or retried classifications", async () => {
+    let calls = 0;
+    const bad = setup([{ ok: true, response: { ...fixture(), answers: {} } as never }], () => { calls++; });
+    await bad.pipeline.submit({ emailId: bad.emailId, accountId: "a", input });
+    const retry = setup([{ ok: false, kind: "http", status: 500 } as never], () => { calls++; });
+    await retry.pipeline.submit({ emailId: retry.emailId, accountId: "a", input });
+    assert.equal(calls, 0);
+  });
+
+  test("a throwing or rejecting hook neither fails nor rolls back the classification", async () => {
+    for (const hook of [() => { throw new Error("boom"); }, async () => { throw new Error("boom"); }]) {
+      const s = setup(undefined, hook);
+      await s.pipeline.submit({ emailId: s.emailId, accountId: "a", input });
+      assert.equal(count(s.db, "SELECT COUNT(*) n FROM classifications WHERE status = 'classified'"), 1);
+    }
+  });
+});
+
 describe("server wiring", () => {
   test("onIngested submits to the pipeline; start/stop follow the worker lifecycle; threshold from config", async () => {
     const db = openDatabase(":memory:");
@@ -227,6 +263,37 @@ describe("server wiring", () => {
     assert.equal(JSON.parse(sh.answer_json).applied_threshold, 0.8);
     await w.stop();
     assert.deepEqual(calls, ["start", "stop"]);
+  });
+
+  test("a classified spam mail gets a dry-run action by default; the start-up backfill covers earlier mails", async () => {
+    const db = openDatabase(":memory:");
+    const accounts = [{
+      id: "a", label: "a", context: "ctx", host: "h", port: 993, tls: true, user: "u", password: "p",
+      mailbox: "INBOX", spam_threshold: 0.8, enabled: true,
+    }] as never[];
+    syncAccounts(db, accounts);
+    const { emailId } = ingestMail(db, { accountId: "a", meta, loc: { folder: "INBOX", uid: 7, uidValidity: 1 }, now: T0, traceId: "t" });
+    const earlier = ingestMail(db, { accountId: "a", meta: { ...meta, messageId: "<m2>" }, loc: { folder: "INBOX", uid: 8, uidValidity: 1 }, now: new Date(), traceId: "t" }).emailId;
+    // an earlier, already classified spam mail that has no action yet
+    const c = db.prepare("INSERT INTO classifications (email_id, question_set_version, model_requested, model_reported, status, created_at, updated_at) VALUES (?,?,?,?,'classified',?,?)")
+      .run(earlier, QUESTION_SET_VERSION, JEV_MODEL, JEV_MODEL, T0.toISOString(), T0.toISOString());
+    db.prepare("INSERT INTO classification_answers (classification_id, question_key, type, answer_json) VALUES (?, 'is_spam', 'noul', '{\"value\":0.9}')").run(Number(c.lastInsertRowid));
+    let captured: ((id: number, i: TransientInput) => void | Promise<void>) | undefined;
+    const w = createWorkersWithPipeline({ db, accounts }, {
+      env: { OPENROUTER_API_KEY: "test-key" },
+      killSwitchFile: "/nonexistent/auto-actions.disabled",
+      createJev: () => ({ classify: async () => okWith(fixture().answers) }),
+      createWorkers: (d) => { captured = d.onIngested; return { start() {}, async stop() {} }; },
+    });
+    w.start();
+    await captured!(emailId, input);
+    await new Promise((r) => setTimeout(r, 50));
+    const rows = db.prepare("SELECT email_id, mode, status FROM mailbox_actions ORDER BY email_id").all().map((r) => ({ ...r }));
+    assert.deepEqual(rows, [
+      { email_id: emailId, mode: "dry_run", status: "planned" },
+      { email_id: earlier, mode: "dry_run", status: "planned" },
+    ]);
+    await w.stop();
   });
 
   test("without OPENROUTER_API_KEY workers run without classification", () => {
