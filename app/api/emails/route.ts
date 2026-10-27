@@ -4,7 +4,7 @@ import { PROJECT_ROOT } from "../../../lib/constants.ts";
 import { listEmails, parseListQuery } from "../../../lib/email-api.ts";
 
 // Reads only from SQLite. Never exposes body/excerpt/raw data (none is stored) or account host/user.
-// Query: view=important|open|noise|all, account, status, limit (<= 50 with view/cursor, else <= 200), cursor (opaque).
+// Query: view=important|open|noise|all, account, status, limit (<= 50), cursor (opaque). Without view: all. Sorted by urgency, importance, time.
 export function GET(request: Request): Response {
   const parsed = parseListQuery(new URL(request.url));
   if (!parsed.ok) return Response.json({ error: parsed.error }, { status: 400 });

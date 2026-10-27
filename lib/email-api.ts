@@ -10,7 +10,6 @@ export const VIEWS = ["important", "open", "noise", "all"] as const;
 export type View = (typeof VIEWS)[number];
 export const STATUSES = ["pending", "retry_wait", "classified", "failed", "paused"] as const;
 export const PAGED_MAX_LIMIT = 50;
-export const LEGACY_MAX_LIMIT = 200;
 export const DEFAULT_LIMIT = 50;
 
 /** Categories that make a mail "noise" (Plan v5, 3.1). */
@@ -65,11 +64,6 @@ export function compareSortKeys(a: SortKey, b: SortKey): number {
     (a.receivedAt < b.receivedAt ? 1 : a.receivedAt > b.receivedAt ? -1 : 0) || b.id - a.id;
 }
 
-/** Legacy order of the first UI: time only. */
-function compareByTime(a: SortKey, b: SortKey): number {
-  return (a.receivedAt < b.receivedAt ? 1 : a.receivedAt > b.receivedAt ? -1 : 0) || b.id - a.id;
-}
-
 const CURSOR_MAX_CHARS = 200;
 const nullableNumber = (v: unknown): v is number | null => v === null || (typeof v === "number" && Number.isFinite(v));
 
@@ -97,16 +91,11 @@ export function decodeCursor(raw: string): SortKey | null {
 // ---- query ------------------------------------------------------------------------------------------------------
 
 export interface ListQuery {
-  view: View | null;
+  view: View;
   account: string | null;
   status: string | null;
   limit: number;
   cursor: SortKey | null;
-  /**
-   * true when the request names a view or a cursor: sorted by urgency, importance, time; limit <= 50.
-   * false: the first UI's request (time order, limit <= 200), kept until the UI uses views.
-   */
-  paged: boolean;
 }
 
 export type ParsedQuery = { ok: true; query: ListQuery } | { ok: false; error: string };
@@ -115,8 +104,7 @@ export function parseListQuery(url: URL): ParsedQuery {
   const p = url.searchParams;
   const viewParam = p.get("view");
   const cursorParam = p.get("cursor");
-  const paged = viewParam !== null || cursorParam !== null;
-  const max = paged ? PAGED_MAX_LIMIT : LEGACY_MAX_LIMIT;
+  const max = PAGED_MAX_LIMIT;
   let limit = Math.min(DEFAULT_LIMIT, max);
   const limitParam = p.get("limit");
   if (limitParam !== null) {
@@ -125,7 +113,7 @@ export function parseListQuery(url: URL): ParsedQuery {
   }
   const status = p.get("status");
   if (status !== null && !(STATUSES as readonly string[]).includes(status)) return { ok: false, error: "invalid_status" };
-  let view: View | null = null;
+  let view: View = "all";
   if (viewParam !== null) {
     if (!(VIEWS as readonly string[]).includes(viewParam)) return { ok: false, error: "invalid_view" };
     view = viewParam as View;
@@ -135,7 +123,7 @@ export function parseListQuery(url: URL): ParsedQuery {
     cursor = decodeCursor(cursorParam);
     if (cursor === null) return { ok: false, error: "invalid_cursor" };
   }
-  return { ok: true, query: { view, account: p.get("account"), status, limit, cursor, paged } };
+  return { ok: true, query: { view, account: p.get("account"), status, limit, cursor } };
 }
 
 // ---- rows -------------------------------------------------------------------------------------------------------
@@ -398,17 +386,16 @@ export function listEmails(db: DatabaseSync, q: ListQuery, deps: ApiDeps = {}): 
     if (d.open) counts.open++;
   }
 
-  const view: View = q.view ?? "all";
-  const compare = q.paged ? compareSortKeys : compareByTime;
-  let list = all.filter((d) => inView(view, d)).sort((a, b) => compare(a.key, b.key));
+  const view = q.view;
+  let list = all.filter((d) => inView(view, d)).sort((a, b) => compareSortKeys(a.key, b.key));
   if (q.cursor !== null) {
     const after = q.cursor;
-    const start = list.findIndex((d) => compare(d.key, after) > 0);
+    const start = list.findIndex((d) => compareSortKeys(d.key, after) > 0);
     list = start < 0 ? [] : list.slice(start);
   }
   const page = list.slice(0, q.limit);
   const last = page.at(-1);
-  const next_cursor = q.paged && list.length > q.limit && last ? encodeCursor(last.key) : null;
+  const next_cursor = list.length > q.limit && last ? encodeCursor(last.key) : null;
 
   const accounts = (db.prepare("SELECT id, label, color FROM accounts ORDER BY id").all() as { id: string; label: string; color: string | null }[])
     .map(accountTag);

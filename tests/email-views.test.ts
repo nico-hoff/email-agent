@@ -75,11 +75,11 @@ describe("sort keys and cursors", () => {
 describe("parseListQuery", () => {
   const q = (s: string) => parseListQuery(new URL(`http://x/api/emails${s}`));
   test("defaults, clamp and strict values", () => {
-    assert.deepEqual(q(""), { ok: true, query: { view: null, account: null, status: null, limit: 50, cursor: null, paged: false } });
+    assert.deepEqual(q(""), { ok: true, query: { view: "all", account: null, status: null, limit: 50, cursor: null } });
     const paged = q("?view=open&limit=500");
-    assert.ok(paged.ok && paged.query.limit === 50 && paged.query.paged && paged.query.view === "open");
-    const legacy = q("?limit=500");
-    assert.ok(legacy.ok && legacy.query.limit === 200 && !legacy.query.paged);
+    assert.ok(paged.ok && paged.query.limit === 50 && paged.query.view === "open");
+    const noLimit = q("?limit=500");
+    assert.ok(noLimit.ok && noLimit.query.limit === 50, "the legacy limit of 200 is gone");
     assert.deepEqual(q("?view=bogus"), { ok: false, error: "invalid_view" });
     assert.deepEqual(q("?view=folder:work"), { ok: false, error: "invalid_view" });
     assert.deepEqual(q("?limit=abc"), { ok: false, error: "invalid_limit" });
@@ -87,7 +87,7 @@ describe("parseListQuery", () => {
     assert.deepEqual(q("?cursor=%%"), { ok: false, error: "invalid_cursor" });
     const c = encodeCursor({ urgency: 1, importance: null, receivedAt: T, id: 3 });
     const withCursor = q(`?cursor=${c}`);
-    assert.ok(withCursor.ok && withCursor.query.paged && withCursor.query.view === null);
+    assert.ok(withCursor.ok && withCursor.query.view === "all" && withCursor.query.cursor?.id === 3);
   });
 });
 
@@ -341,17 +341,14 @@ describe("cursor pagination", () => {
   });
 });
 
-describe("legacy mode (no view, no cursor): the current UI keeps working until it switches", () => {
-  test("newest first, up to 200 rows, status filter and the old fields, plus the additive new ones", async () => {
+
+describe("a request without view", () => {
+  test("lists everything in the urgency order with the full item shape; no 200-row mode exists", async () => {
     const f = fixture(MIXED);
     try {
       const { body } = await call(f.file);
-      assert.deepEqual(ids(body), [7, 5, 3, 4, 2, 1, 6, 8, 9, 10, 11].sort((a, b) => {
-        const ra = MIXED.find((m) => m.id === a)!.recv, rb = MIXED.find((m) => m.id === b)!.recv;
-        return ra < rb ? 1 : ra > rb ? -1 : b - a;
-      }));
-      assert.equal(body.next_cursor, null);
       assert.equal(body.view, "all");
+      assert.equal(body.emails.length, MIXED.length);
       const e = body.emails[0] as unknown as Record<string, unknown>;
       for (const key of ["account_id", "active_location", "provider_spam", "classification", "shadow_quarantine", "disagreement", "seen", "done", "open", "account"]) {
         assert.ok(Object.hasOwn(e, key), key);
@@ -365,7 +362,7 @@ describe("needs_my_reply once it is calibrated (injected reading)", () => {
     const f = fixture([{ id: 1, recv: day(20), route: "ignore", needs: 0.7, urgency: 1 }, { id: 2, recv: day(20), route: "ignore", needs: 0.2, urgency: 1 }]);
     try {
       const readNoul = (a: { key: string; value: unknown }) => (a.key === "needs_my_reply" ? ((a.value as number) >= 0.5 ? "positive" : "negative") : "unmapped");
-      const res = listEmails(f.db, { view: "open", account: null, status: null, limit: 50, cursor: null, paged: true }, { readNoul: readNoul as never });
+      const res = listEmails(f.db, { view: "open", account: null, status: null, limit: 50, cursor: null }, { readNoul: readNoul as never });
       assert.deepEqual(res.emails.map((e) => e.id), [1]);
       assert.equal(res.emails[0].needs_my_reply, "positive");
       assert.deepEqual(res.counts, { important: 2, open: 1, noise: 0, all: 2 });
