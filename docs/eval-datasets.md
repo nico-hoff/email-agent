@@ -42,3 +42,14 @@ Die noul-Auswertung nutzt wie im festen Set die vorläufige Regel `Rohwert >= 0.
 ## Stichprobe
 
 `sampleCases(cases, { seed, n })`: mulberry32, geschichtet nach Quelle × erwarteter Kategorie (fehlende Kategorie = eigene Schicht), reihum gleich viele je Schicht, unabhängig von der Eingabereihenfolge. Gleicher Seed, gleiche Auswahl; andere Seeds, andere Auswahl. Harte Grenze pro Lauf: 200 Aufrufe; optional `--max-cost <USD>`.
+
+## Dev-Datenbank `data/dev-synthetic.sqlite`
+
+Damit die Entwicklung immer mit synthetischen Daten läuft, gibt es eine eigene SQLite-Datei (`DEV_SYNTHETIC_DATABASE_PATH` in `lib/constants.ts`), getrennt von `data/email-agent.sqlite`. Code: `lib/synthetic-dev-db.ts` (reine Funktionen auf einer geöffneten DB), `scripts/seed-dev-db.ts`, `scripts/eval-jev.ts`.
+
+- **Befüllung:** `npm run dev:seed` importiert alle geladenen Fälle (auch solche ohne erwartete Labels) ohne Jev-Aufruf. `npm run eval:jev -- --source hf ...` schreibt nach dem Lauf zusätzlich die verarbeiteten Fälle samt normalisierten Antworten und `shadow_quarantine` (gleiche Persistenzfunktion wie die Pipeline, Audit-Actor `eval`); `--no-dev-db` schaltet das ab. Das feste Set schreibt nichts hinein.
+- **Zuordnung:** Konto `hf-<kurzname>` (Host `synthetic.invalid`, `INBOX`/`Junk`, `enabled = 0`, da nie ein Worker läuft). Mail: `message_id` = Fall-ID, Absender `noreply@<sender_domain>`, Betreff aus dem Fall, `received_at` deterministisch aus der Fall-ID über die letzten 14 Tage (bezogen auf den Importzeitpunkt, jeder Import verschiebt das Fenster). Location: `Junk` bei erwartetem Spam oder Phishing, sonst `INBOX`; UID = Zeilenindex + 1, `uid_validity` = 1.
+- **Kein Inhalt:** Body und Auszug werden nie gespeichert (das Schema hat dafür keine Spalte); getestet mit einem Marker-Body über alle Tabellen. Absender und Betreff sind die einzigen Mailinhalte, wie im Schema vorgesehen. Die Betreffs stammen aus den oben genannten, öffentlich lizenzierten Datensätzen (Attribution wie in der Quellentabelle).
+- **Ersetzen statt anhäufen:** Pro Mail, Fragenset und Modell gibt es eine Klassifikation. Ein erneuter Lauf ersetzt `model_reported` und alle Antworten (der letzte Lauf gewinnt); `audit_log` bleibt append-only und bekommt je Lauf neue Einträge (nur IDs und Zähler).
+- **Ohne Antworten keine Klassifikationszeile.** Das Dashboard zeigt dann `-` (nicht klassifiziert), die Status-Zähler bleiben ehrlich bei 0. Eine `pending`-Zeile würde eine wartende Verarbeitung vortäuschen und von einer versehentlich gestarteten Pipeline aufgegriffen.
+- **Schutz:** Vor jedem Schreiben prüft `assertSyntheticDatabase`, dass alle Konten der Datei synthetisch sind (ID `hf-*` und Host `synthetic.invalid`); sonst bricht der Import mit `NotSyntheticDatabaseError` ab, ohne zu schreiben.

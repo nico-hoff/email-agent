@@ -127,7 +127,8 @@ export async function fetchSource(input: FetchSourceInput): Promise<DatasetManif
   }
 
   const dir = join(outRoot, source.short);
-  mkdirSync(dir, { recursive: true });
+  // 0700: data/ also holds the dev database, whose parent directory must not grant group/other access.
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
   writeFileSync(join(dir, "rows.jsonl"), lines.length ? `${lines.join("\n")}\n` : "");
   const manifest: DatasetManifest = {
     id: source.id,

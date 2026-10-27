@@ -16,3 +16,4 @@ export const JEV_MODEL = "typesafe/jev-1.13";
 export const QUESTION_SET_VERSION = "email-classification-v1";
 export const DEFAULT_ACCOUNTS_FILE = "data/accounts.json";
 export const DEFAULT_DATABASE_PATH = "data/email-agent.sqlite";
+export const DEV_SYNTHETIC_DATABASE_PATH = "data/dev-synthetic.sqlite";

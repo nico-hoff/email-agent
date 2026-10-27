@@ -1,7 +1,9 @@
 // Expliziter Runner fuer das synthetische Jev-Eval-Set (kein Chat-Agent, nicht in CI).
 // `veryfront/eval` bietet nur Adapter fuer Agenten/AG-UI, keinen fuer normale SDK-Funktionen.
 // Aufruf: node --env-file=.env.local scripts/eval-jev.ts --confirm-live
-//   optional: --source hf --seed <s> --n <N> [--max-cost <usd>]  (Stichprobe aus data/eval-datasets/)
+//   optional: --source hf --seed <s> --n <N> [--max-cost <usd>] [--no-dev-db]  (Stichprobe aus data/eval-datasets/)
+// Der hf-Lauf schreibt die Faelle samt normalisierten Antworten zusaetzlich in data/dev-synthetic.sqlite
+// (getrennte Dev-DB, nie in die echte DB); --no-dev-db schaltet das ab. Das feste Set schreibt dort nichts.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createJevClient, type JevClient } from "../lib/jev.ts";
@@ -10,6 +12,7 @@ import { buildState, QUESTIONS } from "../lib/jev-questions.ts";
 import { normalizeAnswers, type NormalizedAnswer } from "../lib/jev-response.ts";
 import { DEFAULT_DATABASE_PATH, JEV_MODEL } from "../lib/constants.ts";
 import { openDatabase } from "../lib/db.ts";
+import { importSyntheticCases, openSyntheticDevDatabase, type SyntheticItem } from "../lib/synthetic-dev-db.ts";
 
 export const MAX_LIVE_CALLS = 30;
 // Harte Grenze pro Lauf fuer die HF-Stichprobe.
@@ -41,6 +44,8 @@ export type EvalReport = {
   costPerMail: number | null;
   aborted?: "cost_limit";
   caseResults: CaseResult[];
+  /** Case id -> model reported by the endpoint. Only for the dev database import; not part of the run report. */
+  reportedModels: Record<string, string>;
   noulThreshold: number;
 };
 
@@ -67,6 +72,7 @@ export async function runEvalSet(input: {
   for (const q of SCORED) perQuestion[q] = { n: 0, hits: 0, rate: 0 };
   const byClass: Record<string, number> = {};
   const caseResults: CaseResult[] = [];
+  const reportedModels: Record<string, string> = {};
   let errors = 0;
   let cost = 0;
   let costedCalls = 0;
@@ -125,6 +131,7 @@ export async function runEvalSet(input: {
       hit(q, typeof raw === "number" && (raw >= PROVISIONAL_NOUL_THRESHOLD) === exp);
     }
     caseResults.push({ ...base, answers: norm.answers, hits, cost: callCost });
+    if (typeof res.response.model === "string") reportedModels[c.id] = res.response.model;
   }
   for (const s of Object.values(perQuestion)) s.rate = s.n === 0 ? 0 : s.hits / s.n;
   return {
@@ -135,8 +142,22 @@ export async function runEvalSet(input: {
     costPerMail: costedCalls > 0 ? cost / costedCalls : null,
     ...(aborted ? { aborted } : {}),
     caseResults,
+    reportedModels,
     noulThreshold: PROVISIONAL_NOUL_THRESHOLD,
   };
+}
+
+/** Cases that were actually processed, with their normalized answers when the call succeeded. Never the body. */
+export function devDbItemsFromReport(cases: EvalCase[], report: EvalReport): SyntheticItem[] {
+  const results = new Map(report.caseResults.map((r) => [r.id, r]));
+  const items: SyntheticItem[] = [];
+  for (const c of cases) {
+    const r = results.get(c.id);
+    if (!r) continue;
+    const model = report.reportedModels[c.id];
+    items.push(r.answers && model !== undefined ? { case: c, classification: { answers: r.answers, modelReported: model } } : { case: c });
+  }
+  return items;
 }
 
 export function formatReport(r: EvalReport): string {
@@ -211,8 +232,8 @@ export function writeRunReport(dir: string, run: RunReport): string {
 }
 
 // Liest data/eval-datasets/<kurzname>/{rows.jsonl,manifest.json}; verworfen werden fehlerhafte Zeilen
-// und Faelle ohne jede erwartete Angabe (sie wuerden nur Aufrufe kosten).
-export function loadHfCases(dir: string): { cases: EvalCase[]; revisions: Record<string, string> } {
+// und Faelle ohne jede erwartete Angabe (sie wuerden nur Aufrufe kosten). includeUnlabeled behaelt sie (dev:seed).
+export function loadHfCases(dir: string, o: { includeUnlabeled?: boolean } = {}): { cases: EvalCase[]; revisions: Record<string, string> } {
   const cases: EvalCase[] = [];
   const revisions: Record<string, string> = {};
   for (const source of EVAL_SOURCES) {
@@ -226,7 +247,7 @@ export function loadHfCases(dir: string): { cases: EvalCase[]; revisions: Record
       const parsed = JSON.parse(line) as { row_idx?: unknown; row?: unknown };
       if (typeof parsed.row_idx !== "number") continue;
       const mapped = source.map(parsed.row, parsed.row_idx);
-      if (mapped && Object.keys(mapped.expected).length > 0) cases.push(mapped);
+      if (mapped && (o.includeUnlabeled || Object.keys(mapped.expected).length > 0)) cases.push(mapped);
     }
   }
   if (Object.keys(revisions).length === 0) throw new Error("datasets_missing");
@@ -235,7 +256,7 @@ export function loadHfCases(dir: string): { cases: EvalCase[]; revisions: Record
 
 export type EvalArgs =
   | { ok: true; mode: "fixed"; maxCost: number | null }
-  | { ok: true; mode: "hf"; seed: number; n: number; maxCost: number | null }
+  | { ok: true; mode: "hf"; seed: number; n: number; maxCost: number | null; devDb: boolean }
   | { ok: false };
 
 export function parseEvalArgs(argv: string[]): EvalArgs {
@@ -243,6 +264,7 @@ export function parseEvalArgs(argv: string[]): EvalArgs {
   let seed: number | null = null;
   let n: number | null = null;
   let maxCost: number | null = null;
+  let devDb = true;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--confirm-live") continue;
@@ -250,16 +272,17 @@ export function parseEvalArgs(argv: string[]): EvalArgs {
     else if (a === "--seed") seed = Number(argv[++i]);
     else if (a === "--n") n = Number(argv[++i]);
     else if (a === "--max-cost") maxCost = Number(argv[++i]);
+    else if (a === "--no-dev-db") devDb = false;
     else return { ok: false };
   }
   if (maxCost !== null && !(Number.isFinite(maxCost) && maxCost > 0)) return { ok: false };
   if (source === null) {
-    return seed === null && n === null ? { ok: true, mode: "fixed", maxCost } : { ok: false };
+    return seed === null && n === null && devDb ? { ok: true, mode: "fixed", maxCost } : { ok: false };
   }
   if (source !== "hf") return { ok: false };
   if (seed === null || n === null) return { ok: false };
   if (!Number.isInteger(seed) || !Number.isInteger(n) || n < 1 || n > HF_MAX_CALLS) return { ok: false };
-  return { ok: true, mode: "hf", seed, n, maxCost };
+  return { ok: true, mode: "hf", seed, n, maxCost, devDb };
 }
 
 async function main(): Promise<void> {
@@ -269,7 +292,7 @@ async function main(): Promise<void> {
   }
   const args = parseEvalArgs(process.argv.slice(2));
   if (!args.ok) {
-    console.error(`usage: eval:jev [--source hf --seed <s> --n <1..${HF_MAX_CALLS}>] [--max-cost <usd>]  (error: args_invalid)`);
+    console.error(`usage: eval:jev [--source hf --seed <s> --n <1..${HF_MAX_CALLS}>] [--max-cost <usd>] [--no-dev-db]  (error: args_invalid)`);
     process.exit(2);
   }
   const apiKey = process.env.OPENROUTER_API_KEY;
@@ -310,6 +333,21 @@ async function main(): Promise<void> {
     const path = writeRunReport(join(root, "data", "eval-runs"), run);
     console.log(`  run report: data/eval-runs/${path.split("/").pop()}`);
     seedInfo = { seed: args.seed };
+    if (args.devDb) {
+      // Separate synthetic database; the guard inside refuses a file with non-synthetic accounts.
+      try {
+        const devDb = openSyntheticDevDatabase(root);
+        try {
+          const r = importSyntheticCases(devDb, devDbItemsFromReport(cases, report));
+          console.log(`  dev database: ${r.cases} mails, ${r.classified} with answers (data/dev-synthetic.sqlite)`);
+        } finally {
+          devDb.close();
+        }
+      } catch (e) {
+        // The paid run is already reported; a dev database problem must not hide that. Error class only.
+        console.error(`  dev database not written (${e instanceof Error ? e.name : "unknown"})`);
+      }
+    }
   }
 
   const db = openDatabase(process.env.DATABASE_PATH ?? join(root, DEFAULT_DATABASE_PATH));

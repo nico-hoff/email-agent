@@ -6,7 +6,9 @@
     "node": "26.12.1"
   },
   "scripts": {
-    "dev": "node --env-file-if-exists=.env.local server.ts --development",
+    "dev": "node --env-file-if-exists=.env.local server.ts --development --synthetic",
+    "dev:live": "node --env-file-if-exists=.env.local server.ts --development",
+    "dev:seed": "node scripts/seed-dev-db.ts",
     "build": "veryfront build",
     "start": "node --env-file-if-exists=.env.local server.ts --production",
     "eval": "veryfront eval",

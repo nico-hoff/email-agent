@@ -6,8 +6,8 @@ import { parseMessage, type ImapPort, type TransientInput } from "./imap.ts";
 import type { JevClient } from "./jev.ts";
 import { buildState, QUESTIONS } from "./jev-questions.ts";
 import { backoffMs, classifyFailure } from "./retry-policy.ts";
-import { normalizeAnswers } from "./jev-response.ts";
-import { computeShadowQuarantine } from "./shadow.ts";
+import { normalizeAnswers, type NormalizedAnswer } from "./jev-response.ts";
+import { computeShadowQuarantine, type ShadowQuarantine } from "./shadow.ts";
 
 /** Thrown by persistResponse to reject an invalid response: the pipeline rolls back and marks the row failed. */
 export class ResponseRejectedError extends Error {
@@ -27,21 +27,35 @@ export function createPersistResponse(spamThresholdFor: (accountId: string) => n
   return (ctx: ClassifiedContext): void => {
     const n = normalizeAnswers(ctx.response.answers, QUESTIONS);
     if (!n.ok) throw new ResponseRejectedError(`invalid_response_${n.code}`);
-    const ins = ctx.db.prepare(
-      "INSERT INTO classification_answers (classification_id, question_key, type, answer_json, probabilities_json) VALUES (?, ?, ?, ?, ?)",
-    );
-    for (const a of n.answers) {
-      ins.run(ctx.classificationId, a.key, a.type, JSON.stringify({ value: a.value }),
-        a.probabilities ? JSON.stringify(a.probabilities) : null);
-    }
-    const shadow = computeShadowQuarantine(n.answers, spamThresholdFor(ctx.accountId));
-    ins.run(ctx.classificationId, "shadow_quarantine", "derived", JSON.stringify(shadow), null);
-    ctx.db.prepare(
-      `INSERT INTO audit_log (occurred_at, trace_id, actor, action, account_id, email_id, details_json)
-       VALUES (?, ?, 'pipeline', 'shadow_quarantine_computed', ?, ?, ?)`,
-    ).run(ctx.now.toISOString(), ctx.traceId, ctx.accountId, ctx.emailId,
-      JSON.stringify({ candidate: shadow.candidate, decision: shadow.decision, reason: shadow.reason }));
+    persistNormalizedAnswers(ctx, n.answers, spamThresholdFor(ctx.accountId), "pipeline");
   };
+}
+
+/**
+ * Shared by the pipeline and the synthetic dev import (actor "eval"): inserts the normalized answers, the derived
+ * shadow_quarantine and its audit row. Runs inside the caller's transaction; the caller owns row replacement.
+ */
+export function persistNormalizedAnswers(
+  ctx: Pick<ClassifiedContext, "db" | "classificationId" | "emailId" | "accountId" | "traceId" | "now">,
+  answers: NormalizedAnswer[],
+  spamThreshold: number,
+  actor: "pipeline" | "eval",
+): ShadowQuarantine {
+  const ins = ctx.db.prepare(
+    "INSERT INTO classification_answers (classification_id, question_key, type, answer_json, probabilities_json) VALUES (?, ?, ?, ?, ?)",
+  );
+  for (const a of answers) {
+    ins.run(ctx.classificationId, a.key, a.type, JSON.stringify({ value: a.value }),
+      a.probabilities ? JSON.stringify(a.probabilities) : null);
+  }
+  const shadow = computeShadowQuarantine(answers, spamThreshold);
+  ins.run(ctx.classificationId, "shadow_quarantine", "derived", JSON.stringify(shadow), null);
+  ctx.db.prepare(
+    `INSERT INTO audit_log (occurred_at, trace_id, actor, action, account_id, email_id, details_json)
+     VALUES (?, ?, ?, 'shadow_quarantine_computed', ?, ?, ?)`,
+  ).run(ctx.now.toISOString(), ctx.traceId, actor, ctx.accountId, ctx.emailId,
+    JSON.stringify({ candidate: shadow.candidate, decision: shadow.decision, reason: shadow.reason }));
+  return shadow;
 }
 
 export interface SchedulerClock {

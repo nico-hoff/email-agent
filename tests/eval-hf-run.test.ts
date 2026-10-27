@@ -10,6 +10,7 @@ import {
   parseEvalArgs,
   runEvalSet,
   writeRunReport,
+  devDbItemsFromReport,
   type EvalCase,
 } from "../scripts/eval-jev.ts";
 import type { JevClient } from "../lib/jev.ts";
@@ -174,10 +175,10 @@ describe("argument parsing", () => {
 
   it("parses --source hf with seed and n", () => {
     assert.deepEqual(parseEvalArgs(["--confirm-live", "--source", "hf", "--seed", "2", "--n", "100"]), {
-      ok: true, mode: "hf", seed: 2, n: 100, maxCost: null,
+      ok: true, mode: "hf", seed: 2, n: 100, maxCost: null, devDb: true,
     });
     assert.deepEqual(parseEvalArgs(["--source", "hf", "--seed", "1", "--n", "5", "--max-cost", "0.01"]), {
-      ok: true, mode: "hf", seed: 1, n: 5, maxCost: 0.01,
+      ok: true, mode: "hf", seed: 1, n: 5, maxCost: 0.01, devDb: true,
     });
   });
 
@@ -187,5 +188,44 @@ describe("argument parsing", () => {
     assert.equal(parseEvalArgs(["--source", "hf", "--seed", "1", "--n", String(HF_MAX_CALLS + 1)]).ok, false);
     assert.equal(parseEvalArgs(["--source", "other"]).ok, false);
     assert.equal(parseEvalArgs(["--bogus"]).ok, false);
+  });
+});
+
+describe("dev database wiring", () => {
+  it("--no-dev-db switches the dev database write off (hf only)", () => {
+    assert.deepEqual(parseEvalArgs(["--source", "hf", "--seed", "1", "--n", "5", "--no-dev-db"]), {
+      ok: true, mode: "hf", seed: 1, n: 5, maxCost: null, devDb: false,
+    });
+    assert.equal(parseEvalArgs(["--confirm-live", "--no-dev-db"]).ok, false);
+  });
+
+  it("pairs each answered case with its reported model; errored cases carry no answers, unprocessed ones are left out", async () => {
+    const cases = [mkCase(1), mkCase(2), mkCase(3)];
+    let n = 0;
+    const jev: JevClient = {
+      async classify() {
+        n++;
+        if (n === 2) return { ok: false, kind: "http", statusCode: 500, errorName: "X" } as never;
+        return { ok: true, response: { answers: answers(), model: "reported-model", usage: { cost: 1 } } as any };
+      },
+    };
+    const limited = await runEvalSet({ jev, cases, maxCost: 1 });
+    const items = devDbItemsFromReport(cases, limited);
+    assert.deepEqual(items.map((i) => i.case.id), ["triage-1"]);
+    assert.equal(items[0].classification!.modelReported, "reported-model");
+    assert.ok(items[0].classification!.answers.length > 0);
+
+    n = 0;
+    const full = await runEvalSet({ jev, cases });
+    const all = devDbItemsFromReport(cases, full);
+    assert.deepEqual(all.map((i) => i.case.id), ["triage-1", "triage-2", "triage-3"]);
+    assert.equal(all[1].classification, undefined);
+  });
+
+  it("keeps the run report free of the reported-model bookkeeping", async () => {
+    const report = await runEvalSet({ jev: fakeJev(0.1, { calls: 0 }), cases: [mkCase(1)] });
+    const run = buildRunReport({ report, model: "m", seed: 1, n: 1, revisions: {}, createdAt: new Date("2026-03-04T05:06:07Z") });
+    assert.ok(!JSON.stringify(run).includes("reportedModels"));
+    assert.deepEqual(Object.keys(run.cases[0]).sort(), ["answers", "cost", "expected", "hits", "id", "source"]);
   });
 });

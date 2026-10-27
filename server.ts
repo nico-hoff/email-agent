@@ -1,5 +1,6 @@
 import net from "node:net";
 import { PROJECT_ROOT } from "./lib/constants.ts";
+import { prepareSyntheticDevDatabase } from "./lib/synthetic-dev-db.ts";
 import { startup as defaultStartup, type StartupResult } from "./lib/accounts.ts";
 import { createImapWorkers, type ImapWorkers, type ImapWorkersDeps } from "./workers/imap-worker.ts";
 import { fileURLToPath } from "node:url";
@@ -29,6 +30,8 @@ export interface CreateServiceOptions {
   mode?: "development" | "production";
   /** false skips DB/accounts/worker wiring entirely (UI only). */
   workers?: boolean;
+  /** Synthetic dev mode: routes read data/dev-synthetic.sqlite, no workers, regardless of the env (ACCOUNTS_FILE, DATABASE_PATH). */
+  synthetic?: boolean;
   env?: Record<string, string | undefined>;
   projectRoot?: string;
   log?: (message: string) => void;
@@ -44,6 +47,7 @@ export interface Service {
   port: number;
   url: string;
   workerStatus: "disabled" | "running" | "failed";
+  data: "live" | "synthetic";
   stop: () => Promise<void>;
 }
 
@@ -120,11 +124,23 @@ export function createWorkersWithPipeline(
   };
 }
 
+export function formatListening(svc: Pick<Service, "url" | "workerStatus" | "data">): string {
+  return `listening ${svc.url} workers=${svc.workerStatus}${svc.data === "synthetic" ? " data=synthetic" : ""}`;
+}
+
 export async function createService(options: CreateServiceOptions = {}): Promise<Service> {
   const bindAddress = resolveBindAddress(options.bindAddress);
   const requested = options.port ?? 3000;
   const log = options.log ?? ((m: string) => console.log(m));
-  const useWorkers = options.workers !== false;
+  const synthetic = options.synthetic === true;
+  const useWorkers = options.workers !== false && !synthetic;
+
+  if (synthetic) {
+    // The route modules read process.env.DATABASE_PATH themselves, so it is forced before anything listens.
+    const prepared = prepareSyntheticDevDatabase(options.projectRoot ?? PROJECT_ROOT);
+    process.env.DATABASE_PATH = prepared.path;
+    if (!prepared.existed) log("synthetic dev database is empty: run `npm run eval:fetch && npm run dev:seed`");
+  }
 
   // Startup errors (bad accounts file, DB path) reject before anything listens; messages carry no secrets.
   const started = useWorkers
@@ -187,15 +203,21 @@ export async function createService(options: CreateServiceOptions = {}): Promise
     if (typeof off === "function") unsubscribe.push(off);
   }
 
-  return { port: http.port, url: http.url, workerStatus, stop };
+  return { port: http.port, url: http.url, workerStatus, data: synthetic ? "synthetic" : "live", stop };
 }
 
 if (import.meta.main) {
   const mode = process.argv.includes("--production") ? "production" : "development";
+  const synthetic = process.argv.includes("--synthetic");
+  if (synthetic && mode === "production") {
+    console.error("--synthetic is for development only");
+    process.exit(2);
+  }
   const svc = await createService({
     port: process.env.PORT ? Number(process.env.PORT) : 3000,
     bindAddress: process.env.BIND_ADDRESS,
     mode,
+    synthetic,
   });
-  console.log(`listening ${svc.url} workers=${svc.workerStatus}`);
+  console.log(formatListening(svc));
 }
