@@ -1,112 +1,128 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { ReviewListView } from '../components/review.tsx'
+import {
+  API_MAX_LIMIT,
+  availableViews,
+  defaultView,
+  PAGE_SIZE,
+  type ApiEmail,
+  type ViewId,
+} from '../lib/review-ui.ts'
 
-interface Answer { type: string; value: number | string | null; probabilities?: unknown }
-interface EmailRow {
-  id: number
-  account_id: string
-  sender: string
-  subject: string
-  received_at: string
-  active_location: { folder: string; uid: number } | null
-  provider_spam: boolean
-  classification: { status: string; answers: Record<string, Answer> } | null
-  shadow_quarantine: { candidate: boolean; decision: string; reason: string; applied_threshold: number } | null
-  disagreement: string | null
-}
-interface Worker { account_id: string; state: string; error_code: string | null; last_poll_at: string | null }
-interface StatusBody { workers: Worker[]; classifications: Record<string, number> }
+interface StatusBody { workers: { account_id: string }[] }
 
-const DISAGREEMENT_LABEL: Record<string, string> = {
-  provider_spam_jev_not_spam: 'Provider: Spam, Jev: nicht Spam',
-  jev_spam_provider_not_spam: 'Jev: Spam, Provider: nicht Spam',
-}
+const STORE_KEY = 'review-ui'
 
-// noul answers are unmapped, so the raw value is shown as-is.
-function show(a: Answer | undefined): string {
-  return a === undefined || a.value === null ? '-' : String(a.value)
+// Per-viewer convenience only (view and account); never mail data. Storage may be blocked or empty.
+function restore(): { view?: ViewId; account?: string } {
+  try {
+    const raw = JSON.parse(sessionStorage.getItem(STORE_KEY) ?? '{}') as { view?: string; account?: string }
+    const view = availableViews().find((v) => v === raw.view)
+    return { view, account: typeof raw.account === 'string' ? raw.account : undefined }
+  } catch {
+    return {}
+  }
 }
 
-export default function ReviewDashboard(): React.JSX.Element {
-  const [emails, setEmails] = useState<EmailRow[]>([])
-  const [status, setStatus] = useState<StatusBody | null>(null)
+function persist(view: ViewId, account: string): void {
+  try {
+    sessionStorage.setItem(STORE_KEY, JSON.stringify({ view, account }))
+  } catch {
+    // ignore
+  }
+}
+
+// The shell renders no mail data on the server: rows arrive only through client-side /api/ calls.
+export default function ReviewList(): React.JSX.Element {
+  const [emails, setEmails] = useState<ApiEmail[]>([])
+  const [accounts, setAccounts] = useState<string[]>([])
+  const [view, setView] = useState<ViewId>(defaultView())
   const [account, setAccount] = useState('')
+  const [limit, setLimit] = useState(PAGE_SIZE)
+  const [tick, setTick] = useState(0)
+  const [ready, setReady] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [now, setNow] = useState(() => new Date())
+  const sentinel = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
-    const q = account ? `?account=${encodeURIComponent(account)}` : ''
+    const saved = restore()
+    if (saved.view) setView(saved.view)
+    if (saved.account !== undefined) setAccount(saved.account)
+    setReady(true)
+  }, [])
+
+  useEffect(() => {
+    if (ready) persist(view, account)
+  }, [ready, view, account])
+
+  useEffect(() => {
+    if (!ready) return
+    let cancelled = false
+    setLoading(true)
+    const q = new URLSearchParams({ limit: String(limit) })
+    if (account) q.set('account', account)
     Promise.all([
-      fetch('/api/status').then((r) => r.json()),
-      fetch(`/api/emails${q}`).then((r) => r.json()),
+      fetch('/api/status').then((r) => r.json() as Promise<StatusBody & { error?: string }>),
+      fetch(`/api/emails?${q}`).then((r) => r.json() as Promise<{ emails: ApiEmail[]; error?: string }>),
     ])
       .then(([s, e]) => {
+        if (cancelled) return
         if (s.error || e.error) throw new Error('unavailable')
-        setStatus(s)
+        setAccounts(s.workers.map((w) => w.account_id))
         setEmails(e.emails)
+        setNow(new Date())
         setError(null)
       })
-      .catch(() => setError('Daten nicht verfügbar'))
-  }, [account])
+      .catch(() => {
+        if (!cancelled) setError('Daten nicht verfügbar')
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [ready, account, limit, tick])
 
-  const accounts = status?.workers.map((w) => w.account_id) ?? []
+  // The API returns exactly `limit` rows while more exist (up to its maximum).
+  const canLoadMore = !loading && emails.length >= limit && limit < API_MAX_LIMIT
+  const atApiLimit = !loading && emails.length >= API_MAX_LIMIT
+
+  const more = useCallback(() => setLimit((l) => Math.min(l + PAGE_SIZE, API_MAX_LIMIT)), [])
+
+  useEffect(() => {
+    const el = sentinel.current
+    if (!el || !canLoadMore || typeof IntersectionObserver === 'undefined') return
+    const io = new IntersectionObserver((entries) => {
+      if (entries.some((x) => x.isIntersecting)) more()
+    }, { rootMargin: '300px' })
+    io.observe(el)
+    return () => io.disconnect()
+  }, [canLoadMore, more, emails.length, view])
 
   return (
-    <main style={{ fontFamily: 'system-ui, sans-serif', padding: 16, maxWidth: 1200, margin: '0 auto' }}>
-      <h1>E-Mail-Review (Beobachtungsmodus, nur lesend)</h1>
-      {error && <p role="alert">{error}</p>}
-      <section aria-label="Worker">
-        <h2>Worker</h2>
-        <ul>
-          {status?.workers.map((w) => (
-            <li key={w.account_id}>
-              {w.account_id}: {w.state}{w.error_code ? ` (${w.error_code})` : ''}, letzter Poll: {w.last_poll_at ?? '-'}
-            </li>
-          ))}
-        </ul>
-        <p>
-          {status && Object.entries(status.classifications).map(([k, n]) => `${k}: ${n}`).join(' · ')}
-        </p>
-      </section>
-      <label>
-        Konto{' '}
-        <select value={account} onChange={(e) => setAccount(e.target.value)}>
-          <option value="">alle</option>
-          {accounts.map((a) => <option key={a} value={a}>{a}</option>)}
-        </select>
-      </label>
-      <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 12 }}>
-        <thead>
-          <tr>
-            <th align="left">Konto</th><th align="left">Ordner</th><th align="left">Absender / Betreff</th>
-            <th align="left">Kategorie</th><th align="left">Antworten (Rohwerte)</th>
-            <th align="left">Shadow</th><th align="left">Abweichung</th>
-          </tr>
-        </thead>
-        <tbody>
-          {emails.map((m) => {
-            const a = m.classification?.answers ?? {}
-            return (
-              <tr key={m.id} style={{ borderTop: '1px solid #8884' }}>
-                <td>{m.account_id}</td>
-                <td>{m.active_location?.folder ?? '-'}{m.provider_spam ? ' (Spam)' : ''}</td>
-                <td>{m.sender}<br />{m.subject}</td>
-                <td>{show(a.category)}</td>
-                <td>
-                  {Object.entries(a).filter(([k]) => k !== 'category').map(([k, v]) => `${k}=${show(v)}`).join(', ') ||
-                    (m.classification?.status ?? '-')}
-                </td>
-                <td>
-                  {m.shadow_quarantine
-                    ? `${m.shadow_quarantine.decision} (${m.shadow_quarantine.reason}, ab ${m.shadow_quarantine.applied_threshold})`
-                    : '-'}
-                </td>
-                <td>{m.disagreement ? DISAGREEMENT_LABEL[m.disagreement] : ''}</td>
-              </tr>
-            )
-          })}
-        </tbody>
-      </table>
-    </main>
+    <ReviewListView
+      emails={emails}
+      view={view}
+      accounts={accounts}
+      account={account}
+      now={now}
+      loading={loading}
+      error={error}
+      canLoadMore={canLoadMore}
+      atApiLimit={atApiLimit}
+      onView={setView}
+      onAccount={(a) => {
+        setAccount(a)
+        setLimit(PAGE_SIZE)
+      }}
+      onReload={() => setTick((t) => t + 1)}
+      onMore={more}
+      sentinelRef={sentinel}
+    />
   )
 }
