@@ -1,6 +1,6 @@
 # Plan v5 – Produktkern: ein Postfach für alles, nur Signal
 
-> **Status: Konzept (2026-10-27), offene Fragen F1–F5 von Nico beantwortet (Abschnitt 2.3); Freigabe zur Umsetzung steht aus.** Grundlage: Nicos Akzeptanzkriterien vom 2026-10-27, Stand nach Plan v4 (`docs/HANDOVER_2026-10-27.md`). Regeln aus v3 (Abschnitt 3) und v4 (H11–H15) gelten weiter; dieser Plan ergänzt sie um H16–H22 und ersetzt H2 erst ab Meilenstein M7, und nur dort.
+> **Status: freigegeben am 2026-10-27.** Offene Fragen F1–F5 von Nico beantwortet (Abschnitt 2.3), E12 ergänzt. Grundlage: Nicos Akzeptanzkriterien vom 2026-10-27, Stand nach Plan v4 (`docs/HANDOVER_2026-10-27.md`). Regeln aus v3 (Abschnitt 3) und v4 (H11–H15) gelten weiter; dieser Plan ergänzt sie um H16–H22 und ersetzt H2 erst ab Meilenstein M7, und nur dort.
 > Offene v4-Tasks (T26–T28, T31, T35, T37, T42–T45) gehen in die Meilensteine unten auf und behalten ihre Nummern.
 
 ## 1. Zielbild (Nicos Akzeptanzkriterien)
