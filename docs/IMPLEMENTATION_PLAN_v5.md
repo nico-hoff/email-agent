@@ -231,6 +231,8 @@ Commit-Präfix weiter `phase N: …`, Phasen ab 11. Jeder Meilenstein endet mit 
 | T53 | Vorschlagsknopf: Stichprobe 14 Tage (nur Metadaten, D27), Agent `folder-suggester` mit `outputSchema`, Vorschauliste, Übernahme; 1 synthetische Live-Probe, Eval mit synthetischen Postfächern |
 **Fertig, wenn:** Nico legt einen Ordner „Steuer“ an, und neue Mails landen dort; der Vorschlagsknopf liefert brauchbare Ordner.
 
+Recherche zu F4 (2026-10-27, Haiku, ohne Live-Aufruf): Eine Obergrenze für Choice-Optionen ist weder in den SDK-Typen (`node_modules/@openrouter/sdk/esm/models/decisionschoicequestion.d.ts`: `criteria` ist ein offenes Record ohne min/max) noch in OpenRouters Jev-Leitfaden dokumentiert; beobachtet sind bisher 7 Optionen (v1-`category`) und 9 Fragen pro Aufruf. Kontextfenster laut Leitfaden 262 144 Tokens, ab ca. 32 000 Bytes langsamerer Long-Context-Modus. Wahrscheinlichkeiten kommen für jede Option (Summe 1). Folgerung für T51: 16 Optionen sind plausibel, aber unbelegt → vorher genau eine synthetische Live-Probe (16 Optionen, einmal mit langen Kriterien; `retries: none`; prüfen: HTTP 200, alle 16 Schlüssel in `probabilities`, Summe ≈ 1, Token-Verbrauch). Antworten fail-closed validieren (alle Schlüssel vorhanden, gewählte Option gültig). Hinweis: Der Leitfaden nennt `typesafe/jev-1.14` als aktuell; das Projekt pinnt `jev-1.13` – ein Wechsel ist eine eigene Entscheidung mit Eval-Vergleich (T27-Gate).
+
 ### M5 – Feedback und Absender-Regeln (Phase 15, nach M2)
 | Task | Inhalt |
 |---|---|
