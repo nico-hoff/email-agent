@@ -1,6 +1,6 @@
 # Plan v5 – Produktkern: ein Postfach für alles, nur Signal
 
-> **Status: Konzept (2026-10-27), noch nicht freigegeben.** Grundlage: Nicos Akzeptanzkriterien vom 2026-10-27, Stand nach Plan v4 (`docs/HANDOVER_2026-10-27.md`). Regeln aus v3 (Abschnitt 3) und v4 (H11–H15) gelten weiter; dieser Plan ergänzt sie um H16–H22 und ersetzt H2 erst ab Meilenstein M7, und nur dort.
+> **Status: Konzept (2026-10-27), offene Fragen F1–F5 von Nico beantwortet (Abschnitt 2.3); Freigabe zur Umsetzung steht aus.** Grundlage: Nicos Akzeptanzkriterien vom 2026-10-27, Stand nach Plan v4 (`docs/HANDOVER_2026-10-27.md`). Regeln aus v3 (Abschnitt 3) und v4 (H11–H15) gelten weiter; dieser Plan ergänzt sie um H16–H22 und ersetzt H2 erst ab Meilenstein M7, und nur dort.
 > Offene v4-Tasks (T26–T28, T31, T35, T37, T42–T45) gehen in die Meilensteine unten auf und behalten ihre Nummern.
 
 ## 1. Zielbild (Nicos Akzeptanzkriterien)
@@ -28,6 +28,11 @@
 | E4 | **Ordner-Vorschläge per Knopf:** Agent zieht eine Zufallsstichprobe der letzten zwei Wochen und schlägt Ordner vor; Nico übernimmt sie. Jev ordnet danach direkt in diese Ordner ein („semi-flexible“ Kategorien). |
 | E5 | **Briefing beim Öffnen**, sofort ausgelöst, live gestreamt, ca. 3 Bullet Points, später anpassbar. |
 | E6 | Alle Agenten weiter auf `openai/gpt-6-luna` über OpenRouter (O1a). |
+| E7 | **HITL für Absender (F1):** Hat Jev denselben Absender dreimal als Spam eingestuft, fragt die App Nico einmal. Nicos Entscheidung gilt **dauerhaft**: Blacklist (darf künftig automatisch gelöscht werden) oder Whitelist (wird nie aussortiert). Bis zur Entscheidung gelten nur die normalen Quarantäne-Regeln. |
+| E8 | **Adresse oder Domain (F2)** hängt von der Menge ab: Kommen die Spam-Urteile von mehreren Adressen derselben Domain, schlägt die App die Domain vor, sonst die Adresse. Nico bestätigt im selben HITL-Dialog. |
+| E9 | **Betrieb 24/7 per Docker (F3):** auf dem Mac, einem eigenen Rechner oder ggf. fly.io. Das Container-Setup bleibt gleich; Zugang weiterhin nur übers Tailnet. |
+| E10 | **Höchstens 12 Themen-Ordner (F4)** zusätzlich zu den System-Ordnern. Jede Mail bekommt genau ein Thema (Jev-Choice). |
+| E11 | **Briefing = alles Offene (F5):** alles, was ungelesen oder nicht erledigt ist **und** eine Handlungsaufforderung (CTA) hat. Spam ist automatisch „gelesen“ und kommt nicht vor. Kein fester Zeitraum. |
 
 ### 2.2 Vorschläge, die mit der Freigabe dieses Plans gelten
 
@@ -42,15 +47,15 @@
 | D28 | Briefing und Vorschläge werden nicht gespeichert (wie D17); nur ein Audit mit Zahlen. Gegen doppelte Aufrufe beim Neuladen: Ergebnis 5 Minuten im Arbeitsspeicher. | |
 | D29 | Kontofarbe und Kurzname stehen in der Konten-Datei (`label`, neu `color`). | Kein Schema nötig, Nico pflegt sie ohnehin dort. |
 
-### 2.3 Offen (STOP-8, Antwort vor dem jeweiligen Meilenstein)
+### 2.3 Beantwortete Fragen (2026-10-27)
 
-| ID | Frage | Vorschlag |
+| ID | Frage | Antwort |
 |---|---|---|
-| F1 | Ab wann gilt ein Absender als „Müll“? Nur manuell, oder automatisch nach x-mal „ist Spam“? | Ab 3× „ist Spam“ schlägt die App den Blacklist-Eintrag vor; aktiv wird er erst nach Nicos Bestätigung. |
-| F2 | Blacklist auf Domain- oder Adressebene? | Beides möglich; Standard Adresse, Domain nur explizit. |
-| F3 | Läuft der Mac 24/7 für die Worker, oder kommt der Raspberry Pi in v5? | Erst Mac; Pi als M8. |
-| F4 | Wie viele Ordner maximal? | 12 (Jev-Grenze für Choice-Optionen vorher per Doku/Probe prüfen). |
-| F5 | Briefing-Zeitraum? | Seit letztem Öffnen, höchstens 48 h. |
+| F1 | Wann wird ein Absender Blacklist-Kandidat? | Nach 3 Spam-Urteilen von Jev → HITL, Entscheidung dauerhaft (E7). |
+| F2 | Adresse oder Domain? | Abhängig von der Anzahl betroffener Adressen (E8). |
+| F3 | Betrieb? | 24/7 per Docker, Ort offen (Mac, eigener Rechner, ggf. fly.io) (E9). |
+| F4 | Wie viele Ordner? | 12 Themen (E10); Jev-Grenze für Choice-Optionen vor T51 per Doku/Probe bestätigen. |
+| F5 | Briefing-Umfang? | Alles Offene mit CTA, unabhängig vom Zeitraum (E11). |
 
 ## 3. Konzepte
 
@@ -71,7 +76,8 @@
 
 - Tabelle `sender_rules`: Blacklist („Müll, darf gelöscht werden“) und Allowlist („nie aussortieren“), je Adresse oder Domain, optional je Konto.
 - Feedback-Knöpfe in der App (T37): „ist Spam“, „kein Spam“, „falscher Ordner → …“, „braucht Antwort“, „braucht keine Antwort“, „Absender immer aussortieren“.
-- Feedback fließt dreifach ein: (a) Labels für die Kalibrierung, (b) Vorschlag für Regeln (F1), (c) **reine Zähler** im Jev-State (`sender_history.user_marked_spam`, `user_marked_not_spam`), nur wenn DMARC bestanden hat.
+- **HITL-Auslöser (E7/E8):** Zählt `senders.jev_spam_count` für eine Adresse (bzw. summiert für eine Domain) 3 erreicht und gibt es noch keine Regel, erscheint in der App eine Karte „Absender X wurde 3× als Spam erkannt – immer aussortieren (Blacklist) oder nie (Whitelist)?“, mit Vorschlag Adresse oder Domain. Die Antwort wird als `sender_rules`-Eintrag mit `source='nico'` gespeichert und gilt dauerhaft, bis Nico sie in den Einstellungen ändert.
+- Feedback fließt dreifach ein: (a) Labels für die Kalibrierung, (b) Zähler für den HITL-Auslöser, (c) **reine Zähler** im Jev-State (`sender_history.user_marked_spam`, `user_marked_not_spam`), nur wenn DMARC bestanden hat.
 
 ### 3.4 Automatische Aktionen (ab M7, einziger Schreibpfad)
 
@@ -91,9 +97,16 @@ Reihenfolge der Prüfung je neu klassifizierter Mail; die erste passende Regel g
 ### 3.5 Briefing beim Öffnen
 
 - UI ruft nach dem Login `POST /api/briefing` (Auth, CSRF, Rate-Limit). Die Route baut den Kontext (D27), ruft einen eigenen Agenten `briefing` (`agents/briefing.ts`, gleiche Sperren wie D19: keine Tools außer Lesen, kein Memory) mit `agent.stream()` auf und streamt den Text per SSE in einen Kasten oben in der UI.
-- Inhalt: höchstens 3 Bullet Points (Neues seit letztem Öffnen, Dringendes, was aussortiert wurde); Ton und Länge später in den Einstellungen anpassbar.
+- Inhalt (E11): alle **offenen** Mails mit CTA (siehe 3.6), dringendste zuerst, in höchstens 3 Bullet Points; dazu eine Zeile, was seit dem letzten Öffnen automatisch aussortiert wurde, und offene HITL-Fragen (E7). Ton und Länge später in den Einstellungen anpassbar.
 - `user_state.last_opened_at` merkt den Zeitpunkt; Ergebnis 5 Minuten im Speicher (D28).
 - Veryfront-`tasks/` (`veryfront/task`) dienen nur Hintergrundjobs (Quarantäne leeren, Neu-Einordnen nach Ordneränderung), nicht dem Streaming. Vor Umsetzung per Context7 verifizieren (H6).
+
+### 3.6 Offen und erledigt
+
+- Eine Mail ist **offen**, wenn sie eine Handlungsaufforderung hat (`needs_my_reply` positiv oder Jev-`route` ∈ {`draft_reply`, `notify`}) **und** weder gelesen noch erledigt ist.
+- **Gelesen** kommt vom Provider: das IMAP-Flag `\Seen` wird beim Abruf mitgelesen (nur lesend; heute holt der Abruf nur Header) und bei IDLE/Polling aktualisiert.
+- **Erledigt** setzt Nico in der App (Wischgeste oder Knopf) – nur in der App-DB, ohne IMAP-Schreibzugriff. Rückgängig jederzeit.
+- Automatisch aussortierte Mails sind gelesen (Quarantäne/Papierkorb setzen `\Seen`) und damit nie offen.
 
 ## 4. Datenmodell (Entwurf, vor Umsetzung in `docs/erd.md`, je Meilenstein eine Migration)
 
@@ -129,7 +142,8 @@ CREATE TABLE senders (                         -- „welche Domains/Absender es 
   id INTEGER PRIMARY KEY, address TEXT NOT NULL, domain TEXT NOT NULL,
   first_seen_at TEXT NOT NULL, last_seen_at TEXT NOT NULL,
   mails_seen INTEGER NOT NULL DEFAULT 0, marked_spam INTEGER NOT NULL DEFAULT 0,
-  marked_not_spam INTEGER NOT NULL DEFAULT 0, dmarc_pass INTEGER NOT NULL DEFAULT 0,
+  marked_not_spam INTEGER NOT NULL DEFAULT 0, jev_spam_count INTEGER NOT NULL DEFAULT 0,
+  hitl_asked_at TEXT, dmarc_pass INTEGER NOT NULL DEFAULT 0,
   UNIQUE (address)
 );
 CREATE TABLE sender_rules (
@@ -138,6 +152,14 @@ CREATE TABLE sender_rules (
   account_id TEXT REFERENCES accounts (id), source TEXT NOT NULL CHECK (source IN ('nico', 'suggested_confirmed')),
   active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL,
   UNIQUE (kind, match, value, account_id)
+);
+
+-- 003b (M2): Lese- und Erledigt-Status (3.6)
+CREATE TABLE email_status (
+  email_id INTEGER PRIMARY KEY REFERENCES emails (id),
+  seen INTEGER NOT NULL DEFAULT 0 CHECK (seen IN (0, 1)),      -- vom Provider (\\Seen), nur gelesen
+  done INTEGER NOT NULL DEFAULT 0 CHECK (done IN (0, 1)),      -- von Nico in der App
+  updated_at TEXT NOT NULL
 );
 
 -- 004 (M6/M7): App-Zustand und Postfach-Aktionen
@@ -185,6 +207,7 @@ Commit-Präfix weiter `phase N: …`, Phasen ab 11. Jeder Meilenstein endet mit 
 | T35 | Mobile-API: Cursor-Pagination, `view=important|noise|all|folder:<key>`, Sortierung Dringlichkeit → Wichtigkeit → Zeit, `GET /api/emails/:id` mit Ordnerverlauf |
 | T48 | Startansicht „Wichtig“ mit eingeklappten Abschnitten „Newsletter & Werbung“ und „Aussortiert“, Ordner-Navigation mit Zählern |
 | T49 | Detailansicht aufräumen: Wesentliches oben, Jev-Rohwerte und Statistik in „Details“ |
+| T64 | Offen/Erledigt (3.6): `\Seen` beim Abruf mitlesen (ImapFlow `flags`, nur lesend), Tabelle `email_status`, „Erledigt“ per Wischgeste/Knopf, Ansicht „Offen“ |
 **Fertig, wenn:** Die Startansicht zeigt nur Relevantes, sortiert nach Dringlichkeit; Spam und Newsletter sind ein Tipp entfernt.
 
 ### M3 – Fragenset v2 und echte Kalibrierung (Phase 13, parallel zu M2)
@@ -209,7 +232,7 @@ Commit-Präfix weiter `phase N: …`, Phasen ab 11. Jeder Meilenstein endet mit 
 | Task | Inhalt |
 |---|---|
 | T37 | ERD + Migration `003` (`feedback`, `senders`, `sender_rules`); Feedback-Knöpfe im Detail und per Wischgeste |
-| T54 | Absender-Seite: Blacklist/Allowlist ansehen, anlegen, entfernen; Vorschläge nach F1 bestätigen |
+| T54 | Absender-Seite: Blacklist/Whitelist ansehen, anlegen, entfernen; HITL-Karte nach 3 Jev-Spam-Urteilen (E7) mit Vorschlag Adresse/Domain (E8) |
 | T55 | Feedback-Zähler im Jev-State (`sender_history`), nur bei DMARC pass; Eval vorher/nachher |
 | T24b | `npm run calibrate` rechnet Feedback als Label ein |
 **Fertig, wenn:** „ist Spam“ verbessert sichtbar die nächste Mail desselben Absenders; Blacklist-Einträge existieren (noch ohne Aktion).
@@ -237,7 +260,7 @@ Commit-Präfix weiter `phase N: …`, Phasen ab 11. Jeder Meilenstein endet mit 
 |---|---|
 | T44 | E2E-Smoke (synthetisch): Login, Liste, Ordner, Feedback, Briefing (Fake-Agent), Entwurf, Trockenlauf-Aktion, Undo |
 | T62 | Backups der SQLite-DB, Log-Rotation, Gesundheitsanzeige in der App (Worker-Status je Konto) |
-| T63 | optional: Raspberry Pi 24/7 (F3) |
+| T63 | 24/7-Betrieb per Docker (E9): Zielort festlegen (Mac, eigener Rechner oder fly.io). Für fly.io vorher klären: Tailscale im Container statt öffentlicher Ports, Secrets über `fly secrets`, SQLite auf persistentem Volume mit Backup, Datenstandort der Mail-Metadaten. |
 | T45 | Freigabepunkt v5 (STOP-7): Bericht, Screenshots, Kosten pro Tag |
 
 ## 7. Abhängigkeiten und Parallelisierung
@@ -260,7 +283,7 @@ M3 (T26, T23/T28, T25b, T27) ──► M4 (T50–T53) │
 - **Absender-Spoofing gegen die Blacklist:** Gefälschte Absender treffen nur Müll; echte Mails desselben Absenders schützen `transactional`/`security_auth` und die Allowlist.
 - **Prompt-Injection über Betreffs** (Briefing, Vorschläge): Zaun, nur Metadaten, `addresses_an_ai`-Mails nur als Zahl, Evals mit Injection-Fällen.
 - **Ordner-Drift:** Jede Ordneränderung = neue Version + Neu-Einordnung; Eval-Gate (T27) vor Änderungen am Fragenset.
-- **Mac als Server:** Schläft der Mac, gibt es keine neuen Mails/Aktionen; die App zeigt den Worker-Status (T62), Pi optional (T63).
+- **Betriebsort:** Bis T63 läuft alles auf dem Mac; schläft er, gibt es keine neuen Mails/Aktionen (Worker-Status in der App, T62). Bei fly.io liegen Mail-Metadaten und IMAP-Zugangsdaten bei einem Cloud-Anbieter; die App darf dort nur übers Tailnet erreichbar sein.
 - **Kosten:** Jev ≈ 0,00005 $/Mail; Briefing und Entwürfe auf `gpt-6-luna` (0,10/0,50 $ pro Mio. Tokens) pro Aufruf im Bereich von Zehntel-Cent. Tagesbudget in M8 messen.
 
 ## 9. Definition of Done v5
