@@ -1,5 +1,5 @@
 import net from "node:net";
-import { PROJECT_ROOT } from "./lib/constants.ts";
+import { KILL_SWITCH_FILE, PROJECT_ROOT } from "./lib/constants.ts";
 import { prepareSyntheticDevDatabase } from "./lib/synthetic-dev-db.ts";
 import { startup as defaultStartup, type StartupResult } from "./lib/accounts.ts";
 import { createImapWorkers, type ImapWorkers, type ImapWorkersDeps } from "./workers/imap-worker.ts";
@@ -11,7 +11,6 @@ import { applyOpenRouterEnv } from "./lib/openrouter-env.ts";
 import { findStyleScanHazards } from "./lib/dev-hazards.ts";
 import { DEFAULT_SPAM_THRESHOLD } from "./lib/accounts-config.ts";
 import { dataDirFromEnv } from "./lib/auth-runtime.ts";
-import { KILL_SWITCH_FILE } from "./lib/constants.ts";
 import { openDatabase } from "./lib/db.ts";
 import { createMailboxActions, type MailboxActions } from "./lib/mailbox-actions.ts";
 import { join } from "node:path";

@@ -30,8 +30,20 @@ Die App bindet immer an `127.0.0.1` (nie `0.0.0.0`). Von außen kommt man nur ü
 
 - Gespeichert werden nur Metadaten (Absender, Betreff, Zeitstempel, Ordner/UID) und Jev-Antworten. Kein Mailtext, kein Auszug, keine Rohquelle, keine Roh-Response.
 - Mailinhalte erscheinen nie in Logs, API oder Dashboard. Testdaten sind ausschließlich synthetisch.
-- IMAP-Zugriff ist schreibgeschützt (read-only).
+- Der Lese-Zugriff auf IMAP ist schreibgeschützt (read-only). Einzige Ausnahme: der Schreibport für „Spam als gelesen markieren“ (siehe unten); er setzt und entfernt ausschließlich das Flag `\Seen`.
 - Zugangsdaten liegen nur in `.env.local` und `data/accounts.json` (Modus 0600).
+
+## Automatische Aktionen: Spam als gelesen markieren (M7a)
+
+Die Regel „Spam gelesen“ markiert Spam per IMAP als gelesen (`\Seen`); verschoben oder gelöscht wird nichts. Sie greift, wenn Jev `is_spam` positiv sieht (kalibrierte Schwelle, v1: 0.80) **oder** die Mail im Spam-Ordner des Providers liegt und Jev nicht ausdrücklich „kein Spam“ sagt. Mails der Kategorien `security_auth` und `transactional` (und später Allowlist-Treffer) bekommen nie eine Aktion; bereits gelesene Mails auch nicht. Fehlt oder fehlt die Zuordnung der Jev-Antwort, passiert außerhalb des Spam-Ordners nichts.
+
+- **Modus je Konto** in `data/accounts.json`: `"auto_actions": { "spam_seen": "off" | "dry_run" | "live" }`. Ohne Eintrag gilt **`dry_run`**: Die App protokolliert nur, was sie tun würde (`mailbox_actions`, Status `planned`), und öffnet nie eine Schreibverbindung. `live` muss ausdrücklich eingetragen werden und gilt nach einem Neustart des Servers; dabei werden auch frühere `planned`-Zeilen dieses Kontos ausgeführt (höchstens die letzten 14 Tage, begrenzt durch das Tageslimit).
+- **Not-Aus:** Existiert die Datei `auto-actions.disabled` neben der Datenbank (`data/auto-actions.disabled`, im Docker-Volume `/data/auto-actions.disabled`), wird nichts mehr geplant und nichts geschrieben, auch kein Undo auf dem Server (Antwort `409 kill_switch`). Datei anlegen = Stopp (`touch data/auto-actions.disabled`), Datei löschen = weiter. Wirkt sofort, ohne Neustart.
+- **Tageslimit:** höchstens 200 Live-Aktionen je Konto in 24 Stunden (`DAILY_ACTION_LIMIT` in `lib/constants.ts`); weitere Mails warten (es entsteht keine Zeile) und werden beim nächsten Start nachgeholt.
+- **Rückgängig:** `POST /api/emails/:id/unread` (Session, Veryfront-CSRF plus `x-app-csrf`, Rate-Limit). Live-Konten entfernen `\Seen` auf dem Server, Dry-Run-Konten ändern nur den App-Status. Danach markiert die Regel diese Mail nie wieder. Antworten: `200 { ok, id, mode, seen: false }`, Fehler nur als Code (`404 not_found`, `409 kill_switch`, `502 store_rejected|uidvalidity_changed|imap_error|…`, `503 account_unavailable`).
+- **Ansicht:** `GET /api/actions?mode=dry_run|live&status=…&limit=…&cursor=…` liefert `{ actions: [{ id, email_id, account, rule, action, mode, status, failure_code, created_at }], next_cursor, counts }` (nur IDs und Codes, keine Inhalte). Grundlage der Ansicht „Würde als gelesen markieren“.
+- **Synthetischer Modus** (`npm run dev`): Die Regel läuft über die synthetische Datenbank, der Modus ist immer `dry_run`, es gibt keinen Schreibport.
+- Fehlgeschlagene Live-Aktionen (`failed`, mit Code) werden nicht automatisch wiederholt.
 
 ## Stichprobe und Evaluation
 

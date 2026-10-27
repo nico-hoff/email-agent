@@ -107,7 +107,11 @@ describe("accounts-config", () => {
     writeFileSync(file, readFileSync(join(repoRoot, "docs", "accounts.example.json")), { mode: 0o600 });
     const res = loadAccountsConfig({ env: { ACCOUNTS_FILE: file }, projectRoot: tmp });
     assert.equal(res.status, "ok");
-    if (res.status === "ok") assert.ok(res.accounts.some((a) => a.color !== undefined));
+    if (res.status === "ok") {
+      assert.ok(res.accounts.some((a) => a.color !== undefined));
+      assert.ok(res.accounts.some((a) => a.auto_actions?.spam_seen === "dry_run"), "the example shows auto_actions");
+      assert.ok(res.accounts.every((a) => autoActionMode(a, "spam_seen") !== "live"), "the example never ships a live account");
+    }
     rmSync(dir, { recursive: true, force: true });
   });
 

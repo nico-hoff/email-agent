@@ -12,6 +12,7 @@
     "mailbox": "INBOX",
     "spam_mailbox": "Junk",
     "spam_threshold": 0.95,
+    "auto_actions": { "spam_seen": "dry_run" },
     "enabled": true
   },
   {
