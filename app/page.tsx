@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ReviewListView, type NoiseState } from '../components/review.tsx'
-import { csrfMutationHeaders } from 'veryfront/index.client'
+import { BriefingBox, HitlCards } from '../components/briefing.tsx'
+import { mutationDeps, useBriefing, useHitl } from '../components/hooks.ts'
 import { appendUnique, fetchPage, SessionExpired } from '../lib/list-client.ts'
-import { DONE_ERROR_TEXT, postEmailDone, type MutationDeps } from '../lib/mutate-client.ts'
+import { DONE_ERROR_TEXT, postEmailDone } from '../lib/mutate-client.ts'
 import { markDone, reinsert, type ListState } from '../lib/review-done.ts'
 import {
   DEFAULT_VIEW,
@@ -44,11 +45,6 @@ interface Page {
 }
 
 const EMPTY_PAGE: Page = { emails: [], next: null }
-
-const mutationDeps: MutationDeps = {
-  fetch: (url, init) => fetch(url, init),
-  headers: (path, token) => csrfMutationHeaders(path, { headers: { 'x-app-csrf': token } }),
-}
 
 interface ToastState {
   text: string
@@ -227,6 +223,12 @@ export default function ReviewList(): React.JSX.Element {
     })
   }, [apply, fail])
 
+  const notify = useCallback((text: string, isError?: boolean): void => {
+    setToast({ text, canUndo: false, error: isError })
+  }, [])
+  const briefing = useBriefing()
+  const hitl = useHitl(notify)
+
   useEffect(() => {
     if (!toast) return
     const t = setTimeout(() => setToast(null), toast.error ? 8000 : 6000)
@@ -266,7 +268,10 @@ export default function ReviewList(): React.JSX.Element {
       autoActions={autoActions}
       onView={setView}
       onAccount={setAccount}
-      onReload={() => setTick((t) => t + 1)}
+      onReload={() => {
+        setTick((t) => t + 1)
+        void hitl.reload()
+      }}
       onMore={more}
       onNoiseToggle={() => setNoiseOpen((o) => !o)}
       onNoiseMore={moreNoise}
@@ -275,6 +280,19 @@ export default function ReviewList(): React.JSX.Element {
       onUndo={undo}
       onToastClose={() => setToast(null)}
       sentinelRef={sentinel}
+      top={
+        <>
+          <BriefingBox
+            state={briefing.state}
+            collapsed={briefing.collapsed}
+            showAll={briefing.showAll}
+            onToggle={briefing.toggle}
+            onShowAll={briefing.expandAll}
+            onRetry={briefing.retry}
+          />
+          <HitlCards candidates={hitl.candidates} busy={hitl.busy} expanded={hitl.expanded} onExpand={hitl.expand} onDecide={hitl.decide} />
+        </>
+      }
     />
   )
 }

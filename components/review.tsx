@@ -1,6 +1,6 @@
 // Presentational components of the signal inbox (T36, T47, T48, T49). They are stateless and receive only the
 // metadata rows of GET /api/emails: no body, excerpt or raw source ever exists here. The mailbox itself is read-only.
-import { useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode, type Ref } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode, type Ref } from "react";
 import { SWIPE_COMMIT_PX, swipeCommits, swipeOffset } from "../lib/review-done.ts";
 import {
   cardBadges,
@@ -255,6 +255,8 @@ export interface ReviewListProps {
   onUndo?: () => void;
   onToastClose?: () => void;
   sentinelRef?: Ref<HTMLDivElement>;
+  /** Briefing and sender questions: rendered above the cards, in "Wichtig" only. */
+  top?: ReactNode;
 }
 
 /** Bottom toast with Rückgängig (T64). A polite status, or an alert for a failed save. */
@@ -271,6 +273,38 @@ export function UndoToast(
 }
 
 const noop = (): void => {};
+
+/** Small "more" menu in the header (Aussortiert, Absender): keeps the header short, 44 pt touch targets. */
+export function HeaderMenu({ defaultOpen }: { defaultOpen?: boolean }): React.JSX.Element {
+  const [open, setOpen] = useState(defaultOpen === true);
+  const box = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: Event): void => {
+      if (box.current && e.target instanceof Node && !box.current.contains(e.target)) setOpen(false);
+    };
+    const key = (e: KeyboardEvent): void => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", away);
+    document.addEventListener("keydown", key);
+    return () => {
+      document.removeEventListener("pointerdown", away);
+      document.removeEventListener("keydown", key);
+    };
+  }, [open]);
+  return (
+    <div className="menu" ref={box}>
+      <button type="button" className="btn btn-icon" aria-label="Weitere Seiten" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        <span aria-hidden="true">⋯</span>
+      </button>
+      <div className="menu-list" role="menu" hidden={!open}>
+        <a className="menu-item" role="menuitem" href="/aussortiert">Aussortiert</a>
+        <a className="menu-item" role="menuitem" href="/absender">Absender</a>
+      </div>
+    </div>
+  );
+}
 
 function NoiseFold(
   { counts, noise, now, timeZone, onToggle, onMore }:
@@ -312,8 +346,8 @@ export function ReviewListView(p: ReviewListProps): React.JSX.Element {
             <h1>Mails</h1>
           </div>
           <div className="bar-actions">
-            <a className="btn btn-link" href="/aussortiert">Aussortiert</a>
             <button type="button" className="btn btn-accent" onClick={p.onReload ?? noop} disabled={p.loading}>Neu laden</button>
+            <HeaderMenu />
           </div>
         </div>
         <p className="mode mode-line">{headerSubtitle(p.accounts, p.autoActions, p.account)}</p>
@@ -355,6 +389,7 @@ export function ReviewListView(p: ReviewListProps): React.JSX.Element {
         </div>
       )}
       <main>
+        {p.view === "important" && p.top}
         {p.emails.length > 0 && <CardGroups emails={p.emails} now={p.now} timeZone={p.timeZone} onDone={p.onDone} />}
         {p.emails.length === 0 && !p.loading && p.error === null && (
           <div className="empty">
@@ -446,10 +481,15 @@ export interface EmailDetailProps {
   onUnread?: () => void;
   unreadBusy?: boolean;
   unreadMessage?: { text: string; error?: boolean } | null;
+  /** Feedback buttons (T37), right below the overview. */
+  feedback?: ReactNode;
+  /** "Entwurf erzeugen" (T42): below the overview when `draftPrimary`, otherwise folded into Details. */
+  draft?: ReactNode;
+  draftPrimary?: boolean;
 }
 
 export function EmailDetailView(
-  { email: m, now, timeZone, onToggleDone, busy, error, onUnread, unreadBusy, unreadMessage }: EmailDetailProps,
+  { email: m, now, timeZone, onToggleDone, busy, error, onUnread, unreadBusy, unreadMessage, feedback, draft, draftPrimary }: EmailDetailProps,
 ): React.JSX.Element {
   const hint = unreadHint(m.mailbox_action);
   const a = m.classification?.answers ?? {};
@@ -510,6 +550,9 @@ export function EmailDetailView(
           {error && <p className="notice notice-inline" role="alert">{error}</p>}
         </section>
 
+        {draftPrimary === true && draft}
+        {feedback}
+
         {(hint !== null || unreadMessage) && (
           <section className="panel panel-auto" aria-label="Automatische Aktion">
             <h2>Automatische Aktion</h2>
@@ -546,6 +589,7 @@ export function EmailDetailView(
 
         <details className="fold-panel">
           <summary>Details</summary>
+          {draftPrimary !== true && draft && <div className="fold-section">{draft}</div>}
           <section className="fold-section" aria-label="Jev-Antworten">
             <h2>Jev-Antworten</h2>
             {classified ? (

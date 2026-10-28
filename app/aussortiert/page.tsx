@@ -152,7 +152,7 @@ export default function Aussortiert(): React.JSX.Element {
       setActions(r.actions)
       setCounts(r.counts)
       setToast({
-        text: res.mode === 'live' ? 'Wieder ungelesen. Auch auf dem Mailserver.' : 'Wieder ungelesen. Im Postfach wurde nichts geändert (Trockenlauf).',
+        text: res.mode === 'live' ? 'Wieder ungelesen. Auch auf dem Mailserver.' : 'Wird nicht markiert. Im Postfach wurde nichts geändert (Trockenlauf).',
       })
     })
   }, [busy, counts, actions, tab])

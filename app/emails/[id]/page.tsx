@@ -1,20 +1,28 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { usePageContext } from 'veryfront/context'
-import { DetailMessage, EmailDetailView } from '../../../components/review.tsx'
-import { csrfMutationHeaders } from 'veryfront/index.client'
+import { DetailMessage, EmailDetailView, UndoToast } from '../../../components/review.tsx'
+import { DraftPanel, type DraftViewState } from '../../../components/draft.tsx'
+import { FeedbackPanel } from '../../../components/feedback.tsx'
+import { mutationDeps } from '../../../components/hooks.ts'
+import { browserClipboardEnv, copyToClipboard, postDraft, showDraftButton } from '../../../lib/draft-client.ts'
+import {
+  applyFeedback,
+  EMPTY_FEEDBACK,
+  FEEDBACK_ERROR_TEXT,
+  FEEDBACK_SAVED_TEXT,
+  fetchFeedback,
+  postFeedback,
+  type FeedbackKind,
+  type FeedbackState,
+} from '../../../lib/feedback-client.ts'
 import { fetchDetail, SessionExpired } from '../../../lib/list-client.ts'
-import { DONE_ERROR_TEXT, postEmailDone, postEmailUnread, UNREAD_ERROR_TEXT, type MutationDeps } from '../../../lib/mutate-client.ts'
+import { DONE_ERROR_TEXT, postEmailDone, postEmailUnread, UNREAD_ERROR_TEXT } from '../../../lib/mutate-client.ts'
 import { isCta } from '../../../lib/review-done.ts'
 import type { ApiEmailDetail } from '../../../lib/review-ui.ts'
 
-const mutationDeps: MutationDeps = {
-  fetch: (url, init) => fetch(url, init),
-  headers: (path, token) => csrfMutationHeaders(path, { headers: { 'x-app-csrf': token } }),
-}
-
-type State ={ kind: 'loading' } | { kind: 'error' } | { kind: 'missing' } | { kind: 'ready'; email: ApiEmailDetail }
+type State = { kind: 'loading' } | { kind: 'error' } | { kind: 'missing' } | { kind: 'ready'; email: ApiEmailDetail }
 
 // The server renders only this shell; mail metadata arrives through the client-side /api/emails/:id call.
 export default function EmailDetail(): React.JSX.Element {
@@ -26,6 +34,12 @@ export default function EmailDetail(): React.JSX.Element {
   const [actionError, setActionError] = useState<string | null>(null)
   const [unreadBusy, setUnreadBusy] = useState(false)
   const [unreadMessage, setUnreadMessage] = useState<{ text: string; error?: boolean } | null>(null)
+  const [feedback, setFeedback] = useState<FeedbackState | null>(null)
+  const feedbackRef = useRef<FeedbackState | null>(null)
+  feedbackRef.current = feedback
+  const [draft, setDraft] = useState<DraftViewState>({ kind: 'idle' })
+  const [copied, setCopied] = useState(false)
+  const [toast, setToast] = useState<{ text: string; error?: boolean } | null>(null)
 
   useEffect(() => {
     if (!Number.isInteger(id) || id < 1) {
@@ -48,6 +62,65 @@ export default function EmailDetail(): React.JSX.Element {
       cancelled = true
     }
   }, [id])
+
+  useEffect(() => {
+    if (!Number.isInteger(id) || id < 1) return
+    let cancelled = false
+    fetchFeedback(id)
+      .then((f) => {
+        if (!cancelled) setFeedback(f ?? EMPTY_FEEDBACK)
+      })
+      .catch(() => {
+        // Without the stored answers the buttons still work; they just start unpressed.
+        if (!cancelled) setFeedback(EMPTY_FEEDBACK)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [id])
+
+  useEffect(() => {
+    if (!toast) return
+    const t = setTimeout(() => setToast(null), toast.error ? 8000 : 4000)
+    return () => clearTimeout(t)
+  }, [toast])
+
+  // Optimistic: the button flips at once and flips back with a toast when the write fails.
+  const answer = useCallback((kind: FeedbackKind, value?: string): void => {
+    const before = feedbackRef.current
+    if (before === null) return
+    setFeedback(applyFeedback(before, kind, value))
+    void postFeedback(id, kind, value, mutationDeps).then((res) => {
+      if (res.ok) {
+        setFeedback(res.feedback)
+        setToast({ text: FEEDBACK_SAVED_TEXT })
+      } else {
+        setFeedback(before)
+        setToast({ text: FEEDBACK_ERROR_TEXT[res.reason], error: true })
+      }
+    })
+  }, [id])
+
+  // The draft lives in this component's state only: nothing is written to any storage.
+  const createDraft = useCallback((): void => {
+    setDraft({ kind: 'loading' })
+    setCopied(false)
+    void postDraft(id, mutationDeps).then((r) => {
+      setDraft(r.ok ? { kind: 'ok', result: r } : { kind: 'error', result: r })
+    })
+  }, [id])
+
+  const copyDraft = useCallback((): void => {
+    if (draft.kind !== 'ok') return
+    void copyToClipboard(draft.result.draft, browserClipboardEnv()).then((done) => {
+      if (done) {
+        setCopied(true)
+        setTimeout(() => setCopied(false), 3000)
+      } else {
+        setToast({ text: 'Kopieren nicht möglich. Bitte den Text markieren und kopieren.', error: true })
+      }
+    })
+  }, [draft])
 
   async function toggleDone(): Promise<void> {
     if (state.kind !== 'ready' || busy) return
@@ -91,15 +164,21 @@ export default function EmailDetail(): React.JSX.Element {
   if (state.kind === 'error') return <DetailMessage text="Daten nicht verfügbar" role="alert" />
   if (state.kind === 'missing') return <DetailMessage text="Diese Mail gibt es nicht." />
   return (
-    <EmailDetailView
-      email={state.email}
-      now={now}
-      busy={busy}
-      error={actionError}
-      onToggleDone={() => void toggleDone()}
-      onUnread={() => void markUnread()}
-      unreadBusy={unreadBusy}
-      unreadMessage={unreadMessage}
-    />
+    <>
+      <EmailDetailView
+        email={state.email}
+        now={now}
+        busy={busy}
+        error={actionError}
+        onToggleDone={() => void toggleDone()}
+        onUnread={() => void markUnread()}
+        unreadBusy={unreadBusy}
+        unreadMessage={unreadMessage}
+        feedback={<FeedbackPanel state={feedback} onAnswer={answer} />}
+        draft={<DraftPanel state={draft} copied={copied} onCreate={createDraft} onCopy={copyDraft} />}
+        draftPrimary={showDraftButton(state.email)}
+      />
+      {toast && <UndoToast text={toast.text} error={toast.error} onClose={() => setToast(null)} />}
+    </>
   )
 }

@@ -60,6 +60,8 @@ function Row(
     );
   }
   const busy = p.busy.has(action.email_id);
+  // In the dry run nothing was marked yet: the button keeps the rule from marking the mail, so it is not "ungelesen".
+  const label = p.tab === "dry_run" ? "Nicht markieren" : "Wieder ungelesen";
   return (
     <li className="item action-item">
       <p className="action-title">{title}</p>
@@ -68,10 +70,10 @@ function Row(
         <button
           type="button"
           className="btn btn-unread"
-          aria-label={`Wieder ungelesen: ${email.subject || "(ohne Betreff)"}`}
+          aria-label={`${label}: ${email.subject || "(ohne Betreff)"}`}
           disabled={busy}
           onClick={() => (p.onUnread ?? noop)(action.email_id)}
-        >Wieder ungelesen</button>
+        >{label}</button>
       </div>
     </li>
   );

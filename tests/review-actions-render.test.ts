@@ -60,8 +60,9 @@ describe("Aussortiert view: dry run", () => {
     assert.ok(html.includes("Betreff 1") && html.includes("spam2@example.test"));
     assert.match(html, /<a class="card" href="\/emails\/1"/);
     assert.ok(html.includes("acct-dot"));
-    assert.equal(html.match(/>Wieder ungelesen</g)?.length, 2);
-    assert.match(html, /aria-label="Wieder ungelesen: Betreff 1"/);
+    assert.equal(html.match(/>Nicht markieren</g)?.length, 2, "dry run: the rule has not marked anything yet");
+    assert.ok(!html.includes(">Wieder ungelesen<"));
+    assert.match(html, /aria-label="Nicht markieren: Betreff 1"/);
   });
 
   it("tabs carry the counts and mark the active one", () => {
@@ -110,7 +111,7 @@ describe("Aussortiert view: state and errors", () => {
   });
   it("disables the button of a busy row", () => {
     const html = view({ busy: new Set([1]) });
-    assert.equal(html.match(/<button[^>]*disabled=""[^>]*>Wieder ungelesen/g)?.length, 1);
+    assert.equal(html.match(/<button[^>]*disabled=""[^>]*>Nicht markieren/g)?.length, 1);
   });
   it("prints no content fields and no code values", () => {
     const leaky = { ...mail(1), body: MARKER, excerpt: MARKER, raw: MARKER } as ApiEmail;
@@ -133,7 +134,7 @@ describe("list header", () => {
   it("says read-only while no account is live and links to Aussortiert", () => {
     const html = list({ autoActions: { a1: "dry_run", a2: "dry_run" } });
     assert.ok(html.includes("Alle Konten · Postfach nur lesend"));
-    assert.match(html, /<a class="[^"]*" href="\/aussortiert"/);
+    assert.match(html, /<a class="menu-item" role="menuitem" href="\/aussortiert"/);
     assert.ok(html.includes("Dringend – heute"));
   });
   it("announces automatic marking once an account is live", () => {
