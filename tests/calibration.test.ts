@@ -175,3 +175,59 @@ test("parses CLI arguments strictly", () => {
   assert.throws(() => parseCalibrateArgs(["--account"]), /bad_args/);
   assert.throws(() => parseCalibrateArgs(["--subject"]), /bad_args/);
 });
+
+const fbRow = (db: ReturnType<typeof setup>["db"], emailId: number, kind: string) =>
+  db.prepare("INSERT INTO feedback (email_id, kind, actor, created_at) VALUES (?, ?, 'nico', ?)").run(emailId, kind, T);
+
+test("T24b: feedback is an additional label and wins over the provider folder", () => {
+  const { db, dir } = setup();
+  try {
+    fbRow(db, 3, "spam_correct"); // INBOX at the provider, Nico says spam
+    fbRow(db, 1, "not_spam"); // Junk at the provider, Nico says not spam
+    fbRow(db, 5, "spam_correct"); // account without spam folder: only feedback can label it
+    fbRow(db, 6, "not_spam"); // no active location: only feedback can label it
+    const g = buildCalibrationReport(db, {}).groups[0];
+    assert.deepEqual(g.emails, { provider_inbox: 3, provider_spam: 3 }); // counts by final label
+    assert.deepEqual(g.excluded, { no_active_location: 0, no_spam_mailbox: 0 });
+    assert.deepEqual(g.feedback_labels, { spam: 2, not_spam: 2 });
+    const at = g.questions[0].thresholds.find((r) => r.threshold === 0.8)!;
+    // spam labels: 0.6 (provider), 0.7 (feedback), 0.99 (feedback); not spam: 0.9 (feedback), 0.2, 0.99 (feedback)
+    assert.deepEqual({ tp: at.tp, fp: at.fp, fn: at.fn, tn: at.tn }, { tp: 1, fp: 2, fn: 2, tn: 1 });
+    const v2 = buildCalibrationReport(db, {}).groups[1];
+    assert.deepEqual(v2.feedback_labels, { spam: 0, not_spam: 1 });
+    assert.deepEqual(v2.emails, { provider_inbox: 1, provider_spam: 0 });
+    assert.match(formatCalibrationReport(buildCalibrationReport(db, {})), /labels from feedback: spam=2 not_spam=2/);
+  } finally {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("T24b: the latest feedback per mail counts; feedback of other kinds is ignored", () => {
+  const { db, dir } = setup();
+  try {
+    fbRow(db, 2, "not_spam");
+    fbRow(db, 2, "spam_correct"); // latest wins: spam again
+    fbRow(db, 4, "reply_needed");
+    fbRow(db, 4, "category_wrong");
+    const g = buildCalibrationReport(db, {}).groups[0];
+    assert.deepEqual(g.feedback_labels, { spam: 1, not_spam: 0 });
+    assert.deepEqual(g.emails, { provider_inbox: 2, provider_spam: 2 });
+    assert.deepEqual(g.excluded, { no_active_location: 1, no_spam_mailbox: 1 });
+  } finally {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("T24b: without feedback the report is unchanged and says so", () => {
+  const { db, dir } = setup();
+  try {
+    const r = buildCalibrationReport(db, {});
+    assert.deepEqual(r.groups[0].feedback_labels, { spam: 0, not_spam: 0 });
+    assert.match(formatCalibrationReport(r), /labels from feedback: spam=0 not_spam=0/);
+  } finally {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

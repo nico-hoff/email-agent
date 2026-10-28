@@ -1,5 +1,6 @@
-// Kalibrierungsbericht (T24): Verteilung der noul-Rohwerte je Frage und Provider-Ordner,
-// Precision/Recall gegen das Provider-Label. Liest nur SQLite, gibt nur Aggregate aus (H3/H4).
+// Kalibrierungsbericht (T24/T24b): Verteilung der noul-Rohwerte je Frage und Label,
+// Precision/Recall gegen das Label. Label = Nicos Feedback (spam_correct / not_spam, das jeweils letzte je Mail, hat
+// Vorrang) oder sonst der Provider-Ordner (Spam-Ordner = Spam). Liest nur SQLite, gibt nur Aggregate aus (H3/H4).
 // Aufruf: npm run calibrate -- [--question-set <version>] [--account <id>] [--json]
 import type { DatabaseSync } from "node:sqlite";
 
@@ -36,7 +37,10 @@ export interface QuestionReport {
 export interface GroupReport {
   question_set_version: string;
   model_requested: string;
+  /** Mails by final label. Despite the key names the label may come from feedback (see feedback_labels). */
   emails: { provider_inbox: number; provider_spam: number };
+  /** How many of those labels come from Nico's feedback instead of the provider folder (T24b). */
+  feedback_labels: { spam: number; not_spam: number };
   excluded: { no_active_location: number; no_spam_mailbox: number };
   questions: QuestionReport[];
 }
@@ -88,6 +92,7 @@ function thresholdRows(points: Point[]): ThresholdRow[] {
 
 interface ClsRow {
   id: number;
+  email_id: number;
   question_set_version: string;
   model_requested: string;
   spam_mailbox: string | null;
@@ -111,7 +116,7 @@ export function buildCalibrationReport(db: DatabaseSync, opts: CalibrateOptions)
     params.push(opts.account);
   }
   const rows = db.prepare(
-    `SELECT c.id, c.question_set_version, c.model_requested, a.spam_mailbox, l.folder
+    `SELECT c.id, c.email_id, c.question_set_version, c.model_requested, a.spam_mailbox, l.folder
      FROM classifications c
      JOIN emails e ON e.id = c.email_id
      JOIN accounts a ON a.id = e.account_id
@@ -120,6 +125,11 @@ export function buildCalibrationReport(db: DatabaseSync, opts: CalibrateOptions)
      WHERE ${where.join(" AND ")}
      ORDER BY c.question_set_version, c.model_requested, c.id`,
   ).all(...params) as unknown as ClsRow[];
+  // Latest spam verdict per mail from Nico (feedback table, newest row of the two spam kinds).
+  const feedbackLabel = new Map<number, boolean>();
+  for (const f of db.prepare(
+    "SELECT email_id, kind FROM feedback WHERE kind IN ('spam_correct', 'not_spam') ORDER BY id",
+  ).all() as { email_id: number; kind: string }[]) feedbackLabel.set(f.email_id, f.kind === "spam_correct");
   const answers = db.prepare(
     "SELECT question_key, answer_json FROM classification_answers WHERE classification_id = ? AND type = 'noul'",
   );
@@ -134,6 +144,7 @@ export function buildCalibrationReport(db: DatabaseSync, opts: CalibrateOptions)
           question_set_version: r.question_set_version,
           model_requested: r.model_requested,
           emails: { provider_inbox: 0, provider_spam: 0 },
+          feedback_labels: { spam: 0, not_spam: 0 },
           excluded: { no_active_location: 0, no_spam_mailbox: 0 },
           questions: [],
         },
@@ -141,9 +152,16 @@ export function buildCalibrationReport(db: DatabaseSync, opts: CalibrateOptions)
       };
       groups.set(gk, g);
     }
-    if (r.spam_mailbox === null) { g.report.excluded.no_spam_mailbox++; continue; }
-    if (r.folder === null) { g.report.excluded.no_active_location++; continue; }
-    const providerSpam = r.folder === r.spam_mailbox;
+    const fb = feedbackLabel.get(r.email_id);
+    let providerSpam: boolean;
+    if (fb !== undefined) {
+      providerSpam = fb;
+      g.report.feedback_labels[fb ? "spam" : "not_spam"]++;
+    } else {
+      if (r.spam_mailbox === null) { g.report.excluded.no_spam_mailbox++; continue; }
+      if (r.folder === null) { g.report.excluded.no_active_location++; continue; }
+      providerSpam = r.folder === r.spam_mailbox;
+    }
     if (providerSpam) g.report.emails.provider_spam++;
     else g.report.emails.provider_inbox++;
     for (const a of answers.all(r.id) as { question_key: string; answer_json: string }[]) {
@@ -190,6 +208,7 @@ export function formatCalibrationReport(report: CalibrationReport): string {
   const out: string[] = [];
   for (const g of report.groups) {
     out.push(`${g.question_set_version} / ${g.model_requested}`);
+    out.push(`  labels from feedback: spam=${g.feedback_labels.spam} not_spam=${g.feedback_labels.not_spam}`);
     out.push(`  provider inbox=${g.emails.provider_inbox} spam=${g.emails.provider_spam}` +
       ` (excluded: no_active_location=${g.excluded.no_active_location} no_spam_mailbox=${g.excluded.no_spam_mailbox})`);
     for (const q of g.questions) {
