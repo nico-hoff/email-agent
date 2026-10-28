@@ -96,6 +96,7 @@ const ALLOWLIST: Record<string, string[]> = {
     "email_id",
     "details_json",
   ],
+  user_state: ["key", "value_json", "updated_at"],
   schema_migrations: ["version", "applied_at"],
 };
 
@@ -386,7 +387,7 @@ describe("002 email_status and accounts.color", () => {
     const db = openDatabase(path);
     opened.push(db);
     assert.equal((db.prepare("SELECT COUNT(*) AS n FROM emails").get() as { n: number }).n, 1);
-    assert.deepEqual((db.prepare("SELECT version FROM schema_migrations ORDER BY version").all() as { version: number }[]).map((r) => r.version), [1, 2, 3]);
+    assert.deepEqual((db.prepare("SELECT version FROM schema_migrations ORDER BY version").all() as { version: number }[]).map((r) => r.version), [1, 2, 3, 5]);
     db.exec(`INSERT INTO email_status (email_id,seen,updated_at) VALUES (1,1,'${T}')`);
   });
 });
@@ -446,6 +447,29 @@ describe("003 mailbox_actions", () => {
   });
 });
 
+describe("005 user_state", () => {
+  test("key is unique, value_json must be valid JSON, nothing references a mail", () => {
+    const db = fresh();
+    db.exec(`INSERT INTO user_state (key,value_json,updated_at) VALUES ('last_opened_at','{"at":"${T}"}','${T}')`);
+    throwsSql(db, `INSERT INTO user_state (key,value_json,updated_at) VALUES ('last_opened_at','{}','${T}')`, /UNIQUE|PRIMARY/);
+    throwsSql(db, `INSERT INTO user_state (key,value_json,updated_at) VALUES ('x','{nope','${T}')`, /CHECK/);
+    throwsSql(db, `INSERT INTO user_state (key,updated_at) VALUES ('y','${T}')`, /NOT NULL/);
+  });
+  test("a database with 001 to 003 only upgrades", () => {
+    const dir = join(tmp, "migs-003-only");
+    mkdirSync(dir);
+    for (const f of ["001_init.sql", "002_status_and_account_color.sql", "003_mailbox_actions.sql"]) writeFileSync(join(dir, f), readFileSync(join(MIGRATIONS_DIR, f), "utf8"));
+    const path = join(tmp, "upgrade3.db");
+    const old = openDatabase(path, dir);
+    seed(old);
+    old.close();
+    const db = openDatabase(path);
+    opened.push(db);
+    assert.equal((db.prepare("SELECT COUNT(*) AS n FROM user_state").get() as { n: number }).n, 0);
+    assert.equal((db.prepare("SELECT COUNT(*) AS n FROM emails").get() as { n: number }).n, 1);
+  });
+});
+
 describe("audit_log append-only triggers", () => {
   test("UPDATE and DELETE are aborted", () => {
     const db = fresh();
@@ -465,7 +489,7 @@ describe("migration runner", () => {
     const b = openDatabase(path);
     opened.push(b);
     const rows = b.prepare("SELECT version FROM schema_migrations").all() as { version: number }[];
-    assert.deepEqual(rows.map((r) => r.version), [1, 2, 3]);
+    assert.deepEqual(rows.map((r) => r.version), [1, 2, 3, 5]);
   });
 
   test("numeric (not lexical) order, applied once", () => {

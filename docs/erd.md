@@ -104,6 +104,11 @@ erDiagram
     text created_at
     text done_at
   }
+  user_state {
+    text key PK
+    text value_json
+    text updated_at
+  }
   audit_log {
     integer id PK
     text occurred_at
@@ -141,6 +146,9 @@ Mermaid kann zusammengesetzte Eindeutigkeit nicht gruppieren. Maßgeblich sind d
 
 13. **Postfach-Aktionen (003, M7a).** `mailbox_actions` protokolliert jede automatische Schreibaktion auf dem Mailserver und jede, die nur geplant wäre (Trockenlauf). Sie speichert nur IDs, Codes und Zeitstempel; `reason_json` enthält nur kurze Codes und Zahlen (z. B. `{"rule_reason":"jev_spam"}`), nie Betreff, Absender oder Inhalt. `location_id` ist der aktive Ort der Mail zum Zeitpunkt der Aktion (Ordner, UIDVALIDITY und UID stehen dort). Die CHECK-Listen enthalten schon die Werte von M7 (`blacklist`, `quarantine`, `purge`, `move_*`), weil eine CHECK-Liste in SQLite nur per Tabellenumbau erweiterbar ist; M7a nutzt nur `rule` ∈ {`spam_seen`, `undo`} und `action` ∈ {`mark_seen`, `unmark_seen`}. Die Paarung ist per CHECK erzwungen (`undo` gehört zu `unmark_seen`/`move_inbox`, alle anderen Regeln zu den übrigen Aktionen). Status: `planned` (nur Trockenlauf), `done`, `failed` (mit `failure_code`), `undone` (die ursprüngliche Aktion wurde per Undo zurückgenommen). Der partielle Unique-Index macht die Ausführung idempotent und verhindert, dass eine zurückgenommene Aktion erneut greift. Die Migration trägt die Nummer 003, weil Plan v5 (Abschnitt 4) die geplante Migration `003` für Feedback/Absender (M5) erst später baut; diese wird `004`.
 14. **Audit der Postfach-Aktionen.** `mailbox_action` steht mit `actor = 'system'` im `audit_log` (`details_json` nur mit `action_id`, `rule`, `action`, `mode`, `status`, `failure_code`). Ein eigener Akteur `rules` kommt erst mit der Rebuild-Migration von `audit_log` (zusammen mit `nico`).
+
+15. **App-Zustand (005, M6).** `user_state` ist ein kleiner Schlüssel-Wert-Speicher für Zustand der App selbst, der zu keiner Mail gehört. Erster Schlüssel: `last_opened_at` (`{"at":"<ISO-8601 UTC>"}`), gesetzt, wenn das Briefing erzeugt wurde; er begrenzt die Zähler „neu seit dem letzten Öffnen“. `value_json` enthält nur Zeitstempel, Zahlen und kurze Codes, nie Text aus Mails, Briefings oder Entwürfen. Die Migration trägt die Nummer 005, weil 004 für die Feedback-/Absender-Tabellen (M5) reserviert ist; sie hängt von keiner dieser Tabellen ab. Das Briefing selbst wird nicht gespeichert (D28).
+16. **Audit des Briefings.** `briefing_generated` steht mit `actor = 'system'` im `audit_log`, ohne `email_id`; `details_json` enthält nur Modell, Latenz, Tokenzahlen und die Anzahl der Mails im Kontext (`mails`). Entwürfe: `draft_generated` (ohne Text).
 
 ## Verbindungs-Pragmas (nicht Teil der Migration, bei jeder Verbindung setzen)
 
@@ -301,6 +309,18 @@ CREATE INDEX mailbox_actions_list ON mailbox_actions (mode, created_at DESC, id 
 ```
 
 `audit_log.action` kennt zusätzlich `mailbox_action`.
+
+## DDL (`db/migrations/005_user_state.sql`)
+
+```sql
+CREATE TABLE user_state (
+  key        TEXT PRIMARY KEY,
+  value_json TEXT NOT NULL CHECK (json_valid(value_json)),
+  updated_at TEXT NOT NULL
+);
+```
+
+`audit_log.action` kennt zusätzlich `briefing_generated` und `draft_generated`.
 
 ## Schema-Test (`tests/db.test.ts`)
 
