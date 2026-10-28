@@ -87,3 +87,12 @@ Folgen:
 - „Braucht Antwort“ bleibt aus (O4).
 - Agent-Sperre (D18) unverändert streng, aber nicht mehr pauschal: Eine Mail geht durch, wenn das Fragenset passt, `addresses_an_ai` unter 0.30 liegt, die Kategorie nicht `security_auth` ist und `is_assessable` nicht negativ ist (heute immer `unmapped`, sperrt nicht). Ab 0.30, `unmapped` (auch bei fehlender oder anderer Version) oder `security_auth` sperrt.
 - `GET /api/emails` liefert je noul-Antwort `reading` (`positive|negative|unmapped`), `threshold` und `calibration_version` (bei `unmapped` beide `null`); die UI zeigt Ja/Nein mit Schwelle und Version, unkalibrierte Fragen weiter als Rohwert „unkalibriert“.
+
+## State: Feedback-Zähler in `sender_history` (T55, H21)
+
+`sender_history` ist ein Objekt mit nur endlichen Zahlen. Erlaubte Schlüssel (`SENDER_HISTORY_KEYS` in `lib/jev-questions.ts`): `mails_seen_from_sender`, `days_since_first_seen` und neu `user_marked_spam`, `user_marked_not_spam` (Nicos Urteile aus `senders.marked_spam` / `marked_not_spam`, je Mail das letzte Urteil). Regeln:
+
+- Die beiden neuen Zähler gehen **nur bei `dmarc = pass`** der aktuellen Mail mit; sonst lässt sie `buildState` weg (ein Absender ohne bestandene Authentifizierung beweist nichts), und ein leeres `sender_history` wird nicht gesendet.
+- Die Pipeline (`lib/classification-pipeline.ts`, `buildRequest`) sendet `sender_history` nur, wenn mindestens einer der beiden Zähler über 0 liegt; ohne Feedback bleibt der State unverändert (keine Nullen, keine Kosten, keine Verschiebung für alle anderen Mails). Aktuell liefert die Pipeline `mails_seen_from_sender` und `days_since_first_seen` nicht.
+- Nur Zahlen (H21): keine Adresse, Domain, kein Betreff und kein Freitext im State; der Absender wird über `emails.sender` in der App-DB aufgelöst, nicht über den State.
+- **Offen:** Die Wirkung auf die Urteile ist nicht gemessen. Vor dem Verlass darauf: Eval vorher/nachher (T55) mit synthetischen Fällen, Live-Probe nur durch Nico (H22). Es gibt keine beobachtete Antwort, die diese Schlüssel enthält; ihre Auswertung durch Jev ist daher unbelegt.
