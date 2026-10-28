@@ -27,6 +27,12 @@ export const DEFAULT_DATABASE_PATH = "data/email-agent.sqlite";
 export const DEV_SYNTHETIC_DATABASE_PATH = "data/dev-synthetic.sqlite";
 /** Reply agent model (O1a): Veryfront OpenAI provider routed to OpenRouter; the model id itself is `openai/gpt-6-luna`. */
 export const REPLY_DRAFTER_MODEL = "openai/openai/gpt-6-luna";
+/** Briefing agent (Plan v5 E6): same model as the reply agent. */
+export const BRIEFING_MODEL = REPLY_DRAFTER_MODEL;
+/** The same briefing is served from memory for this long (Plan v5 D28). */
+export const BRIEFING_CACHE_MS = 5 * 60 * 1000;
+/** Hard stop for one briefing stream. */
+export const BRIEFING_TIMEOUT_MS = 30_000;
 export const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 /** Provider flags (\Seen) are re-read for mails first seen within this window, at every poll (read-only FETCH FLAGS). */
 export const FLAG_REFRESH_WINDOW_DAYS = 30;
