@@ -3,6 +3,7 @@
 // Module is reachable from API routes: no dynamic obj[key] reads (the Veryfront loader rejects them), Map instead.
 import type { DatabaseSync } from "node:sqlite";
 import { type AccountTag, accountTag } from "./account-color.ts";
+import type { AutoActionMode } from "./accounts-config.ts";
 import { interpretNoul, type NoulInterpreter, type NoulReading } from "./jev-response.ts";
 import { NOUL_CALIBRATION, noulThreshold } from "./noul-calibration.ts";
 
@@ -193,6 +194,8 @@ interface Derived {
 export interface ApiDeps {
   /** Reading of noul answers; tests inject a calibrated needs_my_reply. Default: interpretNoul. */
   readNoul?: NoulInterpreter;
+  /** Mode of the automatic rule per account id (list header); missing accounts count as dry_run. */
+  autoActionModes?: ReadonlyMap<string, AutoActionMode>;
 }
 
 const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
@@ -348,6 +351,8 @@ export interface ListResult {
   /** Badge numbers for every view, after the account and status filter, independent of the selected view and page. */
   counts: Counts;
   accounts: AccountTag[];
+  /** Mode of "Spam gelesen" per account id: only the mode, nothing from the accounts file. */
+  auto_actions: Record<string, AutoActionMode>;
   view: View;
 }
 
@@ -399,12 +404,26 @@ export function listEmails(db: DatabaseSync, q: ListQuery, deps: ApiDeps = {}): 
 
   const accounts = (db.prepare("SELECT id, label, color FROM accounts ORDER BY id").all() as { id: string; label: string; color: string | null }[])
     .map(accountTag);
-  return { emails: page.map((d) => buildItem(db, d, readNoul)), next_cursor, counts, accounts, view };
+  const auto_actions = Object.fromEntries(accounts.map((a) => [a.id, deps.autoActionModes?.get(a.id) ?? "dry_run"] as const));
+  return { emails: page.map((d) => buildItem(db, d, readNoul)), next_cursor, counts, accounts, auto_actions, view };
 }
 
 // ---- detail -----------------------------------------------------------------------------------------------------
 
+/** The "Spam gelesen" action of a mail: codes and time only, never the reason details. */
+export interface MailboxActionInfo {
+  id: number;
+  rule: string;
+  action: string;
+  mode: string;
+  status: string;
+  failure_code: string | null;
+  created_at: string;
+}
+
 export interface EmailDetail extends EmailItem {
+  /** Planned (dry run), executed, failed or undone action of the rule "spam_seen"; null if none exists. */
+  mailbox_action: MailboxActionInfo | null;
   /** Provider-side moves seen by the worker (audit folder_changed), oldest first. */
   folder_history: { at: string; from: string | null; to: string | null }[];
   /** Every place the mail was seen in, oldest first. UIDs stay internal. */
@@ -431,5 +450,12 @@ export function getEmailDetail(db: DatabaseSync, id: number, deps: ApiDeps = {})
     first_seen_at: l.first_seen_at,
     last_seen_at: l.last_seen_at,
   }));
-  return { ...item, folder_history: history, locations };
+  const action = db.prepare(
+    `SELECT id, rule, action, mode, status, failure_code, created_at FROM mailbox_actions
+     WHERE email_id = ? AND rule = 'spam_seen' ORDER BY created_at DESC, id DESC LIMIT 1`,
+  ).get(id) as unknown as MailboxActionInfo | undefined;
+  const mailbox_action = action
+    ? { id: action.id, rule: action.rule, action: action.action, mode: action.mode, status: action.status, failure_code: action.failure_code, created_at: action.created_at }
+    : null;
+  return { ...item, mailbox_action, folder_history: history, locations };
 }

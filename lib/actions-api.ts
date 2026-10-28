@@ -79,7 +79,8 @@ export function parseActionsQuery(url: URL): ParsedActionsQuery {
 }
 
 export function listActions(db: DatabaseSync, q: ActionsQuery): ActionsResult {
-  const where: string[] = [];
+  // Undo log entries (rule "undo") are internal: the undone action already carries status "undone".
+  const where: string[] = ["m.rule <> 'undo'"];
   const args: (string | number)[] = [];
   if (q.mode !== null) { where.push("m.mode = ?"); args.push(q.mode); }
   if (q.status !== null) { where.push("m.status = ?"); args.push(q.status); }
@@ -101,7 +102,7 @@ export function listActions(db: DatabaseSync, q: ActionsQuery): ActionsResult {
   const next_cursor = rows.length > q.limit && last ? encodeCursor(last.created_at, last.id) : null;
 
   const counts = { dry_run: { planned: 0, done: 0, failed: 0, undone: 0 }, live: { planned: 0, done: 0, failed: 0, undone: 0 } };
-  const grouped = db.prepare("SELECT mode, status, COUNT(*) AS n FROM mailbox_actions GROUP BY mode, status")
+  const grouped = db.prepare("SELECT mode, status, COUNT(*) AS n FROM mailbox_actions WHERE rule <> 'undo' GROUP BY mode, status")
     .all() as unknown as { mode: Mode; status: Status; n: number }[];
   for (const g of grouped) {
     const target: StatusCounts = g.mode === "live" ? counts.live : counts.dry_run;

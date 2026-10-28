@@ -1,6 +1,7 @@
 import { openDatabase } from "../../../lib/db.ts";
 import { validateDatabasePath } from "../../../lib/accounts.ts";
 import { PROJECT_ROOT } from "../../../lib/constants.ts";
+import { readAutoActionModes } from "../../../lib/account-modes.ts";
 import { listEmails, parseListQuery } from "../../../lib/email-api.ts";
 
 // Reads only from SQLite. Never exposes body/excerpt/raw data (none is stored) or account host/user.
@@ -12,7 +13,7 @@ export function GET(request: Request): Response {
   let db;
   try {
     db = openDatabase(validateDatabasePath(process.env, PROJECT_ROOT));
-    return Response.json(listEmails(db, parsed.query), { headers: { "cache-control": "no-store" } });
+    return Response.json(listEmails(db, parsed.query, { autoActionModes: readAutoActionModes() }), { headers: { "cache-control": "no-store" } });
   } catch {
     return Response.json({ error: "emails_unavailable" }, { status: 500 });
   } finally {

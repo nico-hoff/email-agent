@@ -73,14 +73,14 @@ describe("GET /api/actions", () => {
   test("counts cover all modes and statuses, independent of the filters and the page", () => {
     const expected = {
       dry_run: { planned: 3, done: 0, failed: 0, undone: 1 },
-      live: { planned: 0, done: 2, failed: 1, undone: 0 },
+      live: { planned: 0, done: 1, failed: 1, undone: 0 },
     };
     for (const qs of ["?mode=dry_run", "?mode=live&limit=1", "?status=failed", ""]) assert.deepEqual(listActions(setup(), q(qs)).counts, expected, qs);
   });
 
   test("live list and status filter", () => {
     const db = setup();
-    assert.deepEqual(listActions(db, q("?mode=live")).actions.map((a) => [a.id, a.status, a.failure_code]), [[7, "done", null], [5, "failed", "store_rejected"], [4, "done", null]]);
+    assert.deepEqual(listActions(db, q("?mode=live")).actions.map((a) => [a.id, a.status, a.failure_code]), [[5, "failed", "store_rejected"], [4, "done", null]]);
     assert.deepEqual(listActions(db, q("?mode=dry_run&status=planned")).actions.map((a) => a.id), [6, 2, 1]);
   });
 
@@ -95,8 +95,8 @@ describe("GET /api/actions", () => {
       cursor = r.next_cursor;
       pages++;
     } while (cursor && pages < 10);
-    assert.deepEqual(seen, [7, 6, 5, 4, 3, 2, 1]);
-    assert.equal(pages, 4);
+    assert.deepEqual(seen, [6, 5, 4, 3, 2, 1], "the undo log entry (id 7) is not listed");
+    assert.equal(pages, 3);
     assert.equal(listActions(db, q("?limit=50")).next_cursor, null);
   });
 
