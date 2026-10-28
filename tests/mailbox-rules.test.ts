@@ -76,3 +76,46 @@ describe("rule: spam read (E12)", () => {
     assert.equal(d.action, "mark_seen");
   });
 });
+
+describe("rules: sender allowlist and blacklist (M5, H17)", () => {
+  test("allowlist protects against every action, whatever Jev, the provider folder or a blacklist hit says", () => {
+    for (const spam of [0.0, 0.5, 0.99]) {
+      for (const inProviderSpam of [false, true]) {
+        for (const blacklisted of [false, true]) {
+          const d = decideSpamSeen(input({ answers: [noul("is_spam", spam), cat("promotion")], inProviderSpam, blacklisted, allowlisted: true }));
+          assert.deepEqual(d, { action: "none", reason: "allowlisted" }, `${spam} ${inProviderSpam} ${blacklisted}`);
+        }
+      }
+    }
+    assert.deepEqual(decideSpamSeen(input({ allowlisted: true })), { action: "none", reason: "allowlisted" });
+  });
+
+  test("protected categories still win over a blacklist hit", () => {
+    for (const c of ["security_auth", "transactional"]) {
+      assert.deepEqual(decideSpamSeen(input({ answers: [noul("is_spam", 0.99), cat(c)], blacklisted: true })), { action: "none", reason: "protected_category" });
+    }
+  });
+
+  test("a blacklist hit is an additional reason for 'spam read': it marks the mail read even without a Jev spam verdict", () => {
+    assert.deepEqual(decideSpamSeen(input({ answers: [noul("is_spam", 0.1), cat("personal")], blacklisted: true })), { action: "mark_seen", reason: "blacklisted" });
+    assert.deepEqual(decideSpamSeen(input({ answers: [], blacklisted: true })), { action: "mark_seen", reason: "blacklisted" });
+    assert.deepEqual(decideSpamSeen(input({ answers: [noul("is_spam", 0.5)], blacklisted: true })), { action: "mark_seen", reason: "blacklisted" });
+  });
+
+  test("with a positive Jev verdict the reason stays jev_spam; an already read mail gets nothing", () => {
+    assert.equal(decideSpamSeen(input({ answers: [noul("is_spam", 0.97)], blacklisted: true })).reason, "jev_spam");
+    assert.deepEqual(decideSpamSeen(input({ answers: [noul("is_spam", 0.97)], blacklisted: true, seen: true })), { action: "none", reason: "already_seen" });
+  });
+
+  test("a blacklist hit never moves or deletes: the only action is mark_seen (deleting comes with M7)", () => {
+    const actions = new Set<string>();
+    for (const spam of [0, 0.5, 0.8, 0.99]) for (const inProviderSpam of [false, true]) {
+      actions.add(decideSpamSeen(input({ answers: [noul("is_spam", spam)], inProviderSpam, blacklisted: true })).action);
+    }
+    assert.deepEqual([...actions], ["mark_seen"]);
+  });
+
+  test("without any sender rule nothing changes", () => {
+    assert.deepEqual(decideSpamSeen(input({ answers: [noul("is_spam", 0.1)] })), { action: "none", reason: "not_spam" });
+  });
+});

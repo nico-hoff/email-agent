@@ -10,6 +10,7 @@ import { upsertSeen } from "../lib/email-status.ts";
 import { ImapWriteError, type ImapWritePort } from "../lib/imap-write.ts";
 import type { AccountConfig } from "../lib/accounts-config.ts";
 import { createMailboxActions, DAILY_ACTION_LIMIT } from "../lib/mailbox-actions.ts";
+import { createRule, deactivateRule } from "../lib/sender-rules.ts";
 
 const T0 = new Date("2026-10-27T10:00:00.000Z");
 const SUBJECT = "SUBJECT-MARKER-5521";
@@ -411,5 +412,43 @@ describe("pipeline hook", () => {
     await t.actions.onClassified(id);
     assert.equal(rows(t.db).length, 1);
     await t.actions.onClassified(424242); // unknown mail: swallowed
+  });
+});
+
+describe("sender rules (M5, H17)", () => {
+  test("an allowlisted sender (address or domain) gets no action even at is_spam 0.99 and in the provider spam folder", async () => {
+    for (const [match, value] of [["address", SENDER], ["domain", "example.test"]] as const) {
+      const t = setup([account("a", "live")]);
+      createRule(t.db, { kind: "allowlist", match, value, ts: T0.toISOString() });
+      const id = addMail(t.db, "a", { spam: 0.99, folder: "Junk" });
+      assert.equal((await t.actions.evaluate(id)).outcome, "no_action", match);
+      assert.deepEqual(rows(t.db), []);
+      assert.deepEqual(t.calls, []);
+    }
+  });
+
+  test("an allowlist rule bound to another account does not protect", async () => {
+    const t = setup([account("a", "dry_run"), account("b", "dry_run")]);
+    createRule(t.db, { kind: "allowlist", match: "domain", value: "example.test", accountId: "b", ts: T0.toISOString() });
+    assert.equal((await t.actions.evaluate(addMail(t.db, "a", { spam: 0.99 }))).outcome, "planned");
+    assert.equal((await t.actions.evaluate(addMail(t.db, "b", { spam: 0.99 }))).outcome, "no_action");
+  });
+
+  test("a blacklisted sender is marked read (reason blacklisted) even when Jev is unsure; live writes only \\Seen", async () => {
+    const t = setup([account("a", "live")]);
+    createRule(t.db, { kind: "blacklist", match: "address", value: SENDER, ts: T0.toISOString() });
+    const id = addMail(t.db, "a", { spam: 0.2, category: "personal" });
+    assert.equal((await t.actions.evaluate(id)).outcome, "done");
+    assert.deepEqual(t.calls.map((c) => c.fn), ["addSeen"]);
+    assert.equal(JSON.parse(rows(t.db)[0].reason_json as string).rule_reason, "blacklisted");
+  });
+
+  test("a deactivated rule no longer applies; protected categories still win over the blacklist", async () => {
+    const t = setup([account("a", "dry_run")]);
+    const r = createRule(t.db, { kind: "blacklist", match: "address", value: SENDER, ts: T0.toISOString() });
+    assert.ok(r.ok);
+    assert.equal((await t.actions.evaluate(addMail(t.db, "a", { spam: 0.2, category: "security_auth" }))).outcome, "no_action");
+    deactivateRule(t.db, r.rule.id, T0.toISOString());
+    assert.equal((await t.actions.evaluate(addMail(t.db, "a", { spam: 0.2, category: "personal" }))).outcome, "no_action");
   });
 });

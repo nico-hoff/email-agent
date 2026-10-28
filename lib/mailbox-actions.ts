@@ -10,6 +10,7 @@ import { upsertSeen } from "./email-status.ts";
 import { createImapWritePort, ImapWriteError, type ImapWritePort } from "./imap-write.ts";
 import type { NormalizedAnswer } from "./jev-response.ts";
 import { decideSpamSeen } from "./mailbox-rules.ts";
+import { senderRuleHit } from "./sender-rules.ts";
 
 export { DAILY_ACTION_LIMIT };
 
@@ -152,7 +153,7 @@ export function createMailboxActions(opts: MailboxActionsOptions): MailboxAction
   }
 
   async function evaluateNow(emailId: number): Promise<EvaluateResult> {
-    const mail = db.prepare("SELECT account_id FROM emails WHERE id = ?").get(emailId) as { account_id: string } | undefined;
+    const mail = db.prepare("SELECT account_id, sender FROM emails WHERE id = ?").get(emailId) as { account_id: string; sender: string } | undefined;
     if (!mail) return { outcome: "not_found" };
     const accountId = mail.account_id;
     const mode = modeFor(accountId);
@@ -175,6 +176,7 @@ export function createMailboxActions(opts: MailboxActionsOptions): MailboxAction
       questionSetVersion: cls.version,
       inProviderSpam: acct?.spam_mailbox != null && acct.spam_mailbox === loc.folder,
       seen,
+      ...senderRuleHit(db, mail.sender, accountId),
     });
     const ts = now();
 

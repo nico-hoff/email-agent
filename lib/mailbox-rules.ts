@@ -11,6 +11,7 @@ export type RuleReason =
   | "already_seen"
   | "jev_spam"
   | "provider_spam"
+  | "blacklisted"
   | "not_spam"
   | "no_signal";
 
@@ -28,13 +29,18 @@ export interface RuleInput {
   inProviderSpam: boolean;
   /** Provider \Seen flag as last read. */
   seen: boolean;
-  /** Placeholder for the sender allowlist (M5): a hit protects the mail. Until M5 the caller passes nothing. */
+  /** Sender allowlist hit (sender_rules, M5): protects the mail, nothing is done. */
   allowlisted?: boolean;
+  /**
+   * Sender blacklist hit (Nico's rule): an additional reason for "spam read", nothing more. Removing or moving
+   * blacklisted mails is not part of M7a (Plan v5, 3.4: the Blacklist rule needs M7 and a very high spam value).
+   */
+  blacklisted?: boolean;
   interpret?: NoulInterpreter;
 }
 
 /**
- * Order: protection (category, allowlist) -> already read -> Jev is_spam positive -> provider spam folder.
+ * Order: protection (category, allowlist) -> already read -> Jev is_spam positive -> sender blacklist -> provider spam folder.
  *
  * Fail-closed: a missing or unmapped is_spam (no answer, unknown question set, not a finite number) never triggers
  * the Jev branch. The single documented exception is the provider spam folder: there the provider already judged the
@@ -53,6 +59,8 @@ export function decideSpamSeen(i: RuleInput): RuleDecision {
   const spam = i.answers.find((a) => a.key === "is_spam");
   const reading = spam ? interpret(spam, i.questionSetVersion) : "unmapped";
   if (reading === "positive") return { action: "mark_seen", reason: "jev_spam" };
+  // Nico said "junk" about this sender; the mail is marked read even if Jev is unsure or says no (undo is one tap).
+  if (i.blacklisted === true) return { action: "mark_seen", reason: "blacklisted" };
   if (reading === "negative") return { action: "none", reason: "not_spam" };
   if (i.inProviderSpam) return { action: "mark_seen", reason: "provider_spam" };
   return { action: "none", reason: "no_signal" };
