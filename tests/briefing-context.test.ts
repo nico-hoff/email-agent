@@ -168,13 +168,24 @@ describe("loadBriefingContext (database)", () => {
     assert.equal(again.auto_marked_read, 1);
   });
 
-  test("open sender questions: 0 without a senders table; counted when it exists; a broken table never breaks the briefing", () => {
+  test("open sender questions are the HITL list of the app: threshold, domain grouping, rules and dismissals; a broken table never breaks the briefing", () => {
     const d = db();
     assert.equal(loadBriefingContext(d, new Date(T)).open_questions, 0);
-    d.exec(`CREATE TABLE senders (id INTEGER PRIMARY KEY, address TEXT NOT NULL, domain TEXT NOT NULL, jev_spam_count INTEGER NOT NULL DEFAULT 0, hitl_asked_at TEXT)`);
-    d.exec(`INSERT INTO senders (address, domain, jev_spam_count) VALUES ('a@x.test','x.test',3), ('b@y.test','y.test',1), ('c@z.test','z.test',5)`);
+    const add = (address: string, spam: number, asked = 0) =>
+      d.prepare("INSERT INTO senders (address, domain, first_seen_at, last_seen_at, mails_seen, jev_spam_count, hitl_asked_count) VALUES (?, ?, ?, ?, 5, ?, ?)")
+        .run(address, address.slice(address.indexOf("@") + 1), T, T, spam, asked);
+    add("a@x.test", 3);
+    add("b@y.test", 1);
+    add("c@z.test", 5);
     assert.equal(loadBriefingContext(d, new Date(T)).open_questions, 2);
-    d.exec(`DROP TABLE senders; CREATE TABLE senders (other TEXT)`);
+    d.prepare("INSERT INTO sender_rules (kind, match, value, source, created_at) VALUES ('allowlist', 'domain', 'z.test', 'nico', ?)").run(T);
+    assert.equal(loadBriefingContext(d, new Date(T)).open_questions, 1, "a rule closes the question");
+    d.prepare("UPDATE senders SET hitl_asked_count = 3 WHERE address = 'a@x.test'").run();
+    assert.equal(loadBriefingContext(d, new Date(T)).open_questions, 0, "asked and no new verdict");
+    add("p@shop.test", 2);
+    add("q@shop.test", 1);
+    assert.equal(loadBriefingContext(d, new Date(T)).open_questions, 1, "verdicts of two addresses of one domain: one domain question");
+    d.exec("DROP TABLE senders; CREATE TABLE senders (other TEXT)");
     assert.equal(loadBriefingContext(d, new Date(T)).open_questions, 0);
   });
 

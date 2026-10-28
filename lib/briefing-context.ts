@@ -5,13 +5,13 @@ import type { DatabaseSync } from "node:sqlite";
 import { compareSortKeys, decodeCursor, listEmails, PAGED_MAX_LIMIT, type SortKey } from "./email-api.ts";
 import type { NoulReading } from "./jev-response.ts";
 import { readLastOpened } from "./user-state.ts";
+import { listHitl } from "./sender-hitl.ts";
 
 export const BRIEFING_MAX_MAILS = 25;
 export const BRIEFING_SUBJECT_MAX_CHARS = 120;
 /** Score scale is 0..3 (docs/jev-contract.md); 2 is "within 48 hours". */
 export const URGENT_MIN = 2;
 /** Jev spam verdicts on one sender after which the app asks Nico once (Plan v5 E7). */
-const HITL_SPAM_COUNT = 3;
 const MAX_PAGES = 100;
 
 const FENCE = "untrusted_mail_subjects";
@@ -186,17 +186,10 @@ function countAutoRead(db: DatabaseSync, since: string): number {
   return row.n;
 }
 
-/** Table `senders` arrives with M5 and may not exist (or look different): any problem means 0, never an error. */
+/** Open HITL questions (E7): the same list the app shows (lib/sender-hitl.ts). Any problem means 0, never an error. */
 function countOpenQuestions(db: DatabaseSync): number {
   try {
-    const has = (name: string) => db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name) !== undefined;
-    if (!has("senders")) return 0;
-    const noRule = has("sender_rules")
-      ? `AND NOT EXISTS (SELECT 1 FROM sender_rules r WHERE r.active = 1 AND
-           ((r.match = 'address' AND r.value = s.address) OR (r.match = 'domain' AND r.value = s.domain)))`
-      : "";
-    const row = db.prepare(`SELECT COUNT(*) AS n FROM senders s WHERE s.jev_spam_count >= ? ${noRule}`).get(HITL_SPAM_COUNT) as { n: number };
-    return row.n;
+    return listHitl(db).length;
   } catch {
     return 0;
   }
