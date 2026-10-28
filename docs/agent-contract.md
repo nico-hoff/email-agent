@@ -67,3 +67,32 @@ Der Agent schickt Absenderdomain, Betreff und einen Auszug von höchstens 1200 Z
 1. **O1-Umsetzung:** Option A, B, C oder D (STOP-8; bei A zusätzlich STOP-6 für zwei Variablen).
 2. OpenRouter-Datenschutzeinstellungen bestätigen (Nico).
 3. T41: Konfigurationstest (Abschnitt 1), MCP-Abwesenheitstest (Abschnitt 2), genau eine Live-Probe mit synthetischer Mail.
+
+## 6. Briefing-Agent und Entwurfs-Route (M6, T56/T42)
+
+Quellen: Context7 `/websites/veryfront` (`agent.stream()` „Returns `Promise<AgentStreamResult>`“, „use `agent.stream()` directly only for a custom transport or non-chat streaming surface“; `getAgent()` gibt `Agent | undefined` zurück) und die installierten Typen.
+
+**Stream-Vertrag (belegt, `esm/src/agent/types.d.ts` Zeilen 383-390 und 417-441, `factory.js` 90-146):** `AgentStreamResult` hat nur `toDataStreamResponse()`; es ist **kein** async iterable. Die Antwort ist ein `Response` mit SSE-Body (`data: {json}\n\n`; Rahmen `text-delta` mit `delta`, `error`, `finish`). Text-Deltas und Abschluss kommen zusätzlich über die Callbacks `onChunk(text)` und `onFinish(response)` (`usage.promptTokens/completionTokens/totalTokens`) von `AgentStreamInput`; `abortSignal` bricht den Lauf ab. Der Body muss bis zum Ende gelesen werden, sonst schreitet der Strom nicht voran. `lib/briefing.ts` (`runBriefingStream`) nutzt `onChunk`/`onFinish` für Text und Tokens und liest den Body nur zum Treiben und für `{"type":"error"}`-Rahmen. Tests nutzen einen Fake in genau dieser Form (`tests/helpers/fake-stream-agent.ts`). Abweichung von der Auftragsformulierung „async iterable“: diese Form gibt es in 0.1.1285 nicht.
+
+**Agent `agents/briefing.ts`:** Modell `openai/openai/gpt-6-luna`, `allowedModels`, kein `tools` (also keine Projekt-Tools), `skills: false`, `mcpServers: []`, `maxSteps: 1`, kein `memory`, `security` nicht gesetzt (Standard an), neutrale Beschreibung, kein `outputSchema` (freier Text). Das Konfigurations-Testfile ist `tests/briefing-agent.test.ts`. Zugriff aus der Route: `resolveAgent("briefing")` (`lib/agent-registry.ts`, lazy `getAgent`).
+
+**Eingabe (D27/H20):** `lib/briefing-context.ts`. Offene Mails (Plan v5 3.6, ohne Spam und Provider-Spam), sortiert Dringlichkeit, Wichtigkeit, Zeit, höchstens 25. Je Mail nur Konto-Kurzname, Absenderdomain, Betreff (Steuerzeichen raus, 120 Zeichen, im Zaun `<untrusted_mail_subjects>`, Zaun-Tags entfernt), Kategorie, Dringlichkeit, Wichtigkeit. Mails mit `addresses_an_ai` positiv, unmapped oder ohne Antwort stehen nur in `not_listed_flagged`. Zähler: `open_total`, `listed`, `new_since_last_open`, `auto_marked_read_since_last_open` (live ausgeführte `mark_seen`-Aktionen), `open_sender_questions` (0, wenn es `senders` nicht gibt; bei jedem Fehler 0). Vor dem ersten Öffnen sind die beiden „seit“-Zähler `unknown`, nicht 0.
+
+**SSE-Vertrag von `POST /api/briefing`** (Antwort `text/event-stream`, `Cache-Control: no-store`; Fehler vor dem Strom als JSON mit 401/403/429/500). Ereignisse als `event: <name>` plus `data: <json>`:
+
+| Ereignis | Daten | Bedeutung |
+|---|---|---|
+| `meta` | `{ source: "model" or "fallback", cached: boolean, open_total, listed }` | immer das erste Ereignis |
+| `delta` | `{ text }` | Textstück, anhängen; bei Cache und Fallback genau ein Ereignis mit dem ganzen Text |
+| `error` | `{ code: "agent_failed" or "briefing_failed", fallback: boolean }` | `fallback: true`: danach folgen `delta` (Fallback-Text) und `done`; `false`: bisheriger Text bleibt, Strom endet ohne `done` |
+| `done` | `{ source, cached, mails, model?, latency_ms? }` | Abschluss; erst danach ist `last_opened_at` gesetzt |
+
+Reihenfolge der Prüfung: Session (401), Rate-Limit (429, 30 je 10 Minuten), CSRF (403), dann Kontext und Strom. Cache: 5 Minuten im Arbeitsspeicher je Identität, nur Modell-Ergebnisse (D28). Trennt der Client die Verbindung, wird das `abortSignal` des Agenten ausgelöst und nichts mehr geschrieben. Ein harter Stopp nach 30 Sekunden zählt als `agent_failed`. Die UI stellt den Text als reinen Text dar.
+
+**Fallback:** Synthetischer Modus, kein `OPENAI_API_KEY` (aus `OPENROUTER_API_KEY` abgeleitet), Agent nicht registriert oder Fehler vor dem ersten Text: fester deutscher Text aus dem Kontext (`fallbackBriefing`, z. B. „3 offene Mails, davon 1 dringend.“), `source: "fallback"`, kein Audit.
+
+**Persistenz:** Nur Audit `briefing_generated` (Modell, Latenz, Tokens, `mails`) und `user_state.last_opened_at` (Migration 005). Der Briefing-Text wird nie gespeichert (H12-Marker-Test: `tests/briefing-route.test.ts`).
+
+**Entwurfs-Route `POST /api/emails/:id/draft`:** Session (401), Rate-Limit 10 je 10 Minuten (429), CSRF (403), Id (404), synthetischer Modus (`409 not_available_in_synthetic`), dann `draftReply` (Sperre H11, IMAP-Refetch, `replyDrafter` per `getAgent`). Antwort 200 `{ draft, language, tone, needs_human_check, reasons }`, überall `no-store`. Fehler nur als Codes: `409 not_eligible` (mit `reasons`), `404 email_not_found`, `409 not_classified`/`source_gone`, `502 fetch_failed`/`agent_failed`/`invalid_output`, `503 agent_unavailable`. H12: `tests/draft-route.test.ts` prüft, dass Entwurfs- und Auszugsmarker weder in der Datenbank noch in Logs noch in `GET /api/emails` und `/api/emails/:id` auftauchen.
+
+**Offen:** Ob `getAgent("briefing")`/`getAgent("replyDrafter")` im Prozess der API-Route den vom Server entdeckten Agenten liefert, ist nur mit einem echten Lauf belegbar (Smoke lief synthetisch, also im Fallback).

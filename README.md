@@ -45,6 +45,13 @@ Die Regel „Spam gelesen“ markiert Spam per IMAP als gelesen (`\Seen`); versc
 - **Synthetischer Modus** (`npm run dev`): Die Regel läuft über die synthetische Datenbank, der Modus ist immer `dry_run`, es gibt keinen Schreibport.
 - Fehlgeschlagene Live-Aktionen (`failed`, mit Code) werden nicht automatisch wiederholt.
 
+## Briefing und Entwürfe (M6, Backend)
+
+- `POST /api/briefing` (Login, CSRF, Rate-Limit) streamt beim Öffnen der App ein Briefing mit höchstens 3 Bullet Points als Server-Sent Events (Ereignisse `meta`, `delta`, `error`, `done`, siehe `docs/agent-contract.md`, Abschnitt 6). Der Agent `briefing` sieht nur Metadaten der offenen Mails (Konto-Kurzname, Absenderdomain, gezäunter und gekürzter Betreff, Kategorie, Dringlichkeit, Wichtigkeit) und Zähler, nie Mailtexte. Mails mit `addresses_an_ai` nicht klar negativ gehen nur als Anzahl ein. Das Ergebnis liegt 5 Minuten im Arbeitsspeicher; gespeichert werden nur `user_state.last_opened_at` und ein Audit `briefing_generated` (Modell, Latenz, Tokens, Anzahl Mails).
+- Ohne Modell (synthetischer Dev-Modus, kein `OPENROUTER_API_KEY`, Agent nicht gefunden oder Fehler) liefert die Route einen festen deutschen Text aus dem Kontext, markiert mit `source: "fallback"`. Die UI muss den Text als reinen Text darstellen (kein HTML/Markdown-Rendering).
+- `POST /api/emails/:id/draft` (Login, CSRF, Rate-Limit 10 je 10 Minuten) erzeugt auf Knopfdruck einen Antwortentwurf: Sperre (H11), IMAP-Refetch, Agent `replyDrafter`. Antwort `{ draft, language, tone, needs_human_check, reasons }` mit `Cache-Control: no-store`; der Entwurf wird nirgends gespeichert. Im synthetischen Modus antwortet die Route mit `not_available_in_synthetic`.
+- `npm run briefing:probe -- --confirm-live` macht genau einen Live-Aufruf des Briefing-Agenten mit einem fest eingebauten synthetischen Kontext und gibt nur Struktur, Modell, Latenz und Tokens aus (den Text nur mit `--show`). Speichert nichts.
+
 ## Stichprobe und Evaluation
 
 - `npm run sample` zeigt zunächst nur eine **Vorschau** (Anzahl, keine Jev-Aufrufe). Erst `npm run sample -- --account <id> --limit-per-folder 200 --confirm <N>` (N = Zahl aus der Vorschau) ruft Jev tatsächlich auf. Weitere Optionen: `scripts/sample.ts`.
