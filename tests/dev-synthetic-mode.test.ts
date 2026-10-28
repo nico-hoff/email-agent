@@ -164,6 +164,24 @@ describe("synthetic mode of createService", () => {
       assert.equal(after.done, true);
       const undone = await fetch(`${base}/api/emails/${first}/undone`, { method: "POST", headers: mutation });
       assert.deepEqual(await undone.json(), { ok: true, id: first, done: false, seen: false });
+      // M5 smoke: feedback, sender rules and the HITL list through the real server (200 with a session, 401 without)
+      const jsonPost = (path: string, body: unknown, headers: Record<string, string> = mutation) =>
+        fetch(`${base}${path}`, { method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify(body) });
+      assert.equal((await jsonPost(`/api/emails/${first}/feedback`, { kind: "spam_correct" }, {})).status, 401);
+      const fb = await jsonPost(`/api/emails/${first}/feedback`, { kind: "spam_correct" });
+      assert.equal(fb.status, 200);
+      assert.deepEqual(((await fb.json()) as { feedback: unknown }).feedback, { spam: "spam_correct", reply: null, category: null });
+      assert.equal((await jsonPost(`/api/emails/${first}/feedback`, { kind: "category_wrong", value: "nonsense" })).status, 400);
+      const hitl = await fetch(`${base}/api/senders/hitl`, { headers: { cookie: session } });
+      assert.equal(hitl.status, 200);
+      assert.ok(Array.isArray(((await hitl.json()) as { candidates: unknown[] }).candidates));
+      const rule = await jsonPost("/api/senders/rules", { match: "domain", value: "junk.example.test", kind: "blacklist" });
+      assert.equal(rule.status, 200);
+      const ruleId = ((await rule.json()) as { rule: { id: number } }).rule.id;
+      const rules = (await (await fetch(`${base}/api/senders/rules`, { headers: { cookie: session } })).json()) as { rules: { id: number }[] };
+      assert.deepEqual(rules.rules.map((x) => x.id), [ruleId]);
+      const off = await fetch(`${base}/api/senders/rules/${ruleId}/deactivate`, { method: "POST", headers: mutation });
+      assert.equal(off.status, 200);
       const status = await fetch(`${base}/api/status`, { headers: { cookie: session } });
       assert.equal(status.status, 200);
       const s = (await status.json()) as { workers: { account_id: string; state: string }[] };
