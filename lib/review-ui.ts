@@ -27,6 +27,9 @@ export interface ApiAccount {
   color: string;
 }
 
+/** Mode of the automatic "Spam gelesen" rule of an account (docs/imap-write-contract.md, section 6). */
+export type AutoMode = "off" | "dry_run" | "live";
+
 export interface ApiEmail {
   id: number;
   account: ApiAccount;
@@ -63,6 +66,8 @@ export interface FolderMove {
 
 /** GET /api/emails/:id */
 export interface ApiEmailDetail extends ApiEmail {
+  /** The "spam_seen" action of this mail (codes only), if one exists. */
+  mailbox_action?: ApiMailboxAction | null;
   folder_history: FolderMove[];
   locations: { folder: string; is_active: boolean; first_seen_at: string; last_seen_at: string }[];
 }
@@ -80,6 +85,8 @@ export interface ListResponse {
   next_cursor: string | null;
   counts: ApiCounts;
   accounts: ApiAccount[];
+  /** Mode of the automatic rule per account id; absent in older responses. */
+  auto_actions?: Record<string, AutoMode>;
   view: string;
 }
 
@@ -141,7 +148,7 @@ export function emptyText(view: ViewId): string {
 
 // ---- Gruppierung nach Dringlichkeit ------------------------------------------------------------------------------
 
-export type UrgencyGroupKey = "now" | "soon" | "later";
+export type UrgencyGroupKey = "now" | "soon" | "week" | "later" | "unrated";
 
 export interface UrgencyGroup {
   key: UrgencyGroupKey;
@@ -149,11 +156,18 @@ export interface UrgencyGroup {
   items: ApiEmail[];
 }
 
-const GROUP_LABEL: Record<UrgencyGroupKey, string> = { now: "Heute", soon: "In 48 Stunden", later: "Später" };
+// Headings name the urgency Jev rated, never a date: a mail from the 14th may well sit under "Dringend – heute".
+const GROUP_LABEL: Record<UrgencyGroupKey, string> = {
+  now: "Dringend – heute",
+  soon: "Innerhalb 48 h",
+  week: "Diese Woche",
+  later: "Kann warten",
+  unrated: "Noch nicht bewertet",
+};
 
 function groupKey(m: ApiEmail): UrgencyGroupKey {
   const level = scoreLevel(m.urgency);
-  return level === 3 ? "now" : level === 2 ? "soon" : "later";
+  return level === 3 ? "now" : level === 2 ? "soon" : level === 1 ? "week" : level === 0 ? "later" : "unrated";
 }
 
 /** The API order is urgency first, so contiguous runs form the groups; the order itself is never changed. */
@@ -472,4 +486,139 @@ export function shadowText(s: ApiShadow): string {
 export function locationText(m: ApiEmail): string {
   if (m.active_location === null) return "Ordner unbekannt";
   return m.provider_spam ? `${m.active_location.folder} (Spam-Ordner des Providers)` : m.active_location.folder;
+}
+
+// ---- Header: Modus der automatischen Aktion ---------------------------------------------------------------------
+
+const READ_ONLY_TEXT = "Postfach nur lesend";
+const MARKS_READ_TEXT = "Spam wird automatisch als gelesen markiert";
+
+/**
+ * Subtitle of the list: "Postfach nur lesend" as long as no (selected) account is live. Unknown modes count as not live,
+ * so the sentence never promises more than the server confirmed.
+ */
+export function headerSubtitle(accounts: ApiAccount[], modes: Record<string, AutoMode> | undefined, selected: string): string {
+  const scope = selected === "" ? accounts : accounts.filter((a) => a.id === selected);
+  const live = scope.filter((a) => modes?.[a.id] === "live");
+  const who = selected === "" ? "Alle Konten" : scope[0]?.label ?? "Konto";
+  if (live.length === 0) return `${who} · ${READ_ONLY_TEXT}`;
+  const partial = selected === "" && live.length < scope.length;
+  return `${who} · ${MARKS_READ_TEXT}${partial ? ` (${live.map((a) => a.label).join(", ")})` : ""}`;
+}
+
+// ---- Aussortiert (T59a/T60a) ------------------------------------------------------------------------------------
+
+/** GET /api/actions: ids, codes and times only; subject and sender come from GET /api/emails/:id. */
+export interface ApiAction {
+  id: number;
+  email_id: number;
+  account: string;
+  rule: string;
+  action: string;
+  mode: string;
+  status: string;
+  failure_code: string | null;
+  created_at: string;
+}
+
+export interface ActionStatusCounts {
+  planned: number;
+  done: number;
+  failed: number;
+  undone: number;
+}
+
+export interface ActionsCounts {
+  dry_run: ActionStatusCounts;
+  live: ActionStatusCounts;
+}
+
+export interface ActionsResponse {
+  actions: ApiAction[];
+  next_cursor: string | null;
+  counts: ActionsCounts;
+}
+
+/** Action of one mail as the detail route returns it. */
+export type ApiMailboxAction = Pick<ApiAction, "id" | "rule" | "action" | "mode" | "status" | "failure_code" | "created_at">;
+
+/** A row of the view: the action plus its mail card (null = still loading, "missing" = the mail is gone). */
+export interface ActionRow {
+  action: ApiAction;
+  email: ApiEmail | "missing" | null;
+}
+
+export const ACTION_TABS = ["dry_run", "live"] as const;
+export type ActionTab = (typeof ACTION_TABS)[number];
+export const ACTION_PAGE_SIZE = 20;
+
+export const ACTION_TAB_LABEL: Record<ActionTab, string> = { dry_run: "Trockenlauf", live: "Ausgeführt" };
+
+export function actionsUrl(r: { tab: ActionTab; limit: number; cursor?: string | null }): string {
+  const q = new URLSearchParams({ mode: r.tab, status: r.tab === "live" ? "done" : "planned", limit: String(r.limit) });
+  if (r.cursor) q.set("cursor", r.cursor);
+  return `/api/actions?${q}`;
+}
+
+export function actionTitle(a: Pick<ApiAction, "mode" | "status">): string {
+  return a.mode === "live" && a.status === "done" ? "Als gelesen markiert" : "Würde als gelesen markieren";
+}
+
+export function tabCount(c: ActionsCounts, tab: ActionTab): number {
+  return tab === "live" ? c.live.done : c.dry_run.planned;
+}
+
+/** The dry-run tab, unless only executed actions exist. */
+export function defaultActionTab(c: ActionsCounts | null): ActionTab {
+  return c !== null && c.dry_run.planned === 0 && c.live.done > 0 ? "live" : "dry_run";
+}
+
+export const MODE_TEXT: Record<AutoMode, string> = {
+  dry_run: "Trockenlauf: nichts wird im Postfach geändert",
+  live: "Live: Spam wird im Postfach als gelesen markiert",
+  off: "Aus: keine automatische Aktion",
+};
+
+export interface ModeNotice {
+  account: ApiAccount;
+  mode: AutoMode;
+  text: string;
+}
+
+export function modeNotices(accounts: ApiAccount[], modes: Record<string, AutoMode> | undefined): ModeNotice[] {
+  return accounts.map((account) => {
+    const mode = modes?.[account.id] ?? "dry_run";
+    return { account, mode, text: MODE_TEXT[mode] };
+  });
+}
+
+/**
+ * Local update after "Wieder ungelesen": the row leaves the tab, its counter drops and the undone counter rises, so
+ * the numbers stay right without a reload.
+ */
+export function afterUnread(
+  actions: ApiAction[], counts: ActionsCounts, tab: ActionTab, emailId: number,
+): { actions: ApiAction[]; counts: ActionsCounts } {
+  if (!actions.some((a) => a.email_id === emailId)) return { actions, counts };
+  const step = (c: ActionStatusCounts, from: "planned" | "done"): ActionStatusCounts => ({
+    ...c, [from]: Math.max(c[from] - 1, 0), undone: c.undone + 1,
+  });
+  return {
+    actions: actions.filter((a) => a.email_id !== emailId),
+    counts: tab === "live"
+      ? { ...counts, live: step(counts.live, "done") }
+      : { ...counts, dry_run: step(counts.dry_run, "planned") },
+  };
+}
+
+/** Detail hint: only a planned or executed action says anything; undone and failed ones are silent. */
+export function unreadHint(a: ApiMailboxAction | null | undefined): string | null {
+  if (!a) return null;
+  if (a.status === "planned" && a.mode === "dry_run") return "Würde automatisch als gelesen markiert";
+  if (a.status === "done" && a.mode === "live") return "Automatisch als gelesen markiert";
+  return null;
+}
+
+export function canUnread(a: ApiMailboxAction | null | undefined): boolean {
+  return unreadHint(a) !== null;
 }

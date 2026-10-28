@@ -100,7 +100,7 @@ describe("views and requests", () => {
 });
 
 describe("grouping by urgency", () => {
-  it("builds contiguous groups Heute, In 48 Stunden, Später and keeps the order", () => {
+  it("builds contiguous urgency groups and keeps the order", () => {
     const list = [
       mail(1, { urgency: 3.0 }),
       mail(2, { urgency: 2.7 }), // rounds to 3
@@ -110,9 +110,10 @@ describe("grouping by urgency", () => {
     ];
     const g = groupByUrgency(list);
     assert.deepEqual(g.map((x) => [x.key, x.label, x.items.map((m) => m.id)]), [
-      ["now", "Heute", [1, 2]],
-      ["soon", "In 48 Stunden", [3]],
-      ["later", "Später", [4, 5]],
+      ["now", "Dringend – heute", [1, 2]],
+      ["soon", "Innerhalb 48 h", [3]],
+      ["week", "Diese Woche", [4]],
+      ["unrated", "Noch nicht bewertet", [5]],
     ]);
   });
 
@@ -120,6 +121,7 @@ describe("grouping by urgency", () => {
     assert.deepEqual(groupByUrgency([]), []);
     const g = groupByUrgency([mail(1, { urgency: 0 }), mail(2, { urgency: 3 }), mail(3, { urgency: 0 })]);
     assert.deepEqual(g.map((x) => x.key), ["later", "now", "later"]);
+    assert.deepEqual(g.map((x) => x.label), ["Kann warten", "Dringend – heute", "Kann warten"]);
   });
 });
 

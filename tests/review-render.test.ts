@@ -119,10 +119,12 @@ describe("ReviewListView cards", () => {
   });
 
   it("groups by urgency with headings", () => {
-    const html = list([mail(1, { urgency: 3 }), mail(2, { urgency: 2 }), mail(3, { urgency: 0 })]);
-    assert.match(html, /<h2 class="group-title">Heute<\/h2>/);
-    assert.match(html, /<h2 class="group-title">In 48 Stunden<\/h2>/);
-    assert.match(html, /<h2 class="group-title">Später<\/h2>/);
+    const html = list([mail(1, { urgency: 3 }), mail(2, { urgency: 2 }), mail(3, { urgency: 1 }), mail(4, { urgency: 0 })]);
+    assert.match(html, /<h2 class="group-title">Dringend – heute<\/h2>/);
+    assert.match(html, /<h2 class="group-title">Innerhalb 48 h<\/h2>/);
+    assert.match(html, /<h2 class="group-title">Diese Woche<\/h2>/);
+    assert.match(html, /<h2 class="group-title">Kann warten<\/h2>/);
+    assert.ok(!/group-title">Heute</.test(html), "a bare Heute reads like a date");
   });
 
   it("never prints content fields and exposes no mailbox write controls", () => {

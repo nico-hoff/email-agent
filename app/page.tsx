@@ -14,6 +14,7 @@ import {
   type ApiAccount,
   type ApiCounts,
   type ApiEmail,
+  type AutoMode,
   type ViewId,
 } from '../lib/review-ui.ts'
 
@@ -64,6 +65,7 @@ export default function ReviewList(): React.JSX.Element {
   const [page, setPage] = useState<Page>(EMPTY_PAGE)
   const [counts, setCounts] = useState<ApiCounts | null>(null)
   const [accounts, setAccounts] = useState<ApiAccount[]>([])
+  const [autoActions, setAutoActions] = useState<Record<string, AutoMode>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [now, setNow] = useState(() => new Date())
@@ -104,6 +106,7 @@ export default function ReviewList(): React.JSX.Element {
         setPage({ emails: r.emails, next: r.next_cursor })
         setCounts(r.counts)
         if (r.accounts.length > 0) setAccounts(r.accounts)
+        if (r.auto_actions) setAutoActions(r.auto_actions)
         setNow(new Date())
         setError(null)
       })
@@ -260,6 +263,7 @@ export default function ReviewList(): React.JSX.Element {
       error={error}
       canLoadMore={canLoadMore}
       noise={noise}
+      autoActions={autoActions}
       onView={setView}
       onAccount={setAccount}
       onReload={() => setTick((t) => t + 1)}

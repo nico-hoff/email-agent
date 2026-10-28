@@ -461,15 +461,17 @@ main { display: block; min-width: 0; }
 .item-front.is-dragging { transition: none; }
 .item-front .card { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 .done-btn {
-  position: absolute; right: 8px; bottom: 6px; display: grid; place-items: center; box-sizing: border-box;
+  position: absolute; right: 8px; bottom: 8px; display: grid; place-items: center; box-sizing: border-box;
   min-width: 44px; min-height: 44px; padding: 0; border: 1px solid color-mix(in srgb, var(--good-fg) 40%, var(--border));
   border-radius: 50%; background: var(--surface); color: var(--good-fg); font: inherit; font-size: 19px; font-weight: 700; cursor: pointer;
   transition: background-color 0.15s, transform 0.1s;
 }
 .done-btn:active { transform: scale(0.94); background: var(--good-bg); }
 .done-btn:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
-.item.is-open .card { padding-bottom: 22px; }
-.item.is-open .meta { padding-right: 48px; }
+/* The done button sits in its own bottom row: the meta line is as tall as the button, so it never touches the badges. */
+.item.is-open .card { padding-bottom: 8px; }
+.item.is-open .meta { min-height: 44px; padding-right: 52px; }
+.item.is-open .card-body { gap: 8px; }
 .done-action { margin-top: 4px; }
 .toast {
   position: fixed; z-index: 5; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom)); transform: translateX(-50%);
@@ -490,3 +492,31 @@ main { display: block; min-width: 0; }
 .history { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 6px; }
 .history li { display: flex; gap: 12px; align-items: baseline; }
 .history-when { flex: none; min-width: 6.5em; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+
+/* ---- Aussortiert (T59a/T60a): dry run / executed spam-read actions with undo ---- */
+.bar-actions { display: flex; flex: none; align-items: center; gap: 8px; }
+.btn-link { display: inline-flex; align-items: center; text-decoration: none; }
+.mode-list { list-style: none; display: grid; gap: 6px; margin: 14px 0 0; padding: 0; }
+.mode-note {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 8px 12px; border-radius: 12px;
+  background: var(--info-bg); color: var(--info-fg); font-size: 13.5px;
+}
+.mode-note .acct { color: inherit; font-weight: 700; }
+.mode-live { background: var(--warn-bg); color: var(--warn-fg); }
+.mode-off { background: var(--neutral-bg); color: var(--neutral-fg); }
+.action-failed { margin: 10px 4px 0; }
+.action-item { display: grid; gap: 6px; }
+.action-title { margin: 0 4px; font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.action-foot { display: flex; justify-content: flex-end; }
+.btn-unread { min-height: 44px; font-weight: 650; }
+.notice-quiet { margin: 0; padding: 14px; border: 1px dashed var(--border); border-radius: var(--radius); }
+.notice-ok { margin: 8px 0 0; padding: 12px; border-radius: 12px; background: var(--good-bg); color: var(--good-fg); text-align: left; }
+.fold-link {
+  display: flex; align-items: center; min-height: 44px; margin-top: 8px; padding: 0 4px;
+  color: var(--accent); font-weight: 600; text-decoration: none;
+}
+.fold-link:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; border-radius: 8px; }
+.auto-hint { font-weight: 650; }
+.panel-auto { border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); }
+.mode-line { margin: -4px 0 0; }
+.mode-accts { display: inline-flex; flex-wrap: wrap; gap: 2px 12px; }

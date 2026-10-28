@@ -42,3 +42,49 @@ export const DONE_ERROR_TEXT: Record<"rate_limited" | "forbidden" | "not_found" 
   not_found: "Diese Mail gibt es nicht mehr.",
   failed: "Konnte nicht gespeichert werden.",
 };
+
+// ---- Wieder ungelesen (T60a) -------------------------------------------------------------------------------------
+
+export type UnreadReason = "rate_limited" | "forbidden" | "not_found" | "kill_switch" | "account_unavailable" | "mailbox_error" | "failed";
+
+export type UnreadResult =
+  | { ok: true; mode: string }
+  | { ok: false; reason: "rate_limited"; retryAfterSeconds: number }
+  | { ok: false; reason: Exclude<UnreadReason, "rate_limited"> };
+
+/** POST /api/emails/:id/unread: same handshake as /done; 409/503/502 become reasons, the server codes never reach the screen. */
+export async function postEmailUnread(id: number, deps: MutationDeps): Promise<UnreadResult> {
+  try {
+    const session = await deps.fetch("/api/auth/session", { cache: "no-store" });
+    if (!session.ok) return { ok: false, reason: session.status === 401 || session.status === 403 ? "forbidden" : "failed" };
+    const { csrfToken } = (await session.json()) as { csrfToken?: unknown };
+    if (typeof csrfToken !== "string") return { ok: false, reason: "failed" };
+
+    const path = `/api/emails/${id}/unread`;
+    const r = await deps.fetch(path, { method: "POST", headers: deps.headers(path, csrfToken) });
+    if (r.status === 429) {
+      const wait = Number(r.headers.get("retry-after"));
+      return { ok: false, reason: "rate_limited", retryAfterSeconds: Number.isFinite(wait) && wait > 0 ? wait : 30 };
+    }
+    if (r.status === 401 || r.status === 403) return { ok: false, reason: "forbidden" };
+    if (r.status === 404) return { ok: false, reason: "not_found" };
+    if (r.status === 409) return { ok: false, reason: "kill_switch" };
+    if (r.status === 503) return { ok: false, reason: "account_unavailable" };
+    if (r.status === 502) return { ok: false, reason: "mailbox_error" };
+    if (!r.ok) return { ok: false, reason: "failed" };
+    const body = (await r.json()) as { mode?: unknown };
+    return { ok: true, mode: typeof body.mode === "string" ? body.mode : "dry_run" };
+  } catch {
+    return { ok: false, reason: "failed" };
+  }
+}
+
+export const UNREAD_ERROR_TEXT: Record<Exclude<UnreadReason, "rate_limited">, string> & Record<"rate_limited", string> = {
+  rate_limited: DONE_ERROR_TEXT.rate_limited,
+  forbidden: DONE_ERROR_TEXT.forbidden,
+  not_found: DONE_ERROR_TEXT.not_found,
+  failed: "Konnte nicht rückgängig gemacht werden.",
+  kill_switch: "Der Not-Aus ist aktiv. Es wird nichts im Postfach geändert.",
+  account_unavailable: "Das Konto ist gerade nicht erreichbar oder nicht freigegeben. Bitte später erneut versuchen.",
+  mailbox_error: "Der Mailserver hat die Änderung nicht angenommen. Die Mail bleibt gelesen.",
+};

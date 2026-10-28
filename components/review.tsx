@@ -14,12 +14,15 @@ import {
   formatNumber,
   formatTime,
   groupByUrgency,
+  headerSubtitle,
   importanceText,
+  canUnread,
   locationText,
   NOISE_TITLE,
   safeColor,
   scoreLevel,
   shadowText,
+  unreadHint,
   urgencyText,
   VIEWS,
   VIEW_LABEL,
@@ -32,6 +35,7 @@ import {
   type ApiCounts,
   type ApiEmail,
   type ApiEmailDetail,
+  type AutoMode,
   type Badge,
   type ViewId,
 } from "../lib/review-ui.ts";
@@ -144,14 +148,11 @@ function SwipeFront({ onCommit, children }: { onCommit: () => void; children: Re
   );
 }
 
-export function EmailCard(
-  { m, now, timeZone, onDone }: { m: ApiEmail; now: Date; timeZone?: string; onDone?: (id: number) => void },
-): React.JSX.Element {
+/** The tappable card (link to the detail). Shared by the list and the Aussortiert view. */
+export function CardLink({ m, now, timeZone }: { m: ApiEmail; now: Date; timeZone?: string }): React.JSX.Element {
   const folder = m.active_location?.folder ?? null;
-  const cls = ["item", m.open ? "is-open" : "", m.seen ? "is-seen" : "", m.done ? "is-done" : ""].filter(Boolean).join(" ");
   const vs = verdicts(m);
-  const canDone = onDone !== undefined && !m.done;
-  const link = (
+  return (
     <a className="card" href={`/emails/${m.id}`} data-cat={categoryOf(m) ?? "none"}>
         <span className="avatar" aria-hidden="true">{initial(m.sender)}</span>
         <span className="card-body">
@@ -178,6 +179,14 @@ export function EmailCard(
         </span>
       </a>
   );
+}
+
+export function EmailCard(
+  { m, now, timeZone, onDone }: { m: ApiEmail; now: Date; timeZone?: string; onDone?: (id: number) => void },
+): React.JSX.Element {
+  const cls = ["item", m.open ? "is-open" : "", m.seen ? "is-seen" : "", m.done ? "is-done" : ""].filter(Boolean).join(" ");
+  const canDone = onDone !== undefined && !m.done;
+  const link = <CardLink m={m} now={now} timeZone={timeZone} />;
   if (!canDone) return <li className={cls}>{link}</li>;
   return (
     <li className={cls}>
@@ -232,6 +241,8 @@ export interface ReviewListProps {
   error: string | null;
   canLoadMore: boolean;
   noise: NoiseState;
+  /** Mode of the automatic rule per account id (GET /api/emails); unknown = the safe "nur lesend". */
+  autoActions?: Record<string, AutoMode>;
   onView?: (v: ViewId) => void;
   onAccount?: (a: string) => void;
   onReload?: () => void;
@@ -274,6 +285,7 @@ function NoiseFold(
       </button>
       {noise.open && (
         <div id="noise-list" className="fold-body">
+          <a className="fold-link" href="/aussortiert">Automatisch als gelesen markiert ansehen <span aria-hidden="true">›</span></a>
           {noise.emails.length > 0 && (
             <ul className="cards">
               {noise.emails.map((m) => <EmailCard key={m.id} m={m} now={now} timeZone={timeZone} />)}
@@ -298,10 +310,13 @@ export function ReviewListView(p: ReviewListProps): React.JSX.Element {
         <div className="bar-row">
           <div className="title">
             <h1>Mails</h1>
-            <p className="mode">Alle Konten · Postfach nur lesend</p>
           </div>
-          <button type="button" className="btn btn-accent" onClick={p.onReload ?? noop} disabled={p.loading}>Neu laden</button>
+          <div className="bar-actions">
+            <a className="btn btn-link" href="/aussortiert">Aussortiert</a>
+            <button type="button" className="btn btn-accent" onClick={p.onReload ?? noop} disabled={p.loading}>Neu laden</button>
+          </div>
         </div>
+        <p className="mode mode-line">{headerSubtitle(p.accounts, p.autoActions, p.account)}</p>
         <div className="segmented" role="group" aria-label="Ansicht">
           {VIEWS.map((v) => (
             <button
@@ -427,9 +442,16 @@ export interface EmailDetailProps {
   onToggleDone?: () => void;
   busy?: boolean;
   error?: string | null;
+  /** "Wieder ungelesen" for the automatic action of this mail; without it the hint is read-only. */
+  onUnread?: () => void;
+  unreadBusy?: boolean;
+  unreadMessage?: { text: string; error?: boolean } | null;
 }
 
-export function EmailDetailView({ email: m, now, timeZone, onToggleDone, busy, error }: EmailDetailProps): React.JSX.Element {
+export function EmailDetailView(
+  { email: m, now, timeZone, onToggleDone, busy, error, onUnread, unreadBusy, unreadMessage }: EmailDetailProps,
+): React.JSX.Element {
+  const hint = unreadHint(m.mailbox_action);
   const a = m.classification?.answers ?? {};
   const classified = m.classification?.status === "classified";
   const imp = scoreLevel(m.importance ?? a.importance?.value);
@@ -488,6 +510,26 @@ export function EmailDetailView({ email: m, now, timeZone, onToggleDone, busy, e
           {error && <p className="notice notice-inline" role="alert">{error}</p>}
         </section>
 
+        {(hint !== null || unreadMessage) && (
+          <section className="panel panel-auto" aria-label="Automatische Aktion">
+            <h2>Automatische Aktion</h2>
+            {hint !== null && <p className="auto-hint">{hint}</p>}
+            {hint !== null && m.mailbox_action?.mode === "dry_run" && (
+              <p className="hint">Trockenlauf: im Postfach wird nichts geändert.</p>
+            )}
+            {onUnread && canUnread(m.mailbox_action) && (
+              <button type="button" className="btn btn-wide done-action" disabled={unreadBusy === true} onClick={onUnread}>
+                Wieder ungelesen
+              </button>
+            )}
+            {unreadMessage && (
+              <p className={unreadMessage.error ? "notice notice-inline" : "notice notice-ok"} role={unreadMessage.error ? "alert" : "status"}>
+                {unreadMessage.text}
+              </p>
+            )}
+          </section>
+        )}
+
         {m.disagreement !== null && (
           <section className="panel panel-warn" aria-label="Abweichung">
             <h2>Abweichung zum Provider</h2>
@@ -536,7 +578,7 @@ export function EmailDetailView({ email: m, now, timeZone, onToggleDone, busy, e
             )}
           </section>
         </details>
-        <p className="hint foot">Das Postfach bleibt unberührt. „Erledigt“ gilt nur in dieser App.</p>
+        <p className="hint foot">„Erledigt“ gilt nur in dieser App. Im Postfach ändert sich nur, was „Aussortiert“ zeigt.</p>
       </main>
     </div>
   );
