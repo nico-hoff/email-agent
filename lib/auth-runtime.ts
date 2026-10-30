@@ -9,7 +9,7 @@ import { DEFAULT_DATABASE_PATH, DEV_SYNTHETIC_DATABASE_PATH, PROJECT_ROOT } from
 import { issueCsrfToken, verifyCsrf } from "./csrf.ts";
 import { createRateLimiter, type RateLimiter } from "./rate-limit.ts";
 
-/** Wiring of lib/auth.ts to files, requests and responses. Route modules and middleware.ts stay thin. */
+/** Wiring of lib/auth.ts to files, requests and responses. Route modules and server.ts stay thin. */
 
 export const ALLOWLIST_FILE = "auth-allowlist.json";
 export const SECRET_FILE = "auth-secret";
@@ -127,7 +127,8 @@ export function defaultMutationLimiter(): RateLimiter {
 }
 
 // --- path policy ----------------------------------------------------------------------------------------------------
-const PUBLIC_EXACT = new Set(["/api/health", "/welcome", "/api/auth/session", "/api/auth/login", "/api/auth/logout"]);
+export const DENY_PATH = "/api/auth/deny";
+const PUBLIC_EXACT = new Set(["/api/health", "/welcome", "/api/auth/session", "/api/auth/login", "/api/auth/logout", DENY_PATH]);
 // Framework-served client modules, styles and HMR: code only, never mail data.
 const PUBLIC_PREFIXES = ["/_vf_modules/", "/_vf_styles/", "/_veryfront/"];
 const publicFiles = new Set<string>();
@@ -157,7 +158,7 @@ function sessionLogin(request: Request, ctx: AuthContext): string | null {
 const json = (body: unknown, status = 200, headers: Record<string, string> = {}) =>
   Response.json(body, { status, headers: { "cache-control": "no-store", ...headers } });
 
-/** Central gate for middleware.ts: undefined = let the request through. */
+/** Central gate (run by interceptRequest in server.ts): undefined = let the request through. */
 export function guardRequest(request: Request, ctx: AuthContext): Response | undefined {
   const url = new URL(request.url);
   if (isPublicPath(url.pathname)) return undefined;
@@ -166,6 +167,46 @@ export function guardRequest(request: Request, ctx: AuthContext): Response | und
   return navigation
     ? new Response(null, { status: 303, headers: { location: "/welcome", "cache-control": "no-store" } })
     : json({ error: "unauthorized" }, 401);
+}
+
+// --- request interceptor ------------------------------------------------------------------------------------------
+// A root middleware.ts is not an option: Veryfront transpiles it to .vf-middleware-*.mjs next to the source, which a
+// read-only container with USER node cannot write. startServer's requestInterceptor can only return a (fresh) Request,
+// never a Response, so a denied request is rewritten to the public deny route, which answers from a fixed kind only.
+const DENY_KINDS = new Set(["page", "api", "forbidden"]);
+
+/** Response of any method on /api/auth/deny?k=...: derived from the allow-listed kind only, anything else is 401. */
+export function handleDeny(request: Request): Response {
+  let kind: string | null = null;
+  try {
+    kind = new URL(request.url).searchParams.get("k");
+  } catch { /* unparsable: 401 */ }
+  if (kind === "page") return new Response(null, { status: 303, headers: { location: "/welcome", "cache-control": "no-store" } });
+  if (kind === "forbidden") return json({ error: "forbidden" }, 403);
+  return json({ error: "unauthorized" }, 401);
+}
+
+function denyRequest(request: Request, kind: string): Request {
+  let origin = "http://localhost";
+  try {
+    origin = new URL(request.url).origin;
+  } catch { /* keep the fallback */ }
+  // Fresh GET without headers and body: nothing of the original request reaches the deny route.
+  return new Request(`${origin}${DENY_PATH}?k=${DENY_KINDS.has(kind) ? kind : "api"}`, { method: "GET" });
+}
+
+/**
+ * requestInterceptor for startServer: the original request only when the guard says "allowed" explicitly; every denial
+ * and every error becomes a rewrite to the deny route (fail-closed).
+ */
+export function interceptRequest(request: Request, context: () => AuthContext = defaultAuthContext): Request {
+  try {
+    const denied = guardRequest(request, context());
+    if (denied === undefined) return request;
+    return denyRequest(request, denied.status === 303 ? "page" : denied.status === 403 ? "forbidden" : "api");
+  } catch {
+    return denyRequest(request, "api");
+  }
 }
 
 // --- handlers -------------------------------------------------------------------------------------------------------

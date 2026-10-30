@@ -40,3 +40,12 @@ Nur dort (`npm run dev`) gilt ohne Header die feste Identität `dev@synthetic.in
 ## Veryfront-CSRF (warum POST zunächst 403 war)
 
 Veryfront prüft in Dev und Produktion jede Anfrage außer GET/HEAD/OPTIONS per Double-Submit: Cookie `__Host-vf_csrf` (wird bei HTML-Dokumenten gesetzt) muss im Header `x-csrf-token` zurückkommen (Doku: https://veryfront.com/docs/code/guides/security-headers). Der Schutz bleibt an; Browser-Code nutzt `csrfMutationHeaders` aus `veryfront/index.client`. Unser eigenes Token (`lib/csrf.ts`) wandert deshalb im Header `x-app-csrf`. `security.csrf.excludePaths` wird nicht verwendet.
+
+## Wo der Guard läuft (seit 2026-10-30)
+
+Nicht mehr in einer Root-`middleware.ts`, sondern als `requestInterceptor` von `startServer` (`server.ts`, `interceptRequest` in `lib/auth-runtime.ts`). Grund: Veryfront schreibt eine Root-Middleware transpiliert als `.vf-middleware-<uuid>.mjs` neben die Quelle, was im gehärteten Container (`USER node`, `read_only`) mit `EACCES`/`EROFS` scheitert (siehe `docs/DEVIATIONS.md`).
+
+- Regeln unverändert (`guardRequest`): offen sind `/api/health`, `/welcome`, `/api/auth/{session,login,logout}`, die Deny-Route, Dateien aus `public/` und `/_vf_modules/`, `/_vf_styles/`, `/_veryfront/`. Seiten ohne Session → 303 `/welcome`, APIs → 401.
+- Der Interceptor kann nur eine Request zurückgeben. Eine verweigerte Anfrage wird in einen frischen `GET /api/auth/deny?k=page|api|forbidden` ohne Header und Body umgeschrieben; die öffentliche Route antwortet allein aus diesem Parameter (303/401/403, alles Unbekannte 401, `Cache-Control: no-store`) und ist bei direktem Aufruf harmlos. Jeder Fehler im Guard (auch eine nicht parsebare URL) ergibt dieselbe Umschreibung: fail-closed.
+- Der Interceptor läuft vor allen Veryfront-Routen: `/api/agents`, `/api/agents/:id` (waren schon vorher geschützt), `/healthz`, `/readyz`, `/_health`, `/_ws` (vorher ohne Session erreichbar) und unbekannte Pfade verlangen jetzt eine Session. Der Healthcheck der Container nutzt `/api/health`. Dort wäre ohnehin kein Mailinhalt gewesen.
+- WebSocket-Upgrades (nur Dev-HMR auf `/_ws`) laufen nicht durch den Interceptor; Veryfront entscheidet selbst, sie tragen nur Reload-Meldungen. Im Produktionsmodus gibt es keinen HMR.

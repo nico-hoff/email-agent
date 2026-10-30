@@ -1,6 +1,6 @@
 // HTTP handlers for feedback (T37) and sender rules / HITL (T54 backend). Thin: auth and body checks, then lib calls.
 // POST order (guardMutation): session 401, rate limit 429, CSRF 403, then body (400), then the write. GET routes sit behind
-// the session guard of middleware.ts. Responses carry ids, codes and addresses/domains Nico typed himself; no subjects.
+// the session guard (interceptRequest in lib/auth-runtime.ts). Responses carry ids, codes and addresses/domains Nico typed himself; no subjects.
 import { z } from "zod";
 import type { DatabaseSync } from "node:sqlite";
 import { validateDatabasePath } from "./accounts.ts";

@@ -10,7 +10,7 @@ import { createImapFlowPort } from "./lib/imap.ts";
 import { applyOpenRouterEnv } from "./lib/openrouter-env.ts";
 import { findStyleScanHazards } from "./lib/dev-hazards.ts";
 import { DEFAULT_SPAM_THRESHOLD } from "./lib/accounts-config.ts";
-import { dataDirFromEnv } from "./lib/auth-runtime.ts";
+import { dataDirFromEnv, interceptRequest } from "./lib/auth-runtime.ts";
 import { openDatabase } from "./lib/db.ts";
 import { createMailboxActions, type MailboxActions } from "./lib/mailbox-actions.ts";
 import { join } from "node:path";
@@ -76,7 +76,11 @@ function pickFreePort(host: string): Promise<number> {
 
 async function defaultStartHttp(o: { port: number; bindAddress: string; mode: "development" | "production" }): Promise<HttpHandle> {
   ensureBundlerContracts();
-  const server = await startServer({ mode: o.mode, port: o.port, bindAddress: o.bindAddress, projectDir: fileURLToPath(new URL(".", import.meta.url)) });
+  // The session guard runs as requestInterceptor (no root middleware.ts: see lib/auth-runtime.ts and docs/DEVIATIONS.md).
+  const server = await startServer({
+    mode: o.mode, port: o.port, bindAddress: o.bindAddress, projectDir: fileURLToPath(new URL(".", import.meta.url)),
+    requestInterceptor: (request) => interceptRequest(request),
+  });
   await server.ready;
   return { port: server.port, url: server.url, stop: () => server.stop() };
 }

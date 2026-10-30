@@ -28,6 +28,7 @@ graphify-out/
 
 # Build output
 dist/
+.cache/
 
 # local account files outside data/ (template stays tracked)
 docs/accounts*.json

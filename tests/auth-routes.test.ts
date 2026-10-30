@@ -6,9 +6,8 @@ import { join } from "node:path";
 import { CSRF_HEADER } from "../lib/csrf.ts";
 import { SESSION_COOKIE, DEV_IDENTITY } from "../lib/auth.ts";
 import {
-  createAuthContext, createLoginLimiter, dataDirFromEnv, guardRequest, handleLogin, handleLogout, handleSession, isPublicPath, syntheticFromEnv,
+  createAuthContext, createLoginLimiter, dataDirFromEnv, guardRequest, handleLogin, handleLogout, handleSession, handleDeny, interceptRequest, isPublicPath, syntheticFromEnv,
 } from "../lib/auth-runtime.ts";
-import middleware from "../middleware.ts";
 
 const ME = "nico@example.test";
 const HOST = "mac.tail.ts.net";
@@ -143,16 +142,63 @@ test("every route under app/api is guarded except health and auth", async () => 
   }
 });
 
-test("root middleware wires the guard (401 for API, redirect for pages, next() when public)", async () => {
-  const c = (path: string) => ({ request: get(path, { host: HOST }) }) as never;
-  let nexted = 0;
-  const next = async () => { nexted++; return new Response("ok"); };
-  const handler = (Array.isArray(middleware) ? middleware[0] : middleware) as (c: never, n: typeof next) => Promise<Response | undefined>;
-  assert.equal((await handler(c("/api/emails"), next))?.status, 401);
-  assert.equal((await handler(c("/"), next))?.status, 303);
-  assert.equal(nexted, 0);
-  assert.equal((await handler(c("/api/health"), next))?.status, 200);
-  assert.equal(nexted, 1);
+// The guard runs as startServer's requestInterceptor (no root middleware.ts). A denial is a rewrite to the deny route.
+const kindOf = (r: Request) => new URL(r.url).searchParams.get("k");
+
+test("interceptor: allowed requests pass unchanged, denied ones become a bare GET on the deny route", async () => {
+  const s = setup();
+  const ctx = () => s.ctx;
+  const health = get("/api/health", { host: HOST });
+  assert.equal(interceptRequest(health, ctx), health);
+  const api = interceptRequest(get("/api/emails", { host: HOST }), ctx);
+  assert.equal(new URL(api.url).pathname, "/api/auth/deny");
+  assert.equal(kindOf(api), "api");
+  assert.equal(kindOf(interceptRequest(get("/", { host: HOST }), ctx)), "page");
+  assert.equal(kindOf(interceptRequest(get("/api/agents", { host: HOST }), ctx)), "api", "framework routes need a session too");
+  assert.equal(kindOf(interceptRequest(get("/api/agents/x", { host: HOST }), ctx)), "api");
+  // POST with body and cookies: method, body and headers are dropped
+  const post1 = new Request("http://127.0.0.1:3000/api/emails/1/done", { method: "POST", headers: { cookie: "x=1", "x-secret": "s" }, body: "payload" });
+  const rewritten = interceptRequest(post1, ctx);
+  assert.equal(rewritten.method, "GET");
+  assert.equal(rewritten.body, null);
+  assert.equal([...rewritten.headers].length, 0);
+  assert.equal(rewritten.url, "http://127.0.0.1:3000/api/auth/deny?k=api");
+  // a valid session passes
+  const cookie = cookieOf(await login(s));
+  const ok = get("/api/emails", { host: HOST, cookie });
+  assert.equal(interceptRequest(ok, ctx), ok);
+});
+
+test("interceptor is fail-closed: a throwing context or an unparsable URL never lets the original through", () => {
+  const boom = () => { throw new Error("boom"); };
+  const r = get("/api/health", { host: HOST });
+  const out = interceptRequest(r, boom);
+  assert.notEqual(out, r);
+  assert.equal(kindOf(out), "api");
+  const broken = { url: "not a url", method: "GET", headers: new Headers() } as unknown as Request;
+  const out2 = interceptRequest(broken);
+  assert.equal(new URL(out2.url).pathname, "/api/auth/deny");
+  assert.equal(kindOf(out2), "api");
+});
+
+test("deny route answers from the fixed kind only, for any method; a direct call is harmless", async () => {
+  const mk = (qs: string, method = "GET") => new Request(`http://127.0.0.1:3000/api/auth/deny${qs}`, { method });
+  const page = handleDeny(mk("?k=page"));
+  assert.equal(page.status, 303);
+  assert.equal(page.headers.get("location"), "/welcome");
+  assert.equal(page.headers.get("cache-control"), "no-store");
+  const api = handleDeny(mk("?k=api", "POST"));
+  assert.equal(api.status, 401);
+  assert.deepEqual(await api.json(), { error: "unauthorized" });
+  assert.equal(api.headers.get("cache-control"), "no-store");
+  assert.equal(handleDeny(mk("?k=forbidden", "DELETE")).status, 403);
+  for (const qs of ["", "?k=", "?k=admin", "?k=page&k=api&next=https://evil.example", "?k=PAGE"]) {
+    const r = handleDeny(mk(qs));
+    assert.ok(r.status === 401 || (qs.startsWith("?k=page") && r.status === 303), qs);
+    assert.ok(r.headers.get("location") === null || r.headers.get("location") === "/welcome");
+  }
+  assert.equal(isPublicPath("/api/auth/deny"), true);
+  assert.equal(isPublicPath("/api/auth/deny/x"), false);
 });
 
 // --- CSRF and rate limit ------------------------------------------------------------------------------------------
