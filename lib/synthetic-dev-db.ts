@@ -11,7 +11,8 @@ import { DEV_SYNTHETIC_DATABASE_PATH, JEV_MODEL, QUESTION_SET_VERSION } from "./
 import { openDatabase } from "./db.ts";
 import { EVAL_SOURCES, type EvalCase } from "./eval-sources.ts";
 import { QUESTIONS } from "./jev-questions.ts";
-import type { NormalizedAnswer } from "./jev-response.ts";
+import { interpretNoul, type NormalizedAnswer } from "./jev-response.ts";
+import { recordJevSpam } from "./senders.ts";
 
 export const SYNTHETIC_HOST = "synthetic.invalid";
 export const SYNTHETIC_ACCOUNT_PREFIX = "hf-";
@@ -152,6 +153,9 @@ function importOne(db: DatabaseSync, item: SyntheticItem, now: Date, ts: string,
     throw new Error("invalid_answers");
   }
   // Replace semantics: the last run wins. One row per (mail, question set, model); its answers are rebuilt.
+  const rerun = db
+    .prepare("SELECT 1 FROM classifications WHERE email_id = ? AND question_set_version = ? AND model_requested = ?")
+    .get(emailId, QUESTION_SET_VERSION, JEV_MODEL) !== undefined;
   db.prepare(
     `INSERT INTO classifications
        (email_id, question_set_version, model_requested, model_reported, status, attempts, latency_ms, created_at, updated_at)
@@ -171,6 +175,10 @@ function importOne(db: DatabaseSync, item: SyntheticItem, now: Date, ts: string,
     "eval",
     QUESTION_SET_VERSION,
   );
+  // As in the pipeline (createPersistResponse): Jev's spam verdict feeds the sender counter (HITL list). Counted once
+  // per mail, so re-importing the same case does not inflate it.
+  const spam = cls.answers.find((a) => a.key === "is_spam");
+  if (!rerun && spam && interpretNoul(spam, QUESTION_SET_VERSION) === "positive") recordJevSpam(db, emailId, row.id, ts);
   return true;
 }
 

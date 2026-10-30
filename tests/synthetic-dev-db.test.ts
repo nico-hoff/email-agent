@@ -221,6 +221,18 @@ describe("answers", () => {
     assert.deepEqual(JSON.parse(shadow(dev)), computeShadowQuarantine(normalized(over), DEFAULT_SPAM_THRESHOLD));
   });
 
+  it("counts Jev's spam verdicts per sender like the pipeline, once per mail even when re-imported (HITL list)", () => {
+    const db = memDb();
+    const spam = { is_spam: { type: "noul", noul: 0.99 } };
+    const items = [withAnswers("triage-1", spam), withAnswers("triage-2", spam), withAnswers("triage-3")];
+    importSyntheticCases(db, items, { now: NOW });
+    importSyntheticCases(db, items, { now: NOW });
+    const rows = db.prepare("SELECT address, jev_spam_count FROM senders ORDER BY address").all().map((r) => ({ ...r }));
+    assert.deepEqual(rows, [
+      { address: "noreply@sender.example.test", jev_spam_count: 2 },
+    ]);
+  });
+
   it("replaces the answers on a second run (last run wins) without duplicating rows", () => {
     const db = memDb();
     importSyntheticCases(db, [withAnswers("triage-1", { category: { type: "choice", choice: "spam" } }, "m1")], { now: NOW });
