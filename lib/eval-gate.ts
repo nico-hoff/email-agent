@@ -208,7 +208,8 @@ export function loadGateDatasets(root: string): { stem: string; lines: GateLine[
   if (!existsSync(dir)) return [];
   const allowedIds = loadSyntheticIds(root);
   return readdirSync(dir)
-    .filter((f) => f.endsWith(".jsonl"))
+    // Only the Jev gate datasets; the agent output datasets (lib/agent-eval-gate.ts) share the folder.
+    .filter((f) => /^email-eval-.*\.jsonl$/.test(f))
     .sort()
     .map((f) => ({ stem: f.replace(/\.jsonl$/, ""), lines: parseGateDataset(readFileSync(join(dir, f), "utf8"), { allowedIds }) }));
 }

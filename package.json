@@ -13,6 +13,7 @@
     "start": "node --env-file-if-exists=.env.local server.ts --production",
     "eval": "veryfront eval",
     "sample": "node --env-file=.env.local scripts/sample.ts",
+    "eval:agents": "node --env-file=.env.local scripts/agent-eval-live.ts",
     "eval:jev": "node --env-file=.env.local scripts/eval-jev.ts --confirm-live",
     "jev:probe:v2": "node --env-file=.env.local scripts/jev-v2-probe.ts",
     "agent:probe": "node --env-file=.env.local scripts/agent-live-probe.ts",

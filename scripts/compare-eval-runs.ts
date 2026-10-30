@@ -52,7 +52,7 @@ export function loadRunReports(input: { dir: string; files: string[] }): RunSumm
   let paths = input.files;
   if (paths.length === 0) {
     try {
-      paths = readdirSync(input.dir).filter((f) => f.endsWith(".json")).sort().map((f) => join(input.dir, f));
+      paths = readdirSync(input.dir).filter((f) => f.endsWith(".json") && !f.startsWith("agents-")).sort().map((f) => join(input.dir, f));
     } catch {
       throw new Error("run_dir_missing");
     }

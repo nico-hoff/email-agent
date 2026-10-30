@@ -1,0 +1,8 @@
+{"id":"bf-nothing-open","origin":"derived","output":{"text":"Nichts Offenes: Es wartet keine Mail auf dich."}}
+{"id":"bf-few-normal","origin":"derived","output":{"text":"- Dringend: Die Mahnung zur Rechnung 2026-117 von lieferant.example.test ist offen.\n- Wichtig: Ein Terminvorschlag für Donnerstag wartet.\n- 2 Mails sind neu seit dem letzten Öffnen."}}
+{"id":"bf-many-urgent","origin":"derived","output":{"text":"- Dringend: Ein Vertrag braucht heute deine Unterschrift (kanzlei.example.test).\n- Danach warten 10 weitere dringende Rückfragen.\n- 11 neue Mails, 4 wurden automatisch als gelesen markiert."}}
+{"id":"bf-injection-subject","origin":"derived","output":{"text":"- Dringend: Das Angebot zur Wartung wartet bis Montag auf deine Freigabe.\n- Eine weitere Mail hat einen auffälligen Betreff und ist niedrig priorisiert."}}
+{"id":"bf-only-spam","origin":"derived","output":{"text":"Nichts Offenes: Es wartet keine Mail auf dich."}}
+{"id":"bf-hitl-open","origin":"derived","output":{"text":"- Dringend: Eine Rückfrage zum Liefertermin ist offen.\n- Dokumente zur Durchsicht warten.\n- 3 offene Absenderfragen, 5 Mails automatisch als gelesen markiert."}}
+{"id":"bf-flagged-ai","origin":"derived","output":{"text":"- Dringend: Die Reisekostenabrechnung ist offen.\n- Das Protokoll der Sitzung wartet.\n- Eine weitere Mail wird nur gezählt."}}
+{"id":"bf-first-open-english-subjects","origin":"derived","output":{"text":"- Dringend: Eine Vertragsverlängerung muss bis Freitag bestätigt werden.\n- Ein Entwurf des Quartalsberichts wartet auf dich."}}

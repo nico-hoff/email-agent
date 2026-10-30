@@ -29,7 +29,7 @@ const ALLOWED_IDS = new Set([...KNOWN_IDS, ...FIXTURE_IDS]);
 const dir = join(root, GATE_DATASET_DIR);
 
 function files(): string[] {
-  return readdirSync(dir).filter((f) => f.endsWith(".jsonl")).sort();
+  return readdirSync(dir).filter((f) => /^email-eval-.*\.jsonl$/.test(f)).sort();
 }
 
 describe("committed gate datasets contain only synthetic ids and answers", () => {
