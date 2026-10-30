@@ -19,3 +19,6 @@ jobs:
       - run: npm run build
       # Offline gate (T27): stored Jev verdicts of the synthetic sets vs. expected values; no secrets, no model call.
       - run: npm run eval
+      # End-to-end smoke (T44): the real service in synthetic mode with a temp database; offline, no secrets, no model call.
+      # The Docker smoke (npm run smoke:docker) needs a daemon and the network for npm ci: not run in CI.
+      - run: npm run smoke:e2e

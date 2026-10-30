@@ -23,6 +23,8 @@
     "calibrate": "node --env-file-if-exists=.env.local scripts/calibrate.ts",
     "deploy": "veryfront deploy",
     "typecheck": "tsc --noEmit",
+    "smoke:e2e": "node scripts/e2e-smoke.ts",
+    "smoke:docker": "bash scripts/docker-smoke.sh",
     "test": "node --test"
   },
   "pnpm": {
