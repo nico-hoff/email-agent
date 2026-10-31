@@ -8,8 +8,8 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import NOUL_CALIBRATION from "../config/noul-calibration.ts";
-import { JEV_MODEL, PROJECT_ROOT, QUESTION_SET_VERSION_V2 } from "../lib/constants.ts";
+import { calibrationFor } from "../lib/noul-calibration.ts";
+import { JEV_MODEL, PROJECT_ROOT, QUESTION_SET_VERSION_V1, QUESTION_SET_VERSION_V2 } from "../lib/constants.ts";
 import { createDecisionsClient, LUNA_DECISIONS_MODEL } from "../lib/decisions-client.ts";
 import type { EvalCase, EvalSplit } from "../lib/eval-sources.ts";
 import { createJevClient, type JevClient } from "../lib/jev.ts";
@@ -24,7 +24,8 @@ export const MODEL_NAMES = ["jev", "luna-decisions"] as const;
 export const SUITES = ["hf-v2", "fixed-v2", "topics", "all"] as const;
 export type SuiteName = "hf-v2" | "fixed-v2" | "topics";
 const NOUL_KEYS = ["is_spam", "is_phishing_or_scam", "addresses_an_ai", "is_assessable", "needs_my_reply"] as const;
-const JEV_THRESHOLDS = new Map<string, number>(Object.entries(NOUL_CALIBRATION.thresholds));
+// Measured against the v1 thresholds (the production thresholds at the time of the run, docs/insights-models.md).
+const JEV_THRESHOLDS = new Map<string, number>(Object.entries(calibrationFor(QUESTION_SET_VERSION_V1)?.thresholds ?? {}));
 
 // ---------- types ----------
 
