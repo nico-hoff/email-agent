@@ -11,6 +11,7 @@ import { applyOpenRouterEnv } from "./lib/openrouter-env.ts";
 import { findStyleScanHazards } from "./lib/dev-hazards.ts";
 import { DEFAULT_SPAM_THRESHOLD } from "./lib/accounts-config.ts";
 import { dataDirFromEnv, interceptRequest } from "./lib/auth-runtime.ts";
+import { appPasswordStatus, selectAuthMode } from "./lib/auth.ts";
 import { openDatabase } from "./lib/db.ts";
 import { createMailboxActions, type MailboxActions } from "./lib/mailbox-actions.ts";
 import { join } from "node:path";
@@ -188,6 +189,11 @@ export async function createService(options: CreateServiceOptions = {}): Promise
 
   // O1a: the OpenAI provider of the reply agent talks to OpenRouter; derived from OPENROUTER_API_KEY, never overwritten.
   applyOpenRouterEnv(options.env ?? process.env);
+
+  // Password mode (APP_PASSWORD set, e.g. on fly.io): a too short or empty value disables the login. Never log the value.
+  if (!synthetic && selectAuthMode({ synthetic, appPassword: process.env.APP_PASSWORD }) === "password" && appPasswordStatus(process.env.APP_PASSWORD) !== "ok") {
+    log("warning: APP_PASSWORD too short, password login disabled");
+  }
 
   if (synthetic) {
     // The route modules read process.env.DATABASE_PATH themselves, so it is forced before anything listens.

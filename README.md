@@ -16,7 +16,7 @@ Endpunkte: Dashboard `/`, `GET /api/emails`, `GET /api/status`, `GET /api/health
 
 ## Zugang über das Tailnet (Tailscale Serve)
 
-Die App bindet immer an `127.0.0.1` (nie `0.0.0.0`). Von außen kommt man nur über `tailscale serve`, das HTTPS im Tailnet bereitstellt (nötig für Service Worker und PWA auf dem iPhone) und die Identität als Header `Tailscale-User-Login` mitgibt. Hintergrund und Quellen: `docs/access-contract.md`.
+Im Tailnet-Modus (kein `APP_PASSWORD`) bindet die App an `127.0.0.1` (nie `0.0.0.0` ohne vorgeschalteten Proxy). Öffentlich hosten: siehe den nächsten Abschnitt. Von außen kommt man nur über `tailscale serve`, das HTTPS im Tailnet bereitstellt (nötig für Service Worker und PWA auf dem iPhone) und die Identität als Header `Tailscale-User-Login` mitgibt. Hintergrund und Quellen: `docs/access-contract.md`.
 
 1. Tailscale auf dem Host und auf dem iPhone installieren, beide im selben Tailnet. HTTPS-Zertifikate und MagicDNS in der Tailscale-Admin-Konsole aktivieren.
 2. App starten (`npm run start` oder `docker compose up -d`, Port 3000 nur auf `127.0.0.1`).
@@ -25,6 +25,28 @@ Die App bindet immer an `127.0.0.1` (nie `0.0.0.0`). Von außen kommt man nur ü
 5. Auf dem iPhone `https://<gerät>.<tailnet>.ts.net` öffnen, "Login" tippen, dann "Zum Home-Bildschirm". Die Session gilt 30 Tage; Abmelden per `POST /api/auth/logout`.
 
 `npm run dev` (synthetisch) braucht kein Tailscale: Der Login-Knopf meldet dort als `dev@synthetic.invalid` an.
+
+## Öffentlich hosten (z. B. fly.io) mit Passwort
+
+Auf einem öffentlich erreichbaren Host (`*.fly.dev`) darf der Tailnet-Header nicht als Beweis dienen: jeder kann `Tailscale-User-Login` selbst setzen. Deshalb gibt es den **Passwort-Modus**: Ist die Laufzeit-Variable `APP_PASSWORD` gesetzt, wird der Header **vollständig ignoriert** (auch wenn er mitgeschickt wird), die Allowlist-Datei entfällt, und man kommt nur mit dem Passwort hinein. Ist `APP_PASSWORD` nicht gesetzt, gilt wie bisher der Tailnet-Modus; `npm run dev` bleibt synthetisch und unverändert.
+
+Einrichtung (alles in Nicos fly-App, **keine `fly.toml` im Repo**; die App-Konfiguration liegt im fly-Dashboard):
+
+1. Secrets setzen, **bevor** irgendetwas anderes hochgeladen wird:
+   - `fly secrets set APP_PASSWORD=<mindestens 16 Zeichen>` (lange Passphrase; kürzer oder leer = Login gesperrt, siehe unten).
+   - `fly secrets set OPENROUTER_API_KEY=<Schlüssel>` (für Jev).
+2. Umgebung: `BIND_ADDRESS=0.0.0.0` (Env-Eintrag oder `[env]`) und im HTTP-Dienst `internal_port = 3000`. Der Port 3000 ist der Standard der App. `BIND_ADDRESS=0.0.0.0` ist auch der Schalter, der den Loopback-Sonderfall beim Cookie (unten) ausschaltet.
+3. Datenbank und Sitzungsgeheimnis: `DATABASE_PATH=/data/email-agent.sqlite`. Der Container läuft als Benutzer `node`; `/data` im Image gehört `node` (Modus 0700). Ohne Volume ist `/data` flüchtig: Datenbank **und** das Sitzungsgeheimnis (`auth-secret`, entsteht bei jedem Start neu) sind nach einem Neustart weg, alle angemeldeten Sitzungen werden ungültig und man meldet sich neu an. Für Dauerbetrieb ein Volume auf `/data` legen (`fly volumes create`, Mount `/data`). Ein frisches fly-Volume gehört root: einmal `fly ssh console -C "chown node:node /data && chmod 700 /data"` ausführen, sonst kann die App dort nicht schreiben (nicht live geprüft).
+4. Erst wenn der Passwortschutz läuft (Startseite zeigt das Passwortfeld, `/api/emails` ohne Anmeldung liefert 401), die Konten-Datei und damit die IMAP-Zugänge hochladen (`ACCOUNTS_FILE`, Modus 0600). Vorher nicht.
+5. Deployen und im Browser `https://<app>.fly.dev` öffnen, Passwort eingeben. Die Sitzung gilt 30 Tage, Abmelden per `POST /api/auth/logout`.
+
+Verhalten und Grenzen:
+
+- Der Vergleich ist konstantzeitig (scrypt mit zufälligem Salz je Prozess, dann `timingSafeEqual`); das Passwort wird weder gespeichert noch geloggt oder ausgegeben.
+- Fehlversuche: höchstens 10 je 15 Minuten **insgesamt** (nicht je Identität), danach `429` mit `Retry-After`; jeder Fehlversuch wartet zusätzlich 500 ms. Der Zähler lebt im Speicher des Prozesses (mehrere fly-Maschinen zählen getrennt; eine Maschine genügt).
+- Das Session-Cookie ist `HttpOnly`, `SameSite=Strict` und im Passwort-Modus immer `Secure`. Ausnahme nur für lokale Tests: Der Server lauscht auf Loopback (`BIND_ADDRESS` ungesetzt oder `127.x`), der `Host`-Header ist `localhost`/`127.0.0.1`/`[::1]` und es steht kein Proxy-Header an der Anfrage. Hinter fly ist `BIND_ADDRESS=0.0.0.0`, die Ausnahme greift also nie. Verlassen darf man sich dabei nicht auf `X-Forwarded-Proto`: der Veryfront-Server entfernt `x-forwarded-*`, bevor die Routen laufen (im Produktionsmodus beobachtet).
+- Ist `APP_PASSWORD` gesetzt, aber kürzer als 16 Zeichen oder leer, kann sich niemand anmelden; die Startseite meldet „Server nicht korrekt konfiguriert“ und der Start-Log enthält einmal `warning: APP_PASSWORD too short, password login disabled` (ohne Wert).
+- Lokal im Docker mit `BIND_ADDRESS=0.0.0.0` und Passwort über `http://localhost` setzt das Cookie ebenfalls `Secure`; Safari nimmt das über HTTP nicht an. Für lokale Tests den Server direkt mit `npm start` auf Loopback starten.
 
 ## Datenschutz
 

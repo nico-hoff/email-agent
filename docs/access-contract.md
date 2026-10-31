@@ -2,6 +2,28 @@
 
 Stand: 2026-10-27. Quellen: Tailscale-Doku über Context7 (`/websites/tailscale`) und https://tailscale.com/kb/1312/serve (Seite "Tailscale Serve", Abschnitt Identity headers), CLI-Referenz https://tailscale.com/docs/reference/tailscale-cli/serve. Eine Probe im echten Tailnet (T31) steht noch aus (Nico).
 
+## Drei Modi (seit 2026-10-31)
+
+Die Wahl ist rein (`selectAuthMode` in `lib/auth.ts`) und fällt je Prozess:
+
+| Modus | Wann | Identität | Header `Tailscale-User-Login` |
+| --- | --- | --- | --- |
+| `synthetic` | `server.ts --synthetic` (`npm run dev`) | fest `dev@synthetic.invalid`, nur Loopback-Hosts | wie unten |
+| `password` | Env `APP_PASSWORD` gesetzt (auch leer oder kurz) | fest `password-user` | **wird nie gelesen**, auch nicht bei Anwesenheit |
+| `tailnet` | sonst | Login aus dem Header, gegen die Allowlist | Beweis laut Abschnitt unten |
+
+Der Tailnet-Header ist nur hinter Tailscale Serve glaubwürdig. Auf einem öffentlichen Host (fly.io) kann ihn jeder senden; der Passwort-Modus ignoriert ihn deshalb vollständig, und die Allowlist-Datei ist dort nicht nötig. Ein Session-Cookie gilt nur im Modus, in dem es ausgestellt wurde: im Passwort-Modus zählt allein die Identität `password-user` (ein Cookie mit einem Tailnet-Login ist wertlos, auch mit gültiger Signatur), im Tailnet-Modus muss der Login auf der Allowlist stehen.
+
+### Passwort-Modus
+
+- `APP_PASSWORD` (Laufzeit-Variable, z. B. `fly secrets set`; Ausnahme von STOP-6 auf Nicos Wunsch, `docs/DEVIATIONS.md`) hat mindestens 16 Zeichen. Kürzer oder leer: fail-closed (Login `503 server_misconfigured`, Session-Antwort `{mode:"password", configured:false}`, Start-Log einmal `warning: APP_PASSWORD too short, password login disabled`, nie mit Wert).
+- `GET /api/auth/session` meldet `{mode, configured, csrfToken, signedIn}` ohne Identität. Das CSRF-Token ist an `password-user` gebunden.
+- `POST /api/auth/login` mit JSON `{"password": "..."}`: Reihenfolge `503` (nicht konfiguriert), `403` (Veryfront-Double-Submit plus `x-app-csrf` plus Origin; kostet keinen Versuch), `429` (globaler Limiter: 10 Fehlversuche je 15 Minuten, `retry-after`), Vergleich, dann `200` mit Cookie oder 500 ms Pause und `401 {"error":"invalid_credentials"}` (eine einheitliche Antwort für falsch, leer, kaputt; kein Hinweis auf „fast richtig“). Der Platz im Limiter wird vor der Prüfung belegt (parallele Versuche können das Budget nicht überschreiten); ein erfolgreicher Login gibt nur seinen eigenen Platz zurück und setzt die Fehlversuche nicht zurück.
+- Vergleich: beide Seiten mit `scrypt` und prozessweitem zufälligem Salz ableiten, `timingSafeEqual` (`lib/password.ts`). Klartext wird nur beim Start abgeleitet und nicht behalten; Kandidaten über 1024 Zeichen sind sofort falsch.
+- Cookie `ea_session`: `HttpOnly`, `SameSite=Strict`, **immer `Secure`**. Einzige Ausnahme für lokale Tests: Listener auf Loopback (`BIND_ADDRESS` ungesetzt oder `127.x`/`localhost`/`::1`), `Host` ist Loopback, keine Proxy-Header (`isLoopbackDirect`). `BIND_ADDRESS=0.0.0.0` (fly.io, Docker) schaltet die Ausnahme ab. `X-Forwarded-Proto` taugt nicht als Signal: Der Veryfront-Server entfernt `x-forwarded-*`, bevor Routen laufen (im Produktionsmodus beobachtet; `isHttpsRequest` bleibt nur für den synthetischen Modus).
+- Sitzungsgeheimnis `auth-secret` neben der Datenbank wie bisher. Ohne Volume entsteht es bei jedem Start neu: alle Sitzungen werden dann ungültig (bewusst nicht geändert).
+- Mehrere Maschinen: Limiter und Salz leben je Prozess; das Geheimnis liegt je Maschine im eigenen Dateisystem, Sitzungen gelten also nur auf der Maschine, die sie ausgestellt hat. Eine Maschine genügt.
+
 ## Was Tailscale Serve zusichert (laut Doku)
 
 - Serve setzt beim Proxy an das lokale Backend `Tailscale-User-Login` (Login-Name), `Tailscale-User-Name` (Anzeigename) und `Tailscale-User-Profile-Pic` (nur wenn der Identity Provider ein Bild liefert).

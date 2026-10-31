@@ -12,6 +12,8 @@ export type RateLimitResult = { allowed: true; remaining: number } | { allowed: 
 export interface RateLimiter {
   /** Counts the request for `key` if allowed. Rejected requests are not counted. */
   check(key: string): RateLimitResult;
+  /** Gives back the newest slot of `key` (a request that turned out to be harmless). Never resets older hits. */
+  release(key: string): void;
   size(): number;
 }
 
@@ -47,6 +49,12 @@ export function createRateLimiter(opts: RateLimiterOptions): RateLimiter {
       list.push(t);
       hits.set(key, list);
       return { allowed: true, remaining: opts.limit - list.length };
+    },
+    release(key) {
+      const list = hits.get(key);
+      if (!list) return;
+      list.pop();
+      if (list.length === 0) hits.delete(key);
     },
     size: () => hits.size,
   };

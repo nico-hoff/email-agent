@@ -113,3 +113,44 @@ export function requestOrigins(request: Request, o: { synthetic: boolean }): str
 export function isHttpsRequest(request: Request): boolean {
   return new URL(request.url).protocol === "https:" || request.headers.get("x-forwarded-proto") === "https";
 }
+
+// --- password mode (public hosting, e.g. fly.io) -------------------------------------------------------------------
+export type AuthMode = "synthetic" | "password" | "tailnet";
+/** Fixed session identity of the password mode: there is exactly one user, the holder of APP_PASSWORD. */
+export const PASSWORD_IDENTITY = "password-user";
+export const MIN_PASSWORD_CHARS = 16;
+
+/**
+ * Pure mode choice. Synthetic dev mode wins; otherwise a set APP_PASSWORD (even an empty or too short one, which then
+ * fails closed) selects the password mode, and the Tailscale header is not read at all. Unset = tailnet mode.
+ */
+export function selectAuthMode(o: { synthetic: boolean; appPassword: string | undefined }): AuthMode {
+  if (o.synthetic) return "synthetic";
+  return o.appPassword === undefined ? "tailnet" : "password";
+}
+
+export function appPasswordStatus(appPassword: string | undefined): "unset" | "ok" | "too_short" {
+  if (appPassword === undefined) return "unset";
+  return appPassword.length >= MIN_PASSWORD_CHARS ? "ok" : "too_short";
+}
+
+const FORWARDING_HEADERS = ["x-forwarded-for", "x-forwarded-proto", "x-forwarded-host", "forwarded", "fly-client-ip", "fly-forwarded-proto", "via"];
+
+/** Unset (server default 127.0.0.1) or a loopback address: only this machine can reach the listener. */
+export function isLoopbackBind(bindAddress: string | undefined): boolean {
+  if (bindAddress === undefined || bindAddress === "") return true;
+  return bindAddress === "localhost" || bindAddress === "::1" || bindAddress === "[::1]" || /^127(\.\d{1,3}){3}$/.test(bindAddress);
+}
+
+/**
+ * True only for a request that can only come from this machine (local tests): the server listens on loopback, the Host
+ * header is a loopback name, and no proxy header is present. The bind address is the real guard: the Veryfront server
+ * strips x-forwarded-* before our handlers run (observed in production mode), so headers alone prove nothing. Public
+ * hosting binds 0.0.0.0 (BIND_ADDRESS), which switches this exception off for good.
+ */
+export function isLoopbackDirect(request: Request, bindAddress?: string): boolean {
+  if (!isLoopbackBind(bindAddress)) return false;
+  const host = request.headers.get("host");
+  if (!host || !/^(localhost|127\.0\.0\.1|\[::1\])(:\d{1,5})?$/.test(host)) return false;
+  return !FORWARDING_HEADERS.some((h) => request.headers.has(h));
+}
