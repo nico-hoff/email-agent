@@ -17,7 +17,7 @@ after(() => rmSync(tmp, { recursive: true, force: true }));
 function acc(id: string, over: Record<string, unknown> = {}) {
   return {
     id, label: `L-${id}`, context: "ctx", host: "imap.example.test", port: 993, tls: true,
-    user: "u@example.test", password: PW, mailbox: "INBOX", spam_threshold: 0.8, enabled: true,
+    user: "u@example.test", password: PW, mailbox: "INBOX", spam_threshold: 0.8137, enabled: true,
     ...over,
   } as never;
 }
@@ -67,7 +67,7 @@ describe("syncAccounts", () => {
     syncAccounts(db, [acc("a")]);
     const dump = JSON.stringify([rows(db, "SELECT * FROM accounts"), rows(db, "SELECT * FROM worker_status")]);
     assert.ok(!dump.includes(PW));
-    assert.ok(!dump.includes("0.8"));
+    assert.ok(!dump.includes("0.8137")); // distinctive value: timestamps such as "…:10.812Z" must not match
     assert.ok(!dump.includes("u@example.test"));
   });
 });
