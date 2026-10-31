@@ -327,6 +327,12 @@ export function recordTestResult(db: DatabaseSync, userId: number, accountId: st
   db.prepare("UPDATE mail_accounts SET last_test_at = ?, last_test_code = ? WHERE account_id = ? AND user_id = ?").run(iso(now), code, accountId, userId);
 }
 
+/** Stores a spam folder found by the connection test, only while the account has none (never overwrites the person's choice). */
+export function setDetectedSpamMailbox(db: DatabaseSync, userId: number, accountId: string, folder: string): boolean {
+  const r = db.prepare("UPDATE accounts SET spam_mailbox = ? WHERE id = ? AND user_id = ? AND spam_mailbox IS NULL").run(folder, accountId, userId);
+  return Number(r.changes) > 0;
+}
+
 /** What a connection test needs: the stored settings plus the decrypted secret. Null = unknown, foreign or not managed. */
 export function loadConnection(db: DatabaseSync, userId: number, accountId: string, ring: Keyring):
   | { host: string; port: number; tls: boolean; user: string; password: string; mailbox: string; spam_mailbox: string | null }

@@ -2,6 +2,7 @@
 // bundled into the browser. A password only travels in the POST body of a create/update and is never kept in a list or state
 // beyond the open form.
 import { commonReason, postApi, readJson, type CommonReason } from "./api-post.ts";
+import { defaultLabel, imapHostForEmail, isGoogleHost } from "./mail-provider-hints.ts";
 import type { MutationDeps } from "./mutate-client.ts";
 
 export type AccountType = "imap" | "google";
@@ -34,7 +35,8 @@ export const GOOGLE_DEFAULTS = { host: "imap.gmail.com", port: 993, tls: true, m
 export const COLOR_CHOICES: readonly string[] = ["#3b82f6", "#f97316", "#10b981", "#a855f7", "#ec4899", "#eab308", "#06b6d4", "#ef4444"];
 
 export interface AccountForm {
-  type: AccountType;
+  /** What the person types first; the username, the label and the server follow it until they are edited by hand. */
+  email: string;
   label: string;
   color: string | null;
   host: string;
@@ -44,22 +46,45 @@ export interface AccountForm {
   /** Never prefilled. Empty on edit = keep the stored password. */
   password: string;
   mailbox: string;
+  /** Empty = detected during "Verbindung testen" (special-use \Junk). */
   spam_mailbox: string;
   context: string;
+  /** Fields edited by hand are no longer derived from the e-mail address. */
+  touched: { label: boolean; username: boolean; host: boolean };
 }
 
-export function emptyForm(type: AccountType): AccountForm {
-  return type === "google"
-    ? { type, label: "", color: null, host: GOOGLE_DEFAULTS.host, port: String(GOOGLE_DEFAULTS.port), tls: true, username: "", password: "", mailbox: GOOGLE_DEFAULTS.mailbox, spam_mailbox: GOOGLE_DEFAULTS.spam_mailbox, context: "" }
-    : { type, label: "", color: null, host: "", port: "993", tls: true, username: "", password: "", mailbox: "INBOX", spam_mailbox: "", context: "" };
+export function emptyForm(): AccountForm {
+  return {
+    email: "", label: "", color: null, host: "", port: "993", tls: true, username: "", password: "", mailbox: "INBOX", spam_mailbox: "", context: "",
+    touched: { label: false, username: false, host: false },
+  };
 }
 
 export function formFromItem(a: AccountItem): AccountForm {
   return {
-    type: a.type ?? "imap", label: a.label, color: a.color, host: a.host, port: String(a.port), tls: a.tls ?? true, username: a.username ?? "",
+    email: a.username ?? "", label: a.label, color: a.color, host: a.host, port: String(a.port), tls: a.tls ?? true, username: a.username ?? "",
     password: "", mailbox: a.mailbox, spam_mailbox: a.spam_mailbox ?? "", context: a.context,
+    touched: { label: true, username: true, host: true },
   };
 }
+
+/** Applies a field change and re-derives username, label and server from the address while those are untouched. */
+export function applyPatch(f: AccountForm, patch: Partial<Omit<AccountForm, "touched">>): AccountForm {
+  const next: AccountForm = { ...f, ...patch, touched: { ...f.touched } };
+  if (patch.label !== undefined) next.touched.label = true;
+  if (patch.username !== undefined) next.touched.username = true;
+  if (patch.host !== undefined) next.touched.host = true;
+  if (patch.email !== undefined) {
+    const e = patch.email.trim();
+    if (!next.touched.username) next.username = e;
+    if (!next.touched.label) next.label = defaultLabel(e);
+    if (!next.touched.host) next.host = imapHostForEmail(e) ?? "";
+  }
+  return next;
+}
+
+/** Gmail addresses (server imap.gmail.com) are the "Google" type: presets on the server plus the app-password hint. */
+export const formType = (f: Pick<AccountForm, "host">): AccountType => (isGoogleHost(f.host) ? "google" : "imap");
 
 export type AccountsReason = CommonReason | "no_encryption_key" | "invalid_host" | "host_not_allowed" | "invalid_secret" | "invalid_body" | "not_managed" | "secret_unreadable";
 
@@ -137,19 +162,23 @@ export async function fetchAccounts(fetcher: typeof fetch): Promise<AccountsData
   };
 }
 
-/** The JSON body for create/update. The type decides what is sent: Google presets are set by the server. */
+/** The JSON body for create/update. Google presets (server, port, TLS) are set by the server. */
 export function bodyFromForm(f: AccountForm, mode: "create" | "update"): Record<string, unknown> {
   const port = Number(f.port);
+  const type = formType(f);
+  const username = (f.username.trim() || f.email.trim());
   const body: Record<string, unknown> = {
-    label: f.label.trim(), color: f.color, username: f.username.trim(), mailbox: f.mailbox.trim(), context: f.context,
-    spam_mailbox: f.spam_mailbox.trim() === "" ? null : f.spam_mailbox.trim(),
+    label: (f.label.trim() || defaultLabel(f.email)), color: f.color, username, mailbox: f.mailbox.trim() || "INBOX", context: f.context,
   };
-  if (f.type === "imap") {
+  const spam = f.spam_mailbox.trim();
+  if (spam !== "") body.spam_mailbox = spam;
+  else if (mode === "update") body.spam_mailbox = null;
+  if (type === "imap") {
     body.host = f.host.trim();
     body.port = Number.isInteger(port) ? port : 0;
     body.tls = f.tls;
   }
-  if (mode === "create") body.type = f.type;
+  if (mode === "create") body.type = type;
   if (f.password !== "") body.password = f.password;
   return body;
 }
@@ -174,7 +203,7 @@ export const postUpdateAccount = (id: string, f: AccountForm, deps: MutationDeps
 export const postAccountEnabled = (id: string, enabled: boolean, deps: MutationDeps): Promise<AccountResult> =>
   post(`/api/accounts/${encodeURIComponent(id)}/${enabled ? "enable" : "disable"}`, undefined, deps);
 
-export type TestResult = { ok: true; code: string } | { ok: false; reason: AccountsReason; retryAfterSeconds?: number };
+export type TestResult = { ok: true; code: string; spamMailbox: string | null } | { ok: false; reason: AccountsReason; retryAfterSeconds?: number };
 
 export async function postTestAccount(id: string, deps: MutationDeps): Promise<TestResult> {
   const raw = await postApi(`/api/accounts/${encodeURIComponent(id)}/test`, deps);
@@ -185,7 +214,7 @@ export async function postTestAccount(id: string, deps: MutationDeps): Promise<T
   if (common) return { ok: false, reason: common.reason, ...(common.retryAfterSeconds !== undefined ? { retryAfterSeconds: common.retryAfterSeconds } : {}) };
   const b = await readJson(r);
   if (!r.ok) return { ok: false, reason: asReason(b.error) };
-  return { ok: true, code: typeof b.code === "string" ? b.code : "connect_failed" };
+  return { ok: true, code: typeof b.code === "string" ? b.code : "connect_failed", spamMailbox: typeof b.spam_mailbox === "string" ? b.spam_mailbox : null };
 }
 
 /** Worker state in words for the list. */

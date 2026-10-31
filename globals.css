@@ -676,3 +676,7 @@ main { display: block; min-width: 0; }
 .swatch[aria-pressed="true"] { border-color: var(--text); box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent); }
 .swatch:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
 .hint-warn { color: var(--warn-fg); background: var(--warn-bg); padding: 8px 10px; border-radius: 10px; }
+.acct-advanced { border: 1px solid var(--border); border-radius: 12px; padding: 0 12px; }
+.acct-advanced > summary { min-height: 44px; display: flex; align-items: center; font-weight: 600; cursor: pointer; }
+.acct-advanced-body { display: grid; gap: 12px; padding: 4px 0 12px; }
+.hint-info { background: var(--info-bg); color: var(--info-fg); padding: 10px 12px; border-radius: 12px; }

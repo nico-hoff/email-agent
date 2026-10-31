@@ -1,7 +1,7 @@
 // "Verbindung testen" (R2): opens the mailbox read-only through the same read-only port the worker uses and only runs
 // LIST (no folder is selected, nothing is fetched, nothing is written). The result is a short error class, never a server
 // response. The connector is injectable; tests use a fake and never touch the network.
-import { checkFolderMapping, createImapFlowPort, type ImapConnectionConfig, type ImapPort } from "./imap.ts";
+import { checkFolderMapping, type FolderInfo, createImapFlowPort, type ImapConnectionConfig, type ImapPort } from "./imap.ts";
 
 export const TEST_CODES = ["ok", "auth_failed", "tls_failed", "host_unreachable", "timeout", "mailbox_missing", "connect_failed"] as const;
 export type TestCode = (typeof TEST_CODES)[number];
@@ -33,13 +33,33 @@ export interface TestTarget extends ImapConnectionConfig {
   spam_mailbox: string | null;
 }
 
+/** Names providers use for the spam folder, tried in this order when the server marks none with the special-use flag \\Junk. */
+export const SPAM_FOLDER_NAMES: readonly string[] = ["Junk", "Spam", "Junk E-Mail", "Junk Email", "INBOX.Junk", "INBOX.Spam", "Bulk Mail", "[Gmail]/Spam"];
+
+/** The spam folder of a LIST result: the folder the server flags \\Junk, else the first well-known name; null when none. */
+export function detectSpamFolder(list: FolderInfo[]): string | null {
+  const flagged = list.find((f) => f.specialUse === "\\Junk");
+  if (flagged) return flagged.path;
+  for (const name of SPAM_FOLDER_NAMES) {
+    const hit = list.find((f) => f.path === name);
+    if (hit) return hit.path;
+  }
+  return null;
+}
+
+export interface TestOutcome { code: TestCode; /** Only when the account has no spam folder yet and one was found. */ spamMailbox: string | null }
+
 export async function testConnection(target: TestTarget, connector: TestConnector = defaultConnector, timeoutMs: number = TEST_TIMEOUT_MS): Promise<TestCode> {
+  return (await testConnectionDetailed(target, connector, timeoutMs)).code;
+}
+
+export async function testConnectionDetailed(target: TestTarget, connector: TestConnector = defaultConnector, timeoutMs: number = TEST_TIMEOUT_MS): Promise<TestOutcome> {
   const { mailbox, spam_mailbox, ...cfg } = target;
   let port: TestPort;
   try {
     port = connector(cfg);
   } catch (e) {
-    return classifyError(e);
+    return { code: classifyError(e), spamMailbox: null };
   }
   // Without listeners an ImapFlow socket error would be an unhandled 'error' event.
   port.on("error", () => {});
@@ -49,16 +69,17 @@ export async function testConnection(target: TestTarget, connector: TestConnecto
     timer = setTimeout(() => reject(Object.assign(new Error("timeout"), { code: "TEST_TIMEOUT" })), timeoutMs);
   });
   try {
-    const run = (async (): Promise<TestCode> => {
+    const run = (async (): Promise<TestOutcome> => {
       await port.connect();
       const list = await port.listFolders();
       const check = checkFolderMapping(list, { mailbox, spam_mailbox: spam_mailbox ?? undefined });
-      return check.missing.length > 0 ? "mailbox_missing" : "ok";
+      if (check.missing.length > 0) return { code: "mailbox_missing", spamMailbox: null };
+      return { code: "ok", spamMailbox: spam_mailbox === null ? detectSpamFolder(list) : null };
     })();
     run.catch(() => {}); // a late rejection after the deadline must not be unhandled
     return await Promise.race([run, deadline]);
   } catch (e) {
-    return classifyError(e);
+    return { code: classifyError(e), spamMailbox: null };
   } finally {
     clearTimeout(timer);
     try {

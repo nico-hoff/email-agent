@@ -32,6 +32,10 @@ Der Supervisor (`lib/account-supervisor.ts`) läuft im Server-Prozess und liest 
 
 Fehlercodes: `invalid_body` (400, mit Feldnamen), `invalid_host`, `host_not_allowed`, `invalid_secret` (400), `not_found` (404), `not_managed`, `secret_unreadable` (409), `no_encryption_key` (503), `rate_limited` (429).
 
+Formular: sichtbar sind E-Mail-Adresse, Passwort und IMAP-Server; der Server wird aus der Domain vorgeschlagen (`lib/mail-provider-hints.ts`, feste Liste, kein Netz). Benutzername und Bezeichnung folgen der Adresse, solange sie nicht von Hand geändert wurden; alles weitere liegt unter „Erweitert“. Der Typ ergibt sich aus dem Server (`imap.gmail.com` = `google`).
+
+Spam-Ordner: Hat ein Konto keinen, erkennt `POST /api/accounts/:id/test` ihn über das Special-Use-Merkmal `\\Junk` aus LIST (ImapFlow `specialUse`), sonst über gängige Namen (`Junk`, `Spam`, `Junk E-Mail`, …), und speichert ihn (Antwort enthält dann `spam_mailbox`). Ein eingetragener Ordner wird nie überschrieben.
+
 Typ `google`: Host `imap.gmail.com`, Port 993, TLS an, Ordner `INBOX` und `[Gmail]/Spam` (Ordner änderbar); Authentifizierung nur per App-Passwort (Leerzeichen werden entfernt).
 
 ## Host-Regeln (SSRF)

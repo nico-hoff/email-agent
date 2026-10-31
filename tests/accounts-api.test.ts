@@ -132,6 +132,24 @@ describe("accounts API", () => {
     }
   });
 
+  it("connection test detects the spam folder (\\Junk) when the account has none, stores it, and never overwrites a chosen one", async () => {
+    const withJunk: TestConnector = () => ({
+      connect: async () => {}, close: async () => {}, on: () => {},
+      listFolders: async () => [{ path: "INBOX", specialUse: "\\Inbox" }, { path: "Spamordner", specialUse: "\\Junk" }, { path: "Junk" }],
+    }) as never;
+    const s = await setup({ connector: withJunk });
+    const { spam_mailbox: _s, ...noSpam } = body;
+    const id = ((await (await handleAccountCreate(post(s, "/api/accounts", noSpam), s.deps)).json()) as { account: { id: string; spam_mailbox: string | null } }).account.id;
+    assert.equal(s.db.prepare("SELECT spam_mailbox FROM accounts WHERE id = ?").get(id)!.spam_mailbox, null);
+    const r = await handleAccountTest(post(s, "/x"), id, s.deps);
+    assert.deepEqual(await r.json(), { ok: true, code: "ok", spam_mailbox: "Spamordner" });
+    assert.equal(s.db.prepare("SELECT spam_mailbox FROM accounts WHERE id = ?").get(id)!.spam_mailbox, "Spamordner");
+    // a chosen folder is kept, and a second test reports nothing new
+    s.db.prepare("UPDATE accounts SET spam_mailbox = 'Junk' WHERE id = ?").run(id);
+    assert.deepEqual(await (await handleAccountTest(post(s, "/x"), id, s.deps)).json(), { ok: true, code: "ok" });
+    assert.equal(s.db.prepare("SELECT spam_mailbox FROM accounts WHERE id = ?").get(id)!.spam_mailbox, "Junk");
+  });
+
   it("connection test is rate limited and 404 for unknown ids; the connector is not touched then", async () => {
     const calls: string[] = [];
     const s = await setup({ connector: fake("ok", calls), testLimit: 2 });

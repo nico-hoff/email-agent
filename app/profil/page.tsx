@@ -15,6 +15,7 @@ import {
   type Profile,
 } from '../../lib/profile-client.ts'
 import {
+  applyPatch,
   emptyForm,
   fetchAccounts,
   formFromItem,
@@ -150,8 +151,8 @@ export default function Profil(): React.JSX.Element {
     })
   }, [reloadAccounts])
 
-  const patchForm = useCallback((patch: Partial<AccountForm>): void => {
-    setEditor((e) => (e ? { ...e, form: { ...e.form, ...patch } } : e))
+  const patchForm = useCallback((patch: Partial<Omit<AccountForm, 'touched'>>): void => {
+    setEditor((e) => (e ? { ...e, form: applyPatch(e.form, patch) } : e))
   }, [])
 
   return (
@@ -181,14 +182,13 @@ export default function Profil(): React.JSX.Element {
         timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         onAdd: () => {
           setFormError(null)
-          setEditor({ id: null, form: emptyForm('google') })
+          setEditor({ id: null, form: emptyForm() })
         },
         onEdit: (a) => {
           setFormError(null)
           setEditor({ id: a.id, form: formFromItem(a) })
         },
         onForm: patchForm,
-        onType: (t) => setEditor((e) => (e ? { ...e, form: { ...emptyForm(t), label: e.form.label, color: e.form.color, username: e.form.username, password: e.form.password, context: e.form.context } } : e)),
         onSave: saveAccount,
         onCancel: () => setEditor(null),
         onTest: testAccount,

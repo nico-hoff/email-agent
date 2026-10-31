@@ -6,11 +6,11 @@ import { validateDatabasePath } from "./accounts.ts";
 import { loadKeyring } from "./account-secrets.ts";
 import { type AuthContext, createMutationLimiter, defaultAuthContext, defaultMutationLimiter, guardMutation, requireUser } from "./auth-runtime.ts";
 import { PROJECT_ROOT } from "./constants.ts";
-import { defaultConnector, testConnection, type TestConnector } from "./connection-test.ts";
+import { defaultConnector, testConnectionDetailed, type TestConnector } from "./connection-test.ts";
 import { openDatabase } from "./db.ts";
 import {
   allowPrivateHosts, createAccountBody, createMailAccount, getAccountView, listAccountViews, loadConnection, recordTestResult,
-  setAccountEnabled, updateAccountBody, updateMailAccount, type AccountError,
+  setAccountEnabled, setDetectedSpamMailbox, updateAccountBody, updateMailAccount, type AccountError,
 } from "./mail-accounts.ts";
 import type { RateLimiter } from "./rate-limit.ts";
 
@@ -145,9 +145,10 @@ export async function handleAccountTest(request: Request, id: string, deps: Acco
   }
   if (target === null) return json({ error: "not_managed" }, 409);
   if (target === "unreadable") return json({ error: "secret_unreadable" }, 409);
-  const code = await testConnection(target, deps.connector ?? defaultConnector);
+  const { code, spamMailbox } = await testConnectionDetailed(target, deps.connector ?? defaultConnector);
   return withDb(deps, (db) => {
     recordTestResult(db, gate.userId, id, code, deps.now?.());
-    return json({ ok: code === "ok", code });
+    const stored = code === "ok" && spamMailbox !== null && setDetectedSpamMailbox(db, gate.userId, id, spamMailbox);
+    return json({ ok: code === "ok", code, ...(stored ? { spam_mailbox: spamMailbox } : {}) });
   });
 }

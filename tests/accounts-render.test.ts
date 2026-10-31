@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { loadTsx } from "./helpers/load-tsx.ts";
 import {
-  bodyFromForm, emptyForm, fetchAccounts, formFromItem, postAccountEnabled, postCreateAccount, postTestAccount, postUpdateAccount, workerText,
+  applyPatch, bodyFromForm, emptyForm, fetchAccounts, formFromItem, postAccountEnabled, postCreateAccount, postTestAccount, postUpdateAccount, workerText,
   type AccountItem, type AccountsData,
 } from "../lib/accounts-client.ts";
 
@@ -57,19 +57,40 @@ describe("accounts section", () => {
     assert.match(out, /Anmeldung abgelehnt/);
     assert.match(out, /notice-error/);
     assert.match(view({ testing: "a_0123456789abcdef" }), /Teste …/);
+    const demo = view({ testResults: { a_0123456789abcdef: "synthetic_no_network" } });
+    assert.match(demo, /Demo-Modus/);
+    assert.doesNotMatch(demo, /notice-error|notice-inline|Test fehlgeschlagen/, "the demo answer is not a failure");
   });
-  it("add form with the Google preset: hint about App-Passwörter, fixed server text, no host or port field", () => {
-    const out = view({ editor: { id: null, form: emptyForm("google") } });
+  it("add form: three visible fields (E-Mail-Adresse, IMAP-Passwort, IMAP-Server); everything else sits in the collapsed Erweitert section", () => {
+    const out = view({ editor: { id: null, form: emptyForm() } });
+    const [visible = "", advanced = ""] = out.split('<details class="acct-advanced">');
+    assert.match(visible, /E-Mail-Adresse/);
+    assert.match(visible, /IMAP-Passwort/);
+    assert.match(visible, /IMAP-Server/);
+    assert.match(visible, /placeholder="imap\.example\.com"/);
+    assert.doesNotMatch(visible, /id="acct-(label|user|port|box|spam|context)"/);
+    assert.doesNotMatch(out, /<details[^>]* open/);
+    for (const id of ["label", "user", "port", "box", "spam", "context"]) assert.match(advanced, new RegExp(`id="acct-${id}"`));
+    assert.match(advanced, /Erweitert|<summary>Erweitert/);
+    assert.match(advanced, /value="993"/);
+    assert.match(advanced, /value="INBOX"/);
+    assert.doesNotMatch(out, /Art des Kontos/, "no type picker: the type follows the server");
+  });
+  it("placeholder follows the domain; a Gmail address gives the Google preset with the App-Passwort hint", () => {
+    const unknown = applyPatch(emptyForm(), { email: "me@firma.example" });
+    assert.match(view({ editor: { id: null, form: unknown } }), /placeholder="imap\.firma\.example"/);
+    const g = applyPatch(emptyForm(), { email: "me@gmail.com" });
+    const out = view({ editor: { id: null, form: g } });
     assert.match(out, /App-Passwort/);
-    assert.match(out, /imap\.gmail\.com, Port 993, TLS an/);
-    assert.doesNotMatch(out, /id="acct-host"/);
-    assert.match(out, /value="\[Gmail\]\/Spam"/);
+    assert.match(out, /Gmail erkannt: imap\.gmail\.com, Port 993, TLS an/);
+    assert.match(out, /id="acct-host"[^>]*value="imap\.gmail\.com"/);
+    assert.match(out, /value="me@gmail\.com"/);
+    assert.match(out, /placeholder="\[Gmail\]\/Spam"/);
+    assert.doesNotMatch(out, /id="acct-port"/, "port and TLS are fixed for Google");
     assert.match(out, /type="password"[^>]*value=""/);
   });
-  it("IMAP form shows host, port, TLS; TLS off warns", () => {
-    const f = emptyForm("imap");
-    assert.match(view({ editor: { id: null, form: f } }), /id="acct-host"/);
-    assert.match(view({ editor: { id: null, form: { ...f, tls: false } } }), /unverschlüsselt/);
+  it("TLS off warns", () => {
+    assert.match(view({ editor: { id: null, form: { ...emptyForm(), host: "imap.x.test", tls: false } } }), /unverschlüsselt/);
   });
   it("edit form is never prefilled with a password and says that empty keeps it", () => {
     const out = view({ editor: { id: "a_0123456789abcdef", form: formFromItem(item({ context: "Familie" })) } });
@@ -77,10 +98,9 @@ describe("accounts section", () => {
     assert.match(out, /behalten/);
     assert.match(out, /Familie/);
     assert.match(out, /Änderungen speichern/);
-    assert.doesNotMatch(out, /Art des Kontos/, "the type cannot change");
   });
   it("form error is an alert", () => {
-    assert.match(view({ editor: { id: null, form: emptyForm("imap") }, formError: "Der Servername ist ungültig." }), /role="alert"[^>]*>Der Servername/);
+    assert.match(view({ editor: { id: null, form: emptyForm() }, formError: "Der Servername ist ungültig." }), /role="alert"[^>]*>Der Servername/);
   });
   it("source keeps secrets out of browser storage", () => {
     const src = ["components/accounts-manager.tsx", "lib/accounts-client.ts", "app/profil/page.tsx"].map((f) => readFileSync(new URL(`../${f}`, import.meta.url), "utf8")).join("\n");
@@ -105,26 +125,40 @@ describe("accounts client", () => {
     await assert.rejects(fetchAccounts((async () => res(401)) as never), /session/);
     await assert.rejects(fetchAccounts((async () => res(500)) as never), /unavailable/);
   });
-  it("body: google sends no host/port/tls; imap does; empty password is omitted on update; create carries the type", () => {
-    const g = { ...emptyForm("google"), label: " G ", username: "me@gmail.test", password: "app pass" };
-    assert.deepEqual(bodyFromForm(g, "create"), { label: "G", color: null, username: "me@gmail.test", mailbox: "INBOX", context: "", spam_mailbox: "[Gmail]/Spam", type: "google", password: "app pass" });
-    const i = { ...emptyForm("imap"), host: " imap.x.test ", port: "143", tls: false };
+  it("applyPatch: username, label and server follow the address until edited by hand", () => {
+    let f = applyPatch(emptyForm(), { email: "me@web.de" });
+    assert.deepEqual([f.username, f.label, f.host], ["me@web.de", "me@web.de", "imap.web.de"]);
+    f = applyPatch(f, { label: "Privat" });
+    f = applyPatch(f, { email: "me@gmx.net" });
+    assert.deepEqual([f.username, f.label, f.host], ["me@gmx.net", "Privat", "imap.gmx.net"]);
+    f = applyPatch(f, { host: "imap.eigen.example" });
+    f = applyPatch(f, { email: "me@posteo.de" });
+    assert.equal(f.host, "imap.eigen.example");
+    assert.equal(applyPatch(emptyForm(), { email: "me@unbekannt.example" }).host, "");
+    assert.equal(applyPatch(emptyForm(), { email: "x".repeat(60) + "@web.de" }).label.length, 40);
+  });
+  it("body: Gmail sends type google and no host/port/tls; others send them; defaults: username = address, label = address, no spam folder on create; empty password omitted", () => {
+    const g = { ...applyPatch(emptyForm(), { email: "me@gmail.com" }), password: "app pass" };
+    assert.deepEqual(bodyFromForm(g, "create"), { label: "me@gmail.com", color: null, username: "me@gmail.com", mailbox: "INBOX", context: "", type: "google", password: "app pass" });
+    const i = applyPatch(applyPatch(emptyForm(), { email: "me@x.test" }), { host: " imap.x.test ", port: "143", tls: false });
     const b = bodyFromForm(i, "update");
-    assert.deepEqual([b.host, b.port, b.tls, "password" in b, "type" in b, b.spam_mailbox], ["imap.x.test", 143, false, false, false, null]);
+    assert.deepEqual([b.host, b.port, b.tls, "password" in b, "type" in b, b.spam_mailbox, b.username], ["imap.x.test", 143, false, false, false, null, "me@x.test"]);
+    assert.equal("spam_mailbox" in bodyFromForm(i, "create"), false);
+    assert.equal(bodyFromForm({ ...i, spam_mailbox: " Junk " }, "create").spam_mailbox, "Junk");
   });
   it("create / update / enable / test map statuses and codes to reasons", async () => {
     const seen: { path?: string; body?: string }[] = [];
-    const ok = await postCreateAccount({ ...emptyForm("imap"), host: "imap.x.test", username: "u", password: "p" }, deps(res(201, { ok: true, account: item() }), seen));
+    const ok = await postCreateAccount({ ...emptyForm(), host: "imap.x.test", username: "u", password: "p" }, deps(res(201, { ok: true, account: item() }), seen));
     assert.ok(ok.ok && ok.account?.label === "Privat");
     assert.equal(seen[0]?.path, "/api/accounts");
-    assert.deepEqual(await postCreateAccount(emptyForm("imap"), deps(res(503, { error: "no_encryption_key" }))), { ok: false, reason: "no_encryption_key" });
-    assert.deepEqual(await postCreateAccount(emptyForm("imap"), deps(res(400, { error: "host_not_allowed" }))), { ok: false, reason: "host_not_allowed" });
-    assert.deepEqual(await postUpdateAccount("a_x", emptyForm("imap"), deps(res(404, { error: "not_found" }))), { ok: false, reason: "not_found" });
-    assert.deepEqual(await postUpdateAccount("a_x", emptyForm("imap"), deps(res(400, { error: "something_new" }))), { ok: false, reason: "failed" });
+    assert.deepEqual(await postCreateAccount(emptyForm(), deps(res(503, { error: "no_encryption_key" }))), { ok: false, reason: "no_encryption_key" });
+    assert.deepEqual(await postCreateAccount(emptyForm(), deps(res(400, { error: "host_not_allowed" }))), { ok: false, reason: "host_not_allowed" });
+    assert.deepEqual(await postUpdateAccount("a_x", emptyForm(), deps(res(404, { error: "not_found" }))), { ok: false, reason: "not_found" });
+    assert.deepEqual(await postUpdateAccount("a_x", emptyForm(), deps(res(400, { error: "something_new" }))), { ok: false, reason: "failed" });
     const r = await postAccountEnabled("a_x", false, deps(res(200, { ok: true, account: item({ enabled: false }) }), seen));
     assert.ok(r.ok);
     assert.equal(seen.at(-1)?.path, "/api/accounts/a_x/disable");
-    assert.deepEqual(await postTestAccount("a_x", deps(res(200, { ok: false, code: "auth_failed" }))), { ok: true, code: "auth_failed" });
+    assert.deepEqual(await postTestAccount("a_x", deps(res(200, { ok: false, code: "auth_failed" }))), { ok: true, code: "auth_failed", spamMailbox: null });
     assert.deepEqual(await postTestAccount("a_x", deps(res(429, {}, { "retry-after": "12" }))), { ok: false, reason: "rate_limited", retryAfterSeconds: 12 });
     assert.deepEqual(await postTestAccount("a_x", deps(res(409, { error: "secret_unreadable" }))), { ok: false, reason: "secret_unreadable" });
   });
