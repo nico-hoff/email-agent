@@ -58,11 +58,16 @@ Voraussetzung: `flyctl` installiert und per `fly auth login` angemeldet. Der App
 1. **Passwort bereithalten** (mindestens 16 Zeichen, Passphrase). Ohne es startet die App auf fly nicht.
 2. **App anlegen, ohne zu deployen:** `fly apps create email-agent`. Kein `fly launch` (würde `fly.toml` überschreiben).
 3. **Volume anlegen** (eins, 1 GB, Region wie in `fly.toml`): `fly volumes create email_data --region fra --size 1`. Ein Volume hängt an genau einer Maschine (https://docs.fly.io/volumes/overview: „A volume can attach to one Machine.“).
-4. **Secrets setzen, vor dem ersten Deploy:**
+4. **Secrets setzen, vor dem ersten Deploy** – aus der lokalen, git-ignorierten Env-Datei (`.env.local`, sonst `.env`; Vorlage `.env.example`):
    ```sh
-   fly secrets set APP_PASSWORD='<passphrase>' OPENROUTER_API_KEY='<schluessel>'
+   make fly-secrets-check     # prüft die Datei, zeigt nur Namen, kontaktiert fly nicht
+   make fly-secrets-stage     # erster Deploy: setzen ohne Neustart (es läuft noch keine Machine)
+   make fly-secrets-sync      # später: setzen und Machine neu starten
+   make fly-secrets-status    # Namen lokal vs. fly (Werte zeigt fly nie, nur Digests)
    ```
-   Wert nicht in der Shell-Historie lassen (z. B. interaktiv eingeben oder `fly secrets import` mit Eingabe über stdin) und nirgends ins Repo schreiben.
+   Optionen: `ENV_FILE=pfad`, `APP=name`, `FLY=/pfad/zu/fly`. Das Skript `scripts/fly-secrets.ts` sendet nur Namen aus seinem Katalog: Pflicht `APP_PASSWORD` (≥ 16 Zeichen) und `OPENROUTER_API_KEY`, optional `OPENAI_API_KEY`. Konfiguration wie `BIND_ADDRESS`, `DATABASE_PATH`, `ACCOUNTS_FILE` steht in `fly.toml` und wird nie als Secret gesendet; unbekannte Namen werden übersprungen. Werte gehen nur über stdin an `fly secrets import` (nie als Argument, also nicht in `ps` oder der Shell-Historie) und werden nie ausgegeben. Jeder Wert wird als `"""…"""` übergeben, weil flyctl Werte sonst beim ersten `#` abschneidet und Anführungszeichen entfernt (flyctl `internal/command/secrets/parser.go`); Platzhalter (`REPLACE_ME`), mehrzeilige Werte und zu kurze Passwörter brechen ab, ohne etwas zu senden. Secrets entfernt das Skript nie; dafür `fly secrets unset NAME`.
+
+   **Nicht ins Git-Repo:** Auch verschlüsselt oder in einem privaten Repo gehören Secrets nicht in die Historie (H1, `CLAUDE.md`). Quelle der Wahrheit ist die lokale Env-Datei (zusätzlich im Passwortmanager sichern), fly hält die Kopie für den Betrieb.
 5. **Konten-Datei (IMAP-Zugänge) erst hochladen, wenn der Passwortschutz nachweislich läuft** (Startseite zeigt das Passwortfeld, `/api/emails` ohne Anmeldung liefert 401). Optionen:
 
    | Option | Ablauf | Bewertung |

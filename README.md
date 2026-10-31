@@ -32,9 +32,7 @@ Auf einem öffentlich erreichbaren Host (`*.fly.dev`) darf der Tailnet-Header ni
 
 Einrichtung: das Repo enthält `fly.toml` (Region `fra`, eine Maschine, Volume, Health-Check) und das Dockerfile-Target `fly`; die vollständige Anleitung mit Kosten, Backup und Not-Aus steht in `docs/fly-deploy.md`. Auf fly startet der Server **nur mit gültigem `APP_PASSWORD`** (mindestens 16 Zeichen; sonst bricht der Start ab). Kurzfassung:
 
-1. Secrets setzen, **bevor** irgendetwas anderes hochgeladen wird:
-   - `fly secrets set APP_PASSWORD=<mindestens 16 Zeichen>` (lange Passphrase; kürzer oder leer = Login gesperrt, siehe unten).
-   - `fly secrets set OPENROUTER_API_KEY=<Schlüssel>` (für Jev).
+1. Secrets setzen, **bevor** irgendetwas anderes hochgeladen wird: `APP_PASSWORD` (mindestens 16 Zeichen, lange Passphrase; kürzer oder leer = Login gesperrt, siehe unten) und `OPENROUTER_API_KEY` (für Jev) in die lokale `.env.local` schreiben, dann `make fly-secrets-check` und `make fly-secrets-stage` (sendet nur über stdin, nie ins Repo; Details `docs/fly-deploy.md`).
 2. Umgebung: `BIND_ADDRESS=0.0.0.0`, `DATABASE_PATH=/data/email-agent.sqlite` und `internal_port = 3000` stehen in `fly.toml`. `BIND_ADDRESS=0.0.0.0` ist auch der Schalter, der den Loopback-Sonderfall beim Cookie (unten) ausschaltet.
 3. Volume: `fly volumes create email_data --region fra --size 1` (Mount `/data`, `fly.toml`). Ein frisches fly-Volume gehört unter Umständen root; das fly-Target des Dockerfiles startet deshalb als root, und `scripts/docker-entrypoint.sh` setzt `/data` auf `node:node`, Modus 0700, und wechselt dauerhaft auf `node` (lokal mit root-eigenem Volume geprüft, siehe `docs/fly-deploy.md`). Das Standard-Image (Compose) läuft unverändert als `node`. Ohne Volume wären Datenbank **und** Sitzungsgeheimnis (`auth-secret`) nach jedem Neustart weg.
 4. Erst wenn der Passwortschutz läuft (Startseite zeigt das Passwortfeld, `/api/emails` ohne Anmeldung liefert 401), die Konten-Datei und damit die IMAP-Zugänge hochladen (`ACCOUNTS_FILE`, Modus 0600). Vorher nicht.
