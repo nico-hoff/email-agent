@@ -10,7 +10,7 @@
 | R0 | Arbeitsweise | Branch `dev`, ADRs 0021–0028, Roadmap, `CLAUDE.md`-Freigaben | 🤖 | ✅ |
 | R1 | Nutzerkonten | `users`, Sitzungen pro Nutzer, Einladungscodes, `npm run user:create`, Testnutzer im Dev, Migration mit `user_id` auf allen Nutzertabellen, Datenübernahme | 🤖 | ⏳ |
 | R2 | Postfächer in der App | Profil → Konten verwalten: Typ IMAP / Google (App-Passwort), verschlüsselt (`ACCOUNTS_ENCRYPTION_KEY`), „Verbindung testen“, Import der alten Konten-Datei, Worker liest aus der DB | 🤖 | ⏳ |
-| R3 | Profil-Einstellungen | Auto-Aktionen pro Postfach: Spam als gelesen (aus/Trockenlauf/an), Not-Aus in der UI, Tageslimit sichtbar | 🤖 | ⏳ |
+| R3 | Profil-Einstellungen | Auto-Aktionen pro Postfach: Spam als gelesen (aus/Trockenlauf/an), Not-Aus in der UI, Tageslimit sichtbar; Klassifikationsmodell pro Nutzer wählbar (ADR 0041) | 🤖 | ⏳ |
 | R4 | Prod-Pipeline | GitHub Environments `prod`/`preview`, Workflow „Secrets → fly“ und „Preview-App“, Katalog um neue Secrets erweitert | 🤖 + 👤 (Environments, `FLY_API_TOKEN`) | ⏳ |
 | R5 | Erster Prod-Deploy | fly `fra`, 512 MB, immer an, Volume, Snapshots Standard; Nico registriert sich, legt Postfächer an | 👤 nach QA-„go“ | ⏳ |
 
