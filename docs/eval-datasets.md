@@ -50,7 +50,24 @@ Erwartete Werte werden nur gesetzt, wo die Quelle sie eindeutig hergibt. Mehrdeu
 | triage | `meeting_request`, `customer_support`, `travel`, `system_update`, `unknown` | fehlt | fehlt | fehlt | fehlt | Weder eindeutig business noch transactional; werden verworfen. |
 | sinabis | alle Zeilen | business | false | false | false | Dataset-Beschreibung: legitime synthetische Geschäftsmails ohne Spam, Phishing oder KI-Adressierung. |
 
+Seit R7 ergänzt die Spalte `action` bei `triage` zusätzlich `needs_my_reply` (Abschnitt unten); die Zeilen `finance`, `meeting_request`, `customer_support` und `travel` werden daher nicht mehr verworfen.
+
 Die Frage `is_assessable` wird nie erwartet gesetzt (keine Quelle gibt sie her).
+
+### `needs_my_reply` aus der Spalte `action` (R7)
+
+`triage` hat die Spalte `action` (Werte im geladenen Set: `reply` 1 285, `flag` 1 120, `forward` 1 000, `ignore` 500; `ignore` kommt nur bei `phishing` vor). Der Mapper (`triageNeedsMyReply` in `lib/eval-sources.ts`) leitet daraus `needs_my_reply` ab:
+
+| `action` | `needs_my_reply` | Begründung |
+|---|---|---|
+| `reply` | true | Die richtige Behandlung ist, zu antworten. |
+| `ignore` | false | Betrug (`phishing`) oder irrelevant, keine Antwort. |
+| `forward`, `flag` | false | Die Mail weiterleiten oder markieren, nicht selbst beantworten. Locker: Die Mail kann trotzdem eine Anfrage enthalten (siehe Grenzen). |
+| anderer Wert, fehlend, kein String | kein Schlüssel | Nicht geraten. |
+
+Folgen für die Stichprobe: Die Kategorien `finance`, `meeting_request`, `customer_support`, `travel` hatten vorher keine Erwartung und wurden verworfen; jetzt sind sie mit `needs_my_reply` geladen. Die Schicht (`classLabel`) heißt für sie `reply_expected` bzw. `no_reply_expected`. `personal` und `phishing` behalten ihre Schichten. Die geladene Population wächst dadurch von 2 331 auf 4 915 Fälle (calib 1 486, test 3 429; keine Dubletten); Stichproben aus Läufen vor R7 sind mit demselben Seed nicht reproduzierbar.
+
+Grenzen: Jev antwortet auf „erwartet eine Antwort oder Handlung“ (v2: persönliche Anfrage). `action` ist dagegen die Triage-Entscheidung. Für `forward` und `flag` liegt der Rohwert bei ~0.75 wie bei `reply`; gegen die lockere Etikettierung bleibt die Precision niedrig. `insights.md` weist deshalb beide Sichten aus (locker: alle Etiketten; streng: nur `reply` gegen `ignore`).
 
 Die noul-Auswertung nutzt wie im festen Set die vorläufige Regel `Rohwert >= 0.5 gilt als true` (siehe `docs/jev-contract.md`, nur Eval).
 
@@ -101,7 +118,7 @@ Damit die Entwicklung immer mit synthetischen Daten läuft, gibt es eine eigene 
 | `inj` | 3 | Prompt-Injection-Text an eine KI (`addresses_an_ai = true`) |
 | `unr` | 2 | leer / unlesbar (`is_assessable = false`) |
 
-Lauf (Live, Nico): `npm run eval:jev -- --question-set v2 --dataset v2` (29 Aufrufe, Grenze 30). Ohne Optionen bleibt alles wie zuvor: Fragenset v1, Set v1. `--question-set` gilt auch für `--source hf`; dann wird nichts in die Dev-DB importiert (sie speichert unter dem Standard-Fragenset). `needs_my_reply` erscheint im Bericht nur, wenn ein Fall es erwartet. Die Auswertung nutzt wie bisher die vorläufige Regel `Rohwert >= 0.5`; kalibriert ist v2 nicht.
+Lauf (Live, Nico): `npm run eval:jev -- --question-set v2 --dataset v2` (29 Aufrufe, Grenze 30). Ohne Optionen gilt seit R7 (ADR 0032): Fragenset = `QUESTION_SET_VERSION` (v2), Set v1; `--question-set v1` ruft weiterhin das eingefrorene v1 auf. `--question-set` gilt auch für `--source hf`; dann wird nichts in die Dev-DB importiert (sie speichert unter dem Standard-Fragenset, seit R7 v2; ein Lauf mit `--question-set v1` importiert daher nicht). `needs_my_reply` erscheint im Bericht nur, wenn ein Fall es erwartet. Die Auswertung nutzt wie bisher die vorläufige Regel `Rohwert >= 0.5`; die kalibrierten v2-Schwellen stehen in `docs/jev-contract.md` (Abschnitt „Kalibrierung v2“).
 
 ## Offline-Gate (`npm run eval`, T27)
 

@@ -4,7 +4,7 @@ import { EXCERPT_MAX_CHARS, QUESTION_SET_VERSION, QUESTION_SET_VERSION_V1, QUEST
 import { QUESTIONS, QUESTION_SET_VERSIONS, STATE_KEYS, buildState, questionsFor } from "../lib/jev-questions.ts";
 
 test("version constant", () => {
-  assert.equal(QUESTION_SET_VERSION, "email-classification-v1");
+  assert.equal(QUESTION_SET_VERSION, "email-classification-v2"); // default since R7 (ADR 0032)
 });
 
 test("keys and types match section 5", () => {
@@ -76,10 +76,10 @@ test("buildState passes sender_history counters", () => {
 
 // --- Fragenset v2 (T26) ---
 
-test("v1 stays retrievable unchanged and is still the default", () => {
+test("v1 stays retrievable unchanged (no longer the default since R7)", () => {
   assert.equal(QUESTION_SET_VERSION_V1, "email-classification-v1");
-  assert.equal(QUESTION_SET_VERSION, QUESTION_SET_VERSION_V1);
-  assert.equal(questionsFor("email-classification-v1"), QUESTIONS);
+  assert.notEqual(QUESTION_SET_VERSION, QUESTION_SET_VERSION_V1);
+  assert.notEqual(questionsFor("email-classification-v1"), QUESTIONS);
   const reply = questionsFor("email-classification-v1")["needs_my_reply"];
   assert.ok(reply?.type === "noul");
   assert.equal(reply.instructions, "Does the mail expect a reply or action from the recipient (question, request, deadline, appointment)?");
@@ -98,7 +98,7 @@ test("v1 stays retrievable unchanged and is still the default", () => {
 test("v2 is registered, explicit, and unknown versions are rejected", () => {
   assert.equal(QUESTION_SET_VERSION_V2, "email-classification-v2");
   assert.deepEqual([...QUESTION_SET_VERSIONS], [QUESTION_SET_VERSION_V1, QUESTION_SET_VERSION_V2]);
-  assert.notEqual(questionsFor(QUESTION_SET_VERSION_V2), QUESTIONS);
+  assert.equal(questionsFor(QUESTION_SET_VERSION_V2), QUESTIONS); // QUESTIONS follows the default (v2)
   assert.throws(() => questionsFor("email-classification-v9"), /question_set_unknown/);
   assert.throws(() => questionsFor("constructor"), /question_set_unknown/);
 });

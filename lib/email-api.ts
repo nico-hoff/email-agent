@@ -5,7 +5,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { type AccountTag, accountTag } from "./account-color.ts";
 import type { AutoActionMode } from "./accounts-config.ts";
 import { interpretNoul, type NoulInterpreter, type NoulReading } from "./jev-response.ts";
-import { NOUL_CALIBRATION, noulThreshold } from "./noul-calibration.ts";
+import { calibrationFor, noulThreshold } from "./noul-calibration.ts";
 
 export const VIEWS = ["important", "open", "noise", "all"] as const;
 export type View = (typeof VIEWS)[number];
@@ -297,7 +297,7 @@ function buildItem(db: DatabaseSync, d: Derived, readNoul: NoulInterpreter): Ema
         const reading = readNoul({ key: a.question_key, type: "noul", value: entry.value }, version);
         entry.reading = reading;
         entry.threshold = reading === "unmapped" ? null : noulThreshold(a.question_key, version);
-        entry.calibration_version = reading === "unmapped" ? null : NOUL_CALIBRATION.version;
+        entry.calibration_version = reading === "unmapped" ? null : (calibrationFor(version)?.version ?? null);
       }
       answers.set(a.question_key, entry);
     }

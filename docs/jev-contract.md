@@ -60,15 +60,21 @@ Gleich zu v1: alle Schlüssel und Typen, Kategorie-Optionen (Ordner folgen in M4
 - `is_phishing_or_scam`: grenzt legitime Sicherheitsmails ausdrücklich ab (Login-Code oder Passwort-Reset, den der Empfänger angefordert hat; Sicherheitshinweis ohne Aufforderung zu Zahlung oder Login über einen Link). Die `true`-Kriterien nennen gefälschte Login- oder Paketseiten, gefälschte oder veränderte Rechnungen und Imitation.
 - Bewusst **nicht** aufgenommen: `is_personal_correspondence`. Es gibt keinen Verbraucher, die Kategorie `personal` deckt den Fall ab, und jede zusätzliche noul-Frage braucht eine eigene Kalibrierung. Nach der Fixture und dem ersten Sample neu bewerten.
 
-**Kalibrierung:** `config/noul-calibration.ts` gilt nur für v1. Für v2 bleiben alle noul-Fragen `unmapped` (`noulThreshold` liefert `null`, `interpretNoul` fail-closed), bis Nico kalibriert; ein Test belegt es.
+**Kalibrierung:** v2 hat seit R7 einen eigenen Eintrag in `config/noul-calibration.ts` (Abschnitt „Kalibrierung v2“); v1 bleibt unverändert (Version „1“). Eine unbekannte Fragenset-Version oder eine Frage ohne Schwelle bleibt `unmapped`.
 
 **Fixture/Probe:** `npm run jev:probe:v2 -- --confirm-live` (Nico) macht genau einen Aufruf mit einer fest eingebauten synthetischen Werbemail (Platzhalter-Domain `angebote.example.test`, „Antworten Sie jetzt“ plus ein Satz an eine KI; vergleichbar mit der v1-Fixture) und schreibt `tests/fixtures/jev-email-v2-response.json`: `answers` (je Antwort nur die typisierten Felder), `model`, `id`, `provider`, `usage`, `question_set_version`; keine Mailtexte, keine Header, kein Key. Passen die Antworten nicht zu den v2-Fragen, wird nichts geschrieben. Nach dem Lauf diesen Abschnitt um die beobachteten Werte ergänzen (Skala von `needs_my_reply` und `is_phishing_or_scam` bei den beiden Formulierungen).
+
+**Probe v2 beobachtet [B]** (R7, 2026-10-31, `typesafe/jev-1.13-20260917`, ein Aufruf, `tests/fixtures/jev-email-v2-response.json`, 1313 Input-, 240 Output-Tokens, Kosten ca. 0.000055): dieselbe Werbemail mit „Antworten Sie jetzt“ und einem Satz an eine KI.
+- noul (alle in [0,1]): `needs_my_reply` **0.04** (v1-Probe: 0.83 für eine vergleichbare Mail; die schärfere v2-Frage wirkt), `is_phishing_or_scam` 0.25 (v1: 0.30), `is_spam` 0.84 (v1: 0.82), `addresses_an_ai` 0.98 (v1: 0.96), `is_assessable` 0.96 (v1: 0.95). Weiterhin nur der Skalar, keine `probabilities`.
+- choice: `category` newsletter_promo (0.85, `confidence` 0.82), `route` ignore (0.75, `confidence` 0.67); `probabilities` enthält jede Option, Summe 1. `confidence` ist wieder nicht die Wahrscheinlichkeit der gewählten Option.
+- score: `urgency` 2.38 (Bereich 0..3), `probabilities` {0: 0.2, 2: 0.02, 3: 0.78}; der Wert ist exakt der Erwartungswert über den Index (0.02*2 + 0.78*3 = 2.38), `importance` 0.28 (0.27*1). Das bestätigt die Vollset-Probe: `score` ist ein Kontinuum 0..N-1, kein Ganzzahlindex. Auffällig: Eine bimodale Verteilung (0.2 auf „0“, 0.78 auf „3“) ergibt einen Mittelwert, den es als Einzelantwort nicht gibt; `urgency` ist also nur mit den `probabilities` lesbar (nicht kalibriert, nicht verwendet).
+- Skala der noul-Werte über die HF-Läufe (R7, siehe `docs/insights.md`): Der Rohwert ist ein Grad für `true`, bei klaren Fällen nahe 0 oder nahe 1; Zwischenwerte (0.3 bis 0.8) treten bei mehrdeutigen Fällen auf. Quantile je Klasse stehen in `docs/insights.md`.
 
 **Eval:** `tests/fixtures/eval/email-eval-v2.jsonl` (siehe `docs/eval-datasets.md`), Lauf mit `npm run eval:jev -- --question-set v2 --dataset v2`.
 
 ## Kalibrierung
 
-Version 1, 2026-10-27, Fragenset `email-classification-v1`. Konfiguration: `config/noul-calibration.ts` (versioniert im Repo, von `interpretNoul` einmal geladen und mit zod validiert; ungültige Datei oder falsches Fragenset ist ein Startfehler, nie ein stilles Fallback). Ort: ein TypeScript-Datenmodul statt JSON, weil Veryfront Tools und API-Routen in einem Temp-Verzeichnis bündelt (kein brauchbares `import.meta.url`, kein JSON-Loader) und der Import so in Node, im Build und im Client gleich funktioniert; nicht in `data/`. Ein Test hält Datei und diese Tabelle synchron. **Vorläufig**: Werte werden mit Nicos `insights-calib.md` (Kalibrierteil) bestätigt oder angepasst; jede Änderung ist eine neue Version.
+Version 1 (gilt nur für `email-classification-v1`; v2 siehe unten), 2026-10-27, Fragenset `email-classification-v1`. Konfiguration: `config/noul-calibration.ts` (versioniert im Repo, von `interpretNoul` einmal geladen und mit zod validiert; ungültige Datei oder falsches Fragenset ist ein Startfehler, nie ein stilles Fallback). Ort: ein TypeScript-Datenmodul statt JSON, weil Veryfront Tools und API-Routen in einem Temp-Verzeichnis bündelt (kein brauchbares `import.meta.url`, kein JSON-Loader) und der Import so in Node, im Build und im Client gleich funktioniert; nicht in `data/`. Ein Test hält Datei und diese Tabelle synchron. **Vorläufig**: Werte werden mit Nicos `insights-calib.md` (Kalibrierteil) bestätigt oder angepasst; jede Änderung ist eine neue Version.
 
 Regel: `positive` wenn Rohwert >= Schwelle, sonst `negative`. Nicht aufgeführte Fragen bleiben `unmapped`, ebenso jede Antwort, deren `question_set_version` nicht zur Konfiguration passt oder fehlt (fail-closed).
 
@@ -87,6 +93,26 @@ Folgen:
 - „Braucht Antwort“ bleibt aus (O4).
 - Agent-Sperre (D18) unverändert streng, aber nicht mehr pauschal: Eine Mail geht durch, wenn das Fragenset passt, `addresses_an_ai` unter 0.30 liegt, die Kategorie nicht `security_auth` ist und `is_assessable` nicht negativ ist (heute immer `unmapped`, sperrt nicht). Ab 0.30, `unmapped` (auch bei fehlender oder anderer Version) oder `security_auth` sperrt.
 - `GET /api/emails` liefert je noul-Antwort `reading` (`positive|negative|unmapped`), `threshold` und `calibration_version` (bei `unmapped` beide `null`); die UI zeigt Ja/Nein mit Schwelle und Version, unkalibrierte Fragen weiter als Rohwert „unkalibriert“.
+
+## Kalibrierung v2
+
+Version 2, 2026-10-31, Fragenset `email-classification-v2`. Gleiche Konfigurationsdatei `config/noul-calibration.ts` (Liste mit einem Eintrag je Fragenset; Eintrag „1“ gilt für v1 und ist unverändert, Eintrag „2“ für v2). Regel wie bei Version 1: `positive` wenn Rohwert >= Schwelle, sonst `negative`; nicht aufgeführte Fragen sowie jede Antwort einer unbekannten oder fehlenden Fragenset-Version bleiben `unmapped` (fail-closed).
+
+Datenbasis: HF-Evals R7 (Seed 7, `triage` + `sinabis`, balancierte Stichprobe): Schwellen gewählt **nur auf `calib`** (150 Aufrufe), gemessen auf `test` (200 Aufrufe); dazu das feste Set v2 (29 Aufrufe) als Gegenprobe. Zahlen und Begründung vollständig in `docs/insights.md`.
+
+| Frage | Schwelle | Begründung |
+| --- | --- | --- |
+| `is_spam` | 0.70 | Auf calib keine False Positives zwischen 0.30 und 0.90 (negative Fälle max 0.08); Recall fällt von 0.97 (0.50) über 0.90 (0.70) auf 0.63 (0.80). 0.70 ist die höchste Schwelle mit Recall >= 0.90 und liegt über dem Maximum der echten INBOX-Mails (0.65, v1, gleicher Fragetext). Precision vor Recall (ADR 0007). |
+| `is_phishing_or_scam` | 0.70 | Auf calib ein False Positive bei 0.50 (negativer Fall 0.57), ab 0.60 keines, alle positiven Fälle >= 0.97. 0.70 = größter negativer Wert + 0.10 Abstand. |
+| `addresses_an_ai` | 0.30 | Unverändert von v1 (gleicher Fragetext, bewusst niedrig für die Agent-Sperre D18). calib und test: 70 negative Fälle max 0.05; feste Menge: 3 positive Fälle >= 0.99, 24 negative <= 0.03. Auf HF gibt es keine positiven Fälle. |
+| `needs_my_reply` | 0.50 | Recall zuerst (ein übersehenes „braucht Antwort“ ist teurer als ein überflüssiges): auf calib kein positiver Fall unter 0.60, Schwelle 0.10 darunter. Trennt Antwort-Fälle klar von Betrugsmails (Phishing-Median 0.13) und im festen Set v2 (positiv >= 0.79, negativ <= 0.33). Trennt aber **nicht** zwischen `reply` und `forward`/`flag`; siehe Grenzen. |
+
+Nicht kalibriert (bleiben `unmapped`): `is_assessable` (keine Labels: im festen Set nur 2 negative Fälle).
+
+Grenzen und Folgen:
+- `needs_my_reply` ist hier ein Erwartung-einer-Anfrage-Signal, keine Antwortpflicht: Mails mit Aktion `forward` oder `flag` im Datensatz erhalten ebenfalls ~0.75. Folge: Precision gegen die lockere Etikettierung nur 0.53 (calib) bzw. 0.49 (test); gegen die strenge (nur `reply` gegen `ignore`) 0.98 bzw. 1.00. Mehr „Braucht Antwort“ bedeutet mehr offene Mails und Entwurfsknöpfe, aber keine Aktion am Postfach.
+- Shadow-Kandidaten bleiben aus, weil `is_assessable` unmapped bleibt. D15 (`security_auth` nie Kandidat) gilt unverändert.
+- Alte v1-Klassifikationen behalten ihre v1-Lesart (die Version steht je Klassifikation).
 
 ## State: Feedback-Zähler in `sender_history` (T55, H21)
 

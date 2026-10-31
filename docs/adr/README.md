@@ -37,6 +37,7 @@ Neue ADR: nächste freie Nummer, Vorlage unten, Eintrag in dieser Tabelle, im se
 | [0029](0029-veryfront-usage-tool-layer.md) | Veryfront bleibt; eigene Tool-Schicht mit Gate; Hooks für Audit/Tracing | angenommen |
 | [0030](0030-follow-ups-reminders.md) | Follow-ups und Erinnerungen (eigene Tabelle; SQLite-Workflow-Backend später) | angenommen (Stufe 1) |
 | [0031](0031-user-memory-preferences.md) | Nutzer-Gedächtnis: Präferenzen lernen (add/search), nicht Veryfront Knowledge | angenommen |
+| [0032](0032-question-set-v2-default.md) | Fragenset v2 ist Standard, Schwellen je Fragenset-Version | angenommen |
 
 ## Vorlage
 

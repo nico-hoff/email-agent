@@ -16,12 +16,12 @@ export const JEV_MODEL = "typesafe/jev-1.13";
 export const QUESTION_SET_VERSION_V1 = "email-classification-v1";
 export const QUESTION_SET_VERSION_V2 = "email-classification-v2";
 /**
- * Question set for NEW classifications (pipeline, sample, dev database). Stays v1 until Nico has the v2 fixture
- * and a v2 calibration. To switch: set this to QUESTION_SET_VERSION_V2 and, in the same commit, add
- * config/noul-calibration.ts for v2 plus the matching docs/jev-contract.md table (a start-up check enforces both).
- * Callers that need a specific version use questionsFor(version) from jev-questions.ts and pass it explicitly.
+ * Question set for NEW classifications (pipeline, sample, dev database): v2 since R7 (ADR 0032; calibration v2 in
+ * config/noul-calibration.ts plus the table in docs/jev-contract.md, a start-up check enforces both). Stored v1
+ * classifications keep their v1 reading. Callers that need a specific version use questionsFor(version) from
+ * jev-questions.ts and pass it explicitly.
  */
-export const QUESTION_SET_VERSION = QUESTION_SET_VERSION_V1;
+export const QUESTION_SET_VERSION = QUESTION_SET_VERSION_V2;
 export const DEFAULT_ACCOUNTS_FILE = "data/accounts.json";
 export const DEFAULT_DATABASE_PATH = "data/email-agent.sqlite";
 export const DEV_SYNTHETIC_DATABASE_PATH = "data/dev-synthetic.sqlite";

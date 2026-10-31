@@ -1,0 +1,92 @@
+{
+  "answers": {
+    "addresses_an_ai": {
+      "type": "noul",
+      "noul": 0.98
+    },
+    "category": {
+      "type": "choice",
+      "choice": "newsletter_promo",
+      "confidence": 0.82,
+      "probabilities": {
+        "spam": 0.15,
+        "newsletter_promo": 0.85,
+        "transactional": 0,
+        "security_auth": 0,
+        "personal": 0,
+        "business": 0,
+        "unclear": 0
+      }
+    },
+    "importance": {
+      "type": "score",
+      "score": 0.28,
+      "confidence": 0.73,
+      "probabilities": {
+        "0": 0.73,
+        "1": 0.27,
+        "2": 0,
+        "3": 0
+      },
+      "legend": {
+        "0": "Routine",
+        "1": "Useful, not critical",
+        "2": "Significant personal, financial or legal consequence",
+        "3": "Critical for security, health or legal matters"
+      }
+    },
+    "is_assessable": {
+      "type": "noul",
+      "noul": 0.96
+    },
+    "is_phishing_or_scam": {
+      "type": "noul",
+      "noul": 0.25
+    },
+    "is_spam": {
+      "type": "noul",
+      "noul": 0.84
+    },
+    "needs_my_reply": {
+      "type": "noul",
+      "noul": 0.04
+    },
+    "route": {
+      "type": "choice",
+      "choice": "ignore",
+      "confidence": 0.67,
+      "probabilities": {
+        "ignore": 0.75,
+        "digest": 0.13,
+        "notify": 0.11,
+        "draft_reply": 0.01
+      }
+    },
+    "urgency": {
+      "type": "score",
+      "score": 2.38,
+      "confidence": 0.38,
+      "probabilities": {
+        "0": 0.2,
+        "1": 0,
+        "2": 0.02,
+        "3": 0.78
+      },
+      "legend": {
+        "0": "No deadline, can wait",
+        "1": "This week",
+        "2": "Within 48 hours",
+        "3": "Today or blocking"
+      }
+    }
+  },
+  "id": "gen-dec-1793467677-mRFjrFXO4mkIsY9xAivF",
+  "model": "typesafe/jev-1.13-20260917",
+  "provider": "TypeSafe",
+  "question_set_version": "email-classification-v2",
+  "usage": {
+    "cost": 0.000055146,
+    "inputTokens": 1313,
+    "outputTokens": 240
+  }
+}

@@ -89,8 +89,8 @@ const QUESTIONS_V1: Record<string, JevQuestion> = {
  * Question set `email-classification-v2` (T26): same keys and types as v1, same categories (folders follow in M4),
  * but a sharper `needs_my_reply` (personal request, not marketing) and an `is_phishing_or_scam` that separates
  * legitimate security mails. No `is_personal_correspondence`: no consumer exists yet, category `personal` covers it,
- * and every extra noul question needs its own calibration. Not calibrated: all noul answers stay `unmapped`
- * (config/noul-calibration.ts is bound to v1).
+ * and every extra noul question needs its own calibration. Calibrated in R7 (entry "2" in config/noul-calibration.ts;
+ * `is_assessable` stays `unmapped`); default for new classifications since ADR 0032.
  */
 const QUESTIONS_V2: Record<string, JevQuestion> = {
   ...QUESTIONS_V1,
@@ -121,7 +121,7 @@ export function questionsFor(version: string): Record<string, JevQuestion> {
   return found;
 }
 
-/** Question set for new classifications: follows QUESTION_SET_VERSION (v1 until the switch documented there). */
+/** Question set for new classifications: follows QUESTION_SET_VERSION (v2 since R7, ADR 0032). */
 export const QUESTIONS: Record<string, JevQuestion> = questionsFor(QUESTION_SET_VERSION);
 
 export const STATE_KEYS = [

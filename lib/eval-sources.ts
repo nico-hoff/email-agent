@@ -9,7 +9,7 @@ export type EvalExpected = {
   is_phishing_or_scam?: boolean;
   addresses_an_ai?: boolean;
   is_assessable?: boolean;
-  /** Only set in the question set v2 eval set (T26); the public datasets cannot give it. */
+  /** Fixed v2 set (T26) and, since R7, `triage` via its `action` column (docs/eval-datasets.md). */
   needs_my_reply?: boolean;
 };
 
@@ -49,11 +49,21 @@ const TRIAGE_EXPECTED: Record<string, EvalExpected> = {
   personal: { category: "personal" },
 };
 
+// R7: `needs_my_reply` from the `action` column. `reply` is the only value that asks for an answer; `ignore`, `forward`
+// and `flag` do not (forward = pass on, flag = take note, ignore = discard). Unknown actions give no label.
+const TRIAGE_REPLY_BY_ACTION: Record<string, boolean> = { reply: true, ignore: false, forward: false, flag: false };
+
+export function triageNeedsMyReply(action: unknown): boolean | undefined {
+  return typeof action === "string" && Object.hasOwn(TRIAGE_REPLY_BY_ACTION, action) ? TRIAGE_REPLY_BY_ACTION[action] : undefined;
+}
+
 function mapTriage(row: unknown, rowIndex: number): EvalCase | null {
   if (!isRecord(row)) return null;
-  const { subject, body, category } = row;
+  const { subject, body, category, action } = row;
   if (typeof subject !== "string" || typeof body !== "string" || typeof category !== "string") return null;
-  const expected = Object.hasOwn(TRIAGE_EXPECTED, category) ? { ...TRIAGE_EXPECTED[category] } : {};
+  const expected: EvalExpected = Object.hasOwn(TRIAGE_EXPECTED, category) ? { ...TRIAGE_EXPECTED[category] } : {};
+  const reply = triageNeedsMyReply(action);
+  if (reply !== undefined) expected.needs_my_reply = reply;
   return {
     id: `triage-${rowIndex}`,
     source: "triage",
@@ -178,7 +188,9 @@ export function shuffle<T>(items: T[], rnd: () => number): T[] {
 /** Erwartete Klasse fuer die Schichtung: Kategorie, sonst "phishing" (Betrugslabel ohne Kategorie), sonst "(none)". */
 export function classLabel(c: EvalCase): string {
   if (c.expected.category !== undefined) return c.expected.category;
-  return c.expected.is_phishing_or_scam === true ? "phishing" : "(none)";
+  if (c.expected.is_phishing_or_scam === true) return "phishing";
+  if (c.expected.needs_my_reply !== undefined) return c.expected.needs_my_reply ? "reply_expected" : "no_reply_expected";
+  return "(none)";
 }
 
 export function strataKey(c: EvalCase): string {

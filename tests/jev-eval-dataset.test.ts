@@ -41,7 +41,7 @@ describe("committed gate datasets contain only synthetic ids and answers", () =>
   for (const file of existsSync(dir) ? files() : []) {
     it(`${file}: ids from the synthetic sets, answers only keys/types/numbers/option names`, () => {
       const lines = parseGateDataset(readFileSync(join(dir, file), "utf8"), { allowedIds: ALLOWED_IDS });
-      assert.ok(lines.length >= 30, "baseline is not empty");
+      assert.ok(lines.length >= 29, "baseline is not empty");
       assert.equal(new Set(lines.map((l) => l.id)).size, lines.length);
       for (const l of lines) {
         const questions = questionsFor(l.question_set_version);

@@ -3,7 +3,7 @@
 // Aufruf: node --env-file=.env.local scripts/eval-jev.ts --confirm-live
 //   optional: --source hf --seed <s> --n <N> [--split test|calib] [--strategy balanced|proportional]
 //             [--max-cost <usd>] [--no-dev-db]  (Stichprobe aus data/eval-datasets/)
-//   Fragenset/Set waehlbar (Standard bleibt v1/v1): --question-set v1|v2, beim festen Set --dataset v1|v2 (T26).
+//   Fragenset/Set waehlbar (Standard: Fragenset = QUESTION_SET_VERSION, seit R7 v2; Set v1): --question-set v1|v2, beim festen Set --dataset v1|v2 (T26).
 //   --write-dataset (nur festes Set): schreibt die normalisierten Antworten nach evals/datasets/ als Gate-Dataset
 //   fuer `npm run eval` (T27); nur bei fehlerfreiem Lauf, nie Mailtexte.
 // Partitionen: Schwellen werden nur auf `calib` gewaehlt, berichtet wird auf `test` (Standard).

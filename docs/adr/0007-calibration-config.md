@@ -13,3 +13,4 @@ Schwellen pro Fragenset in `config/noul-calibration.ts` (v1: `is_spam` 0.80, `is
 ## Folgen
 - Schwellenänderung = Commit mit Eval-Beleg (`insights.md`).
 - Fragenset v2 bleibt ohne Aktionen, bis Nico T25b (Kalibrierung v2) gemacht hat.
+- Aktualisiert durch 0032 (R7): v2 ist kalibriert (Eintrag „2“) und Standard-Fragenset; die Aussage zu v2 oben gilt nicht mehr.

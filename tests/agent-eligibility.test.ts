@@ -76,5 +76,5 @@ test("default interpreter, calibrated: security_auth stays blocked even with add
 
 test("default interpreter without or with another question set version blocks every mail (fail-closed)", () => {
   assert.deepEqual(agentEligibility(answers()), { eligible: false, reasons: ["addresses_an_ai"] });
-  assert.deepEqual(agentEligibility(answers(), undefined, "email-classification-v2"), { eligible: false, reasons: ["addresses_an_ai"] });
+  assert.deepEqual(agentEligibility(answers(), undefined, "email-classification-v9"), { eligible: false, reasons: ["addresses_an_ai"] });
 });

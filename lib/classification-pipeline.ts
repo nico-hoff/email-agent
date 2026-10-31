@@ -8,12 +8,14 @@ import { buildState, QUESTIONS } from "./jev-questions.ts";
 import { feedbackHistory, recordJevSpam } from "./senders.ts";
 import { backoffMs, classifyFailure } from "./retry-policy.ts";
 import { interpretNoul, normalizeAnswers, type NormalizedAnswer } from "./jev-response.ts";
-import { assertCalibrationMatchesQuestions, NOUL_CALIBRATION } from "./noul-calibration.ts";
+import { assertCalibrationMatchesQuestions, calibrationFor, NoulCalibrationError } from "./noul-calibration.ts";
 import { computeShadowQuarantine, type ShadowQuarantine } from "./shadow.ts";
 
 // Start-up check (O8): the calibration must belong to the question set this pipeline asks.
+const defaultCalibration = calibrationFor(QUESTION_SET_VERSION);
+if (defaultCalibration === null) throw new NoulCalibrationError("noul_calibration_mismatch", "question_set_version");
 assertCalibrationMatchesQuestions(
-  NOUL_CALIBRATION,
+  defaultCalibration,
   QUESTION_SET_VERSION,
   Object.entries(QUESTIONS).filter(([, q]) => q.type === "noul").map(([k]) => k),
 );

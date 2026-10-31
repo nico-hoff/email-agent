@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { EXCERPT_MAX_CHARS } from "../lib/constants.ts";
 import {
+  classLabel,
   contentHash,
   dedupeCases,
   EVAL_SOURCES,
@@ -10,6 +11,7 @@ import {
   sampleCases,
   sampleCasesDetailed,
   strataKey,
+  triageNeedsMyReply,
   type EvalCase,
 } from "../lib/eval-sources.ts";
 
@@ -70,6 +72,30 @@ describe("triage mapper", () => {
   it("truncates the body to EXCERPT_MAX_CHARS", () => {
     const c = triage.map(tri("spam", { body: "x".repeat(EXCERPT_MAX_CHARS + 500) }), 0)!;
     assert.equal(c.body.length, EXCERPT_MAX_CHARS);
+  });
+
+  it("maps the action column to needs_my_reply (R7): reply is true, ignore/forward/flag are false, anything else gives no label", () => {
+    const withAction = (category: string, action: unknown) => triage.map(tri(category, { action }), 3)!.expected;
+    assert.equal(withAction("finance", "reply").needs_my_reply, true);
+    for (const a of ["ignore", "forward", "flag"]) assert.equal(withAction("finance", a).needs_my_reply, false, a);
+    for (const a of ["archive", "", "constructor", "__proto__", 1, null, undefined]) {
+      assert.ok(!("needs_my_reply" in withAction("finance", a)), String(a));
+      assert.equal(triageNeedsMyReply(a), undefined, String(a));
+    }
+    // other labels of the category are kept, the mapper never overwrites them
+    assert.deepEqual(withAction("phishing", "ignore"), { is_phishing_or_scam: true, is_spam: true, needs_my_reply: false });
+    assert.deepEqual(withAction("personal", "reply"), { category: "personal", needs_my_reply: true });
+    // a row without an action column behaves as before
+    assert.deepEqual(exp("personal"), { category: "personal" });
+  });
+
+  it("strata: categories first, then phishing, then the reply label, else (none)", () => {
+    const k = (expected: EvalCase["expected"]) => classLabel({ id: "x", lang: "en", sender_domain: "d", subject: "s", body: "b", expected });
+    assert.equal(k({ category: "personal", needs_my_reply: true }), "personal");
+    assert.equal(k({ is_phishing_or_scam: true, needs_my_reply: false }), "phishing");
+    assert.equal(k({ needs_my_reply: true }), "reply_expected");
+    assert.equal(k({ needs_my_reply: false }), "no_reply_expected");
+    assert.equal(k({}), "(none)");
   });
 
   it("rejects malformed rows and ignores unknown categories", () => {

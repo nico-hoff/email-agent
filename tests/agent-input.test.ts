@@ -115,13 +115,13 @@ test("default interpreter without a known question set version blocks even an or
   }
 });
 
-test("default (calibrated) interpreter: 0.02 allowed, 0.35 and security_auth blocked before IMAP; needs_my_reply stays unmapped", async () => {
+test("default (calibrated) interpreter: 0.02 allowed, 0.35 and security_auth blocked before IMAP; needs_my_reply 0.8 reads positive under calibration v2", async () => {
   const { db, dir } = setup();
   try {
     const { port, calls } = fakePort();
     const ok = await buildAgentInput({ db, portFactory: () => port }, 6);
     assert.ok(ok.ok);
-    assert.equal(ok.input.needs_my_reply, "unmapped");
+    assert.equal(ok.input.needs_my_reply, "positive");
     assert.deepEqual(calls, ["connect", "fetch INBOX 106", "close"]);
     const never = { db, portFactory: () => { throw new Error("IMAP must not be touched"); } };
     assert.deepEqual(await buildAgentInput(never, 7), { ok: false, code: "not_eligible", reasons: ["addresses_an_ai"] });

@@ -1,4 +1,4 @@
-// Versioned noul thresholds (O8/T25). The values live in config/noul-calibration.ts and are documented in
+// Versioned noul thresholds (O8/T25, per question set version since R7). The values live in config/noul-calibration.ts and are documented in
 // docs/jev-contract.md (section Kalibrierung); a test keeps both in sync. Validated once at import: an invalid
 // file stops the process with a clear code and never falls back to made-up values.
 import { z } from "zod";
@@ -50,15 +50,37 @@ export function assertCalibrationMatchesQuestions(
   }
 }
 
-export const NOUL_CALIBRATION: Readonly<NoulCalibration> = Object.freeze(parseNoulCalibration(calibrationFile));
+/** Every shipped calibration, one per question set version (v1 stays version "1"; later sets get their own entry). */
+export function parseNoulCalibrations(raw: unknown): NoulCalibration[] {
+  if (!Array.isArray(raw) || raw.length === 0) throw new NoulCalibrationError("noul_calibration_invalid", "(root)");
+  const list = raw.map((entry) => parseNoulCalibration(entry));
+  const sets = new Set(list.map((c) => c.question_set_version));
+  const versions = new Set(list.map((c) => c.version));
+  if (sets.size !== list.length || versions.size !== list.length) {
+    throw new NoulCalibrationError("noul_calibration_invalid", "duplicate question_set_version or version");
+  }
+  return list;
+}
+
+export const NOUL_CALIBRATIONS: readonly Readonly<NoulCalibration>[] = Object.freeze(parseNoulCalibrations(calibrationFile));
+
+/** Calibration entry of a question set version, or null (unknown or missing version: unmapped, fail-closed). */
+export function calibrationFor(
+  questionSetVersion: string | undefined,
+  cals: readonly NoulCalibration[] = NOUL_CALIBRATIONS,
+): NoulCalibration | null {
+  if (questionSetVersion === undefined) return null;
+  return cals.find((c) => c.question_set_version === questionSetVersion) ?? null;
+}
 
 /** Threshold for a question under a question set version, or null (unmapped). */
 export function noulThreshold(
   key: string,
   questionSetVersion: string | undefined,
-  cal: NoulCalibration = NOUL_CALIBRATION,
+  cals: readonly NoulCalibration[] = NOUL_CALIBRATIONS,
 ): number | null {
-  if (questionSetVersion === undefined || questionSetVersion !== cal.question_set_version) return null;
+  const cal = calibrationFor(questionSetVersion, cals);
+  if (cal === null) return null;
   // Map instead of obj[key]: the Veryfront API loader rejects reads with a dynamic key.
   return new Map(Object.entries(cal.thresholds)).get(key) ?? null;
 }

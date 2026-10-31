@@ -133,10 +133,10 @@ describe("jev_spam_count", () => {
     await pipeline.submit({ emailId, accountId: "a", input: inputFor(m) });
     // a later run of another question set on the same mail
     db.prepare(`INSERT INTO classifications (email_id, question_set_version, model_requested, model_reported, status, attempts, created_at, updated_at)
-      VALUES (?, 'email-classification-v2', 'typesafe/jev-1.13', 'x', 'pending', 0, ?, ?)`).run(emailId, T0.toISOString(), T0.toISOString());
+      VALUES (?, 'email-classification-v1', 'typesafe/jev-1.13', 'x', 'pending', 0, ?, ?)`).run(emailId, T0.toISOString(), T0.toISOString());
     assert.equal(senderCounts(db, "s@example.test")?.jev_spam_count, 1);
-    db.prepare("UPDATE classifications SET status = 'classified' WHERE question_set_version = 'email-classification-v2'").run();
-    const row = db.prepare("SELECT id FROM classifications WHERE question_set_version = 'email-classification-v2'").get() as { id: number };
+    db.prepare("UPDATE classifications SET status = 'classified' WHERE question_set_version = 'email-classification-v1'").run();
+    const row = db.prepare("SELECT id FROM classifications WHERE question_set_version = 'email-classification-v1'").get() as { id: number };
     const persist = createPersistResponse(() => 0.9);
     // v2 is never persisted by the pipeline today; the guard still has to hold if it was
     db.exec("BEGIN");
