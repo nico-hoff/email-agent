@@ -42,8 +42,8 @@ describe("syncAccounts", () => {
     const db = mem();
     syncAccounts(db, [acc("a", { spam_mailbox: "Junk" }), acc("b", { enabled: false })]);
     assert.deepEqual(rows(db, "SELECT * FROM accounts ORDER BY id"), [
-      { id: "a", label: "L-a", host: "imap.example.test", port: 993, mailbox: "INBOX", spam_mailbox: "Junk", enabled: 1, color: null },
-      { id: "b", label: "L-b", host: "imap.example.test", port: 993, mailbox: "INBOX", spam_mailbox: null, enabled: 0, color: null },
+      { id: "a", label: "L-a", host: "imap.example.test", port: 993, mailbox: "INBOX", spam_mailbox: "Junk", enabled: 1, color: null, user_id: 1 },
+      { id: "b", label: "L-b", host: "imap.example.test", port: 993, mailbox: "INBOX", spam_mailbox: null, enabled: 0, color: null, user_id: 1 },
     ]);
     const ws = rows(db, "SELECT account_id, state FROM worker_status ORDER BY account_id");
     assert.deepEqual(ws, [{ account_id: "a", state: "connecting" }, { account_id: "b", state: "disabled" }]);
@@ -90,7 +90,7 @@ describe("validateDatabasePath / startup", () => {
     const root = mkdtempSync(join(tmpdir(), "email-agent-accdb-root-"));
     const s = startup({ env: {}, projectRoot: root });
     assert.equal(s.config.status, "disabled");
-    assert.equal(rows(s.db, "SELECT count(*) AS n FROM schema_migrations")[0].n, 5);
+    assert.equal(rows(s.db, "SELECT count(*) AS n FROM schema_migrations")[0].n, 6);
     s.db.close();
     rmSync(root, { recursive: true, force: true });
   });

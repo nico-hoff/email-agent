@@ -137,7 +137,7 @@ describe("listHitl (database)", () => {
     for (let i = 0; i < 4; i++) ids.push(await mail(db, "spam@junk.test", 0.95, `2026-10-2${i}T10:00:00.000Z`));
     await mail(db, "spam@junk.test", 0.1, "2026-10-29T10:00:00.000Z"); // not judged spam: never a sample
     await mail(db, "nice@ok.test", 0.95);
-    const list = listHitl(db);
+    const list = listHitl(db, 1);
     assert.equal(list.length, 1);
     assert.deepEqual(list[0], {
       key: "address:spam@junk.test", match: "address", value: "spam@junk.test", jev_spam_count: 4, mails_seen: 5, dmarc_pass_rate: 1,
@@ -151,7 +151,7 @@ describe("listHitl (database)", () => {
     const b1 = await mail(db, "b@shop.test", 0.9);
     const a2 = await mail(db, "a@shop.test", 0.9);
     await mail(db, "a@other.test", 0.9);
-    const list = listHitl(db);
+    const list = listHitl(db, 1);
     assert.deepEqual(list.map((c) => c.key), ["domain:shop.test"]);
     assert.deepEqual([...list[0].sample_email_ids].sort(), [a1, a2, b1].sort());
   });
@@ -159,23 +159,23 @@ describe("listHitl (database)", () => {
   test("an active rule removes the proposal; deactivating the rule brings it back", async () => {
     const db = setup();
     for (let i = 0; i < 3; i++) await mail(db, "spam@junk.test", 0.95);
-    assert.equal(listHitl(db).length, 1);
-    const rule = createRule(db, { kind: "allowlist", match: "address", value: "spam@junk.test", ts: T });
+    assert.equal(listHitl(db, 1).length, 1);
+    const rule = createRule(db, 1, { kind: "allowlist", match: "address", value: "spam@junk.test", ts: T });
     assert.ok(rule.ok);
-    assert.equal(listHitl(db).length, 0);
+    assert.equal(listHitl(db, 1).length, 0);
     db.prepare("UPDATE sender_rules SET active = 0").run();
-    assert.equal(listHitl(db).length, 1);
+    assert.equal(listHitl(db, 1).length, 1);
   });
 
   test("dismissHitl asks once: the proposal stays away until another verdict arrives; audits ids and codes only", async () => {
     const db = setup();
     for (let i = 0; i < 3; i++) await mail(db, "spam@junk.test", 0.95);
-    const d = dismissHitl(db, "address", "spam@junk.test", T2);
+    const d = dismissHitl(db, 1, "address", "spam@junk.test", T2);
     assert.deepEqual(d, { ok: true, changed: true });
-    assert.equal(listHitl(db).length, 0);
-    assert.deepEqual(dismissHitl(db, "address", "spam@junk.test", T2), { ok: true, changed: false });
+    assert.equal(listHitl(db, 1).length, 0);
+    assert.deepEqual(dismissHitl(db, 1, "address", "spam@junk.test", T2), { ok: true, changed: false });
     await mail(db, "spam@junk.test", 0.95);
-    assert.equal(listHitl(db).length, 1);
+    assert.equal(listHitl(db, 1).length, 1);
     assert.deepEqual({ ...db.prepare("SELECT hitl_asked_at, hitl_asked_count FROM senders").get() }, { hitl_asked_at: T2, hitl_asked_count: 3 });
     const a = db.prepare("SELECT actor, action, details_json FROM audit_log WHERE action = 'sender_hitl_dismissed'").all().map((x) => ({ ...x }));
     assert.equal(a.length, 1);
@@ -188,18 +188,18 @@ describe("listHitl (database)", () => {
     await mail(db, "a@shop.test", 0.9);
     await mail(db, "b@shop.test", 0.9);
     await mail(db, "b@shop.test", 0.9);
-    assert.equal(listHitl(db).length, 1);
-    assert.deepEqual(dismissHitl(db, "domain", "shop.test", T2), { ok: true, changed: true });
-    assert.equal(listHitl(db).length, 0);
-    assert.deepEqual(dismissHitl(db, "domain", "nowhere.test", T2), { ok: false, code: "not_found" });
-    assert.deepEqual(dismissHitl(db, "address", "nobody@shop.test", T2), { ok: false, code: "not_found" });
-    assert.deepEqual(dismissHitl(db, "address", "not-an-address", T2), { ok: false, code: "invalid_value" });
+    assert.equal(listHitl(db, 1).length, 1);
+    assert.deepEqual(dismissHitl(db, 1, "domain", "shop.test", T2), { ok: true, changed: true });
+    assert.equal(listHitl(db, 1).length, 0);
+    assert.deepEqual(dismissHitl(db, 1, "domain", "nowhere.test", T2), { ok: false, code: "not_found" });
+    assert.deepEqual(dismissHitl(db, 1, "address", "nobody@shop.test", T2), { ok: false, code: "not_found" });
+    assert.deepEqual(dismissHitl(db, 1, "address", "not-an-address", T2), { ok: false, code: "invalid_value" });
   });
 
   test("the list carries no subject, no mail address of other senders and no content", async () => {
     const db = setup();
     for (let i = 0; i < 3; i++) await mail(db, "spam@junk.test", 0.95);
-    const text = JSON.stringify(listHitl(db));
+    const text = JSON.stringify(listHitl(db, 1));
     assert.ok(!text.includes("SUBJECT-MARKER"));
   });
 });

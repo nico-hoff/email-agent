@@ -66,7 +66,7 @@ describe("ingest keeps the senders table", () => {
     ing(db, meta("<m1>"), 1);
     ing(db, meta("<m1>"), 1);
     ing(db, meta("<m1>"), 2, "Junk", 9);
-    assert.equal(senderCounts(db, "s@example.test")?.mails_seen, 1);
+    assert.equal(senderCounts(db, 1, "s@example.test")?.mails_seen, 1);
     ing(db, meta("<m2>", { dmarc: "fail" }), 2);
     ing(db, meta(null, { dmarc: "none" }), 3);
     assert.deepEqual(rows(db, "SELECT mails_seen,dmarc_pass FROM senders"), [{ mails_seen: 3, dmarc_pass: 1 }]);
@@ -134,7 +134,7 @@ describe("jev_spam_count", () => {
     // a later run of another question set on the same mail
     db.prepare(`INSERT INTO classifications (email_id, question_set_version, model_requested, model_reported, status, attempts, created_at, updated_at)
       VALUES (?, 'email-classification-v1', 'typesafe/jev-1.13', 'x', 'pending', 0, ?, ?)`).run(emailId, T0.toISOString(), T0.toISOString());
-    assert.equal(senderCounts(db, "s@example.test")?.jev_spam_count, 1);
+    assert.equal(senderCounts(db, 1, "s@example.test")?.jev_spam_count, 1);
     db.prepare("UPDATE classifications SET status = 'classified' WHERE question_set_version = 'email-classification-v1'").run();
     const row = db.prepare("SELECT id FROM classifications WHERE question_set_version = 'email-classification-v1'").get() as { id: number };
     const persist = createPersistResponse(() => 0.9);
@@ -142,7 +142,7 @@ describe("jev_spam_count", () => {
     db.exec("BEGIN");
     persist({ db, classificationId: row.id, emailId, accountId: "a", response: { ...fixture(), answers: answersWith(0.99) } as never, latencyMs: 0, attempts: 1, traceId: "t", now: T0 });
     db.exec("COMMIT");
-    assert.equal(senderCounts(db, "s@example.test")?.jev_spam_count, 1);
+    assert.equal(senderCounts(db, 1, "s@example.test")?.jev_spam_count, 1);
   });
 
   test("a rejected response rolls the count back with the transaction", async () => {
@@ -152,7 +152,7 @@ describe("jev_spam_count", () => {
     const bad = { ...answersWith(0.99), category: { type: "choice", choice: "nonsense" } };
     const { pipeline } = pipelineWith(db, [ok(bad)]);
     await pipeline.submit({ emailId, accountId: "a", input: inputFor(m) });
-    assert.equal(senderCounts(db, "s@example.test")?.jev_spam_count, 0);
+    assert.equal(senderCounts(db, 1, "s@example.test")?.jev_spam_count, 0);
   });
 });
 

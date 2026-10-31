@@ -78,10 +78,11 @@ export function parseActionsQuery(url: URL): ParsedActionsQuery {
   return { ok: true, query: { mode: modeParam as Mode | null, status: statusParam as Status | null, limit, cursor } };
 }
 
-export function listActions(db: DatabaseSync, q: ActionsQuery): ActionsResult {
+export function listActions(db: DatabaseSync, userId: number, q: ActionsQuery): ActionsResult {
   // Undo log entries (rule "undo") are internal: the undone action already carries status "undone".
-  const where: string[] = ["m.rule <> 'undo'"];
-  const args: (string | number)[] = [];
+  // Tenant scope: only actions on mails of this user's accounts (ADR 0029).
+  const where: string[] = ["m.rule <> 'undo'", "a.user_id = ?"];
+  const args: (string | number)[] = [userId];
   if (q.mode !== null) { where.push("m.mode = ?"); args.push(q.mode); }
   if (q.status !== null) { where.push("m.status = ?"); args.push(q.status); }
   if (q.cursor !== null) {
@@ -90,7 +91,7 @@ export function listActions(db: DatabaseSync, q: ActionsQuery): ActionsResult {
   }
   const rows = db.prepare(
     `SELECT m.id, m.email_id, e.account_id AS account, m.rule, m.action, m.mode, m.status, m.failure_code, m.created_at
-     FROM mailbox_actions m JOIN emails e ON e.id = m.email_id
+     FROM mailbox_actions m JOIN emails e ON e.id = m.email_id JOIN accounts a ON a.id = e.account_id
      ${where.length > 0 ? `WHERE ${where.join(" AND ")}` : ""}
      ORDER BY m.created_at DESC, m.id DESC LIMIT ?`,
   ).all(...args, q.limit + 1) as unknown as ActionItem[];
@@ -102,8 +103,10 @@ export function listActions(db: DatabaseSync, q: ActionsQuery): ActionsResult {
   const next_cursor = rows.length > q.limit && last ? encodeCursor(last.created_at, last.id) : null;
 
   const counts = { dry_run: { planned: 0, done: 0, failed: 0, undone: 0 }, live: { planned: 0, done: 0, failed: 0, undone: 0 } };
-  const grouped = db.prepare("SELECT mode, status, COUNT(*) AS n FROM mailbox_actions WHERE rule <> 'undo' GROUP BY mode, status")
-    .all() as unknown as { mode: Mode; status: Status; n: number }[];
+  const grouped = db.prepare(
+    `SELECT m.mode, m.status, COUNT(*) AS n FROM mailbox_actions m JOIN emails e ON e.id = m.email_id JOIN accounts a ON a.id = e.account_id
+     WHERE m.rule <> 'undo' AND a.user_id = ? GROUP BY m.mode, m.status`,
+  ).all(userId) as unknown as { mode: Mode; status: Status; n: number }[];
   for (const g of grouped) {
     const target: StatusCounts = g.mode === "live" ? counts.live : counts.dry_run;
     if (g.status === "planned") target.planned = g.n;

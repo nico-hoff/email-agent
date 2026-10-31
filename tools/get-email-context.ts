@@ -7,6 +7,7 @@ import { validateDatabasePath } from "../lib/accounts.ts";
 import { PROJECT_ROOT } from "../lib/constants.ts";
 import { openDatabase } from "../lib/db.ts";
 import { interpretNoul, type NoulInterpreter, type NormalizedAnswer } from "../lib/jev-response.ts";
+import { currentUserId } from "../lib/tenant.ts";
 
 /** Allowlist (D19). Never the full sender address, body, excerpt or derived rows (H3). */
 export interface EmailContext {
@@ -26,6 +27,8 @@ export interface GetEmailContextDeps {
   /** Returns a connection; the tool closes it after every call. */
   openDb: () => DatabaseSync;
   interpret?: NoulInterpreter;
+  /** Tests pin the user; in production it comes from the request's async context (lib/tenant.ts), never from the model. */
+  userId?: number;
 }
 
 const inputSchema = defineSchema((v) =>
@@ -38,8 +41,10 @@ function senderDomain(sender: string): string {
 }
 
 /** Read-only. Order (H11): load from SQLite, run the gate, only then shape the allowlist. */
-export function readEmailContext(db: DatabaseSync, emailId: number, interpret: GetEmailContextDeps["interpret"]): EmailContextResult {
-  const email = db.prepare("SELECT sender, subject, received_at FROM emails WHERE id = ?").get(emailId) as
+export function readEmailContext(db: DatabaseSync, userId: number, emailId: number, interpret: GetEmailContextDeps["interpret"]): EmailContextResult {
+  const email = db.prepare(
+    "SELECT e.sender, e.subject, e.received_at FROM emails e JOIN accounts a ON a.id = e.account_id WHERE e.id = ? AND a.user_id = ?",
+  ).get(emailId, userId) as
     | { sender: string; subject: string; received_at: string }
     | undefined;
   if (!email) return { ok: false, code: "email_not_found" };
@@ -73,9 +78,12 @@ function toolConfig(deps: GetEmailContextDeps) {
     inputSchema,
     mcp: { enabled: false },
     execute: ({ email_id }: { email_id: number }): Promise<EmailContextResult> => {
+      const userId = deps.userId ?? currentUserId();
+      // No user bound to this call: fail closed, the same answer as for an unknown mail.
+      if (userId === undefined) return Promise.resolve({ ok: false, code: "email_not_found" });
       const db = deps.openDb();
       try {
-        return Promise.resolve(readEmailContext(db, email_id, deps.interpret));
+        return Promise.resolve(readEmailContext(db, userId, email_id, deps.interpret));
       } finally {
         db.close();
       }

@@ -1,4 +1,4 @@
-# fly.io deployment, see docs/fly-deploy.md. Deploy only with APP_PASSWORD set (the server refuses to start otherwise).
+# fly.io deployment, see docs/fly-deploy.md. AUTH_MODE=users: login with user accounts (create the first admin with `npm run user:create`).
 # Secrets (APP_PASSWORD, OPENROUTER_API_KEY, accounts) are never written here; use `fly secrets set`.
 app = 'email-agent'
 primary_region = 'fra'
@@ -8,6 +8,7 @@ primary_region = 'fra'
   build-target = 'fly'
 
 [env]
+  AUTH_MODE = 'users'
   BIND_ADDRESS = '0.0.0.0'
   DATABASE_PATH = '/data/email-agent.sqlite'
 

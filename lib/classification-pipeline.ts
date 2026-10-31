@@ -6,6 +6,7 @@ import { parseMessage, type ImapPort, type TransientInput } from "./imap.ts";
 import type { JevClient } from "./jev.ts";
 import { buildState, QUESTIONS } from "./jev-questions.ts";
 import { feedbackHistory, recordJevSpam } from "./senders.ts";
+import { accountUserId } from "./tenant.ts";
 import { backoffMs, classifyFailure } from "./retry-policy.ts";
 import { interpretNoul, normalizeAnswers, type NormalizedAnswer } from "./jev-response.ts";
 import { assertCalibrationMatchesQuestions, calibrationFor, NoulCalibrationError } from "./noul-calibration.ts";
@@ -189,7 +190,7 @@ export function createClassificationPipeline(opts: PipelineOptions): Classificat
     const at = input.sender.lastIndexOf("@");
     const ctx = opts.accountContext?.(accountId);
     // T55/H21: two numbers, only for an authenticated sender (DMARC pass) with feedback; otherwise absent.
-    const history = feedbackHistory(db, input.sender, input.dmarc);
+    const history = feedbackHistory(db, accountUserId(db, accountId), input.sender, input.dmarc);
     return {
       questions: QUESTIONS,
       state: buildState({

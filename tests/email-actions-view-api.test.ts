@@ -42,9 +42,9 @@ describe("account modes for the list header", () => {
     const db = setup();
     const q = parseListQuery(new URL("http://x/api/emails?view=all"));
     assert.ok(q.ok);
-    const plain = listEmails(db, q.query);
+    const plain = listEmails(db, 1, q.query);
     assert.deepEqual(plain.auto_actions, { a1: "dry_run", a2: "dry_run" });
-    const live = listEmails(db, q.query, { autoActionModes: new Map([["a2", "live"]]) });
+    const live = listEmails(db, 1, q.query, { autoActionModes: new Map([["a2", "live"]]) });
     assert.deepEqual(live.auto_actions, { a1: "dry_run", a2: "live" });
     assert.ok(!JSON.stringify(live).includes("imap.one.example"));
   });
@@ -53,10 +53,10 @@ describe("account modes for the list header", () => {
 describe("GET /api/emails/:id: mailbox action", () => {
   test("shows the spam_seen action with mode and status, codes only", () => {
     const db = setup();
-    const d = getEmailDetail(db, 1);
+    const d = getEmailDetail(db, 1, 1);
     assert.deepEqual(d?.mailbox_action, { id: 1, rule: "spam_seen", action: "mark_seen", mode: "dry_run", status: "planned", failure_code: null, created_at: T });
-    assert.equal(getEmailDetail(db, 2)?.mailbox_action?.mode, "live", "the undo row is not the action");
-    assert.equal(getEmailDetail(db, 3)?.mailbox_action, null);
+    assert.equal(getEmailDetail(db, 1, 2)?.mailbox_action?.mode, "live", "the undo row is not the action");
+    assert.equal(getEmailDetail(db, 1, 3)?.mailbox_action, null);
     assert.ok(!JSON.stringify(d).includes("jev_spam"), "no reason details");
   });
 });
@@ -66,7 +66,7 @@ describe("GET /api/actions without undo rows", () => {
     const db = setup();
     const p = parseActionsQuery(new URL("http://x/api/actions?mode=live"));
     assert.ok(p.ok);
-    const r = listActions(db, p.query);
+    const r = listActions(db, 1, p.query);
     assert.deepEqual(r.actions.map((a) => a.rule), ["spam_seen"]);
     assert.equal(r.counts.live.done, 1);
   });

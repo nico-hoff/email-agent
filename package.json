@@ -9,6 +9,8 @@
     "dev": "node --env-file-if-exists=.env.local server.ts --development --synthetic",
     "dev:live": "node --env-file-if-exists=.env.local server.ts --development",
     "dev:seed": "node scripts/seed-dev-db.ts",
+    "user:create": "node --env-file-if-exists=.env.local scripts/user-create.ts",
+    "user:invite": "node --env-file-if-exists=.env.local scripts/user-invite.ts",
     "build": "veryfront build",
     "start": "node --env-file-if-exists=.env.local server.ts --production",
     "eval": "veryfront eval",

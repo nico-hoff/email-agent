@@ -14,6 +14,7 @@ import { DEFAULT_SPAM_THRESHOLD } from "./lib/accounts-config.ts";
 import { dataDirFromEnv, interceptRequest } from "./lib/auth-runtime.ts";
 import { appPasswordStatus, selectAuthMode } from "./lib/auth.ts";
 import { openDatabase } from "./lib/db.ts";
+import { ensureDevUser } from "./lib/users.ts";
 import { createMailboxActions, type MailboxActions } from "./lib/mailbox-actions.ts";
 import { join } from "node:path";
 import { startServer } from "veryfront/server";
@@ -177,6 +178,16 @@ export async function planSyntheticActions(dbPath: string, projectRoot: string, 
   }
 }
 
+/** The synthetic dev database gets its test user (docs/access-contract.md): the owner row, claimed as dev@synthetic.invalid. */
+export async function ensureSyntheticDevUser(dbPath: string): Promise<void> {
+  const db = openDatabase(dbPath);
+  try {
+    await ensureDevUser(db);
+  } finally {
+    db.close();
+  }
+}
+
 export function formatListening(svc: Pick<Service, "url" | "workerStatus" | "data">): string {
   return `listening ${svc.url} workers=${svc.workerStatus}${svc.data === "synthetic" ? " data=synthetic" : ""}`;
 }
@@ -195,7 +206,7 @@ export async function createService(options: CreateServiceOptions = {}): Promise
   applyOpenRouterEnv(options.env ?? process.env);
 
   // Password mode (APP_PASSWORD set, e.g. on fly.io): a too short or empty value disables the login. Never log the value.
-  if (!synthetic && selectAuthMode({ synthetic, appPassword: process.env.APP_PASSWORD }) === "password" && appPasswordStatus(process.env.APP_PASSWORD) !== "ok") {
+  if (!synthetic && selectAuthMode({ synthetic, appPassword: process.env.APP_PASSWORD, authMode: process.env.AUTH_MODE }) === "password" && appPasswordStatus(process.env.APP_PASSWORD) !== "ok") {
     log("warning: APP_PASSWORD too short, password login disabled");
   }
 
@@ -205,6 +216,7 @@ export async function createService(options: CreateServiceOptions = {}): Promise
     process.env.DATABASE_PATH = prepared.path;
     if (!prepared.existed) log("synthetic dev database is empty: run `npm run eval:fetch && npm run dev:seed`");
     await planSyntheticActions(prepared.path, options.projectRoot ?? PROJECT_ROOT, log);
+    await ensureSyntheticDevUser(prepared.path);
   }
 
   // Startup errors (bad accounts file, DB path) reject before anything listens; messages carry no secrets.

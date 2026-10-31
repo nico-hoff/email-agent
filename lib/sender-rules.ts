@@ -45,12 +45,12 @@ export function normalizeRuleValue(
 
 const COLUMNS = "id, kind, match, value, account_id, source, active, created_at";
 
-function audit(db: DatabaseSync, action: string, ts: string, accountId: string | null, details: Record<string, unknown>): void {
+function audit(db: DatabaseSync, action: string, ts: string, userId: number, accountId: string | null, details: Record<string, unknown>): void {
   // `actor = 'nico'` needs a rebuild of the append-only audit_log; the origin is recorded in the details (docs/erd.md 18).
   db.prepare(
-    `INSERT INTO audit_log (occurred_at, trace_id, actor, action, account_id, email_id, details_json)
-     VALUES (?, ?, 'system', ?, ?, NULL, ?)`,
-  ).run(ts, randomUUID(), action, accountId, JSON.stringify({ source: "nico", ...details }));
+    `INSERT INTO audit_log (occurred_at, trace_id, actor, action, account_id, email_id, user_id, details_json)
+     VALUES (?, ?, 'system', ?, ?, NULL, ?, ?)`,
+  ).run(ts, randomUUID(), action, accountId, userId, JSON.stringify({ source: "nico", ...details }));
 }
 
 export type CreateRuleResult =
@@ -63,25 +63,27 @@ export type CreateRuleResult =
  */
 export function createRule(
   db: DatabaseSync,
+  userId: number,
   i: { kind: RuleKind; match: RuleMatch; value: string; accountId?: string | null | undefined; ts: string },
 ): CreateRuleResult {
   const norm = normalizeRuleValue(i.match, i.value);
   if (!norm.ok) return norm;
   const accountId = i.accountId ?? null;
-  if (accountId !== null && db.prepare("SELECT 1 FROM accounts WHERE id = ?").get(accountId) === undefined) {
+  // An account of another user is "unknown" (same answer as a missing one); the composite FK backs this up in the schema.
+  if (accountId !== null && db.prepare("SELECT 1 FROM accounts WHERE id = ? AND user_id = ?").get(accountId, userId) === undefined) {
     return { ok: false, code: "unknown_account" };
   }
   db.exec("BEGIN IMMEDIATE");
   try {
     const find = (kind: RuleKind) =>
       db.prepare(
-        `SELECT ${COLUMNS} FROM sender_rules WHERE kind = ? AND match = ? AND value = ? AND COALESCE(account_id, '') = ?`,
-      ).get(kind, i.match, norm.value, accountId ?? "") as SenderRule | undefined;
+        `SELECT ${COLUMNS} FROM sender_rules WHERE user_id = ? AND kind = ? AND match = ? AND value = ? AND COALESCE(account_id, '') = ?`,
+      ).get(userId, kind, i.match, norm.value, accountId ?? "") as SenderRule | undefined;
     const opposite = find(i.kind === "blacklist" ? "allowlist" : "blacklist");
     const deactivated: number[] = [];
     if (opposite && opposite.active === 1) {
-      db.prepare("UPDATE sender_rules SET active = 0 WHERE id = ?").run(opposite.id);
-      audit(db, "sender_rule_deactivated", i.ts, accountId, { rule_id: opposite.id, kind: opposite.kind, match: opposite.match, reason: "replaced" });
+      db.prepare("UPDATE sender_rules SET active = 0 WHERE id = ? AND user_id = ?").run(opposite.id, userId);
+      audit(db, "sender_rule_deactivated", i.ts, userId, accountId, { rule_id: opposite.id, kind: opposite.kind, match: opposite.match, reason: "replaced" });
       deactivated.push(opposite.id);
     }
     const existing = find(i.kind);
@@ -90,15 +92,15 @@ export function createRule(
     if (existing) {
       id = existing.id;
       if (existing.active === 1) changed = false;
-      else db.prepare("UPDATE sender_rules SET active = 1 WHERE id = ?").run(id);
+      else db.prepare("UPDATE sender_rules SET active = 1 WHERE id = ? AND user_id = ?").run(id, userId);
     } else {
       const res = db.prepare(
-        `INSERT INTO sender_rules (kind, match, value, account_id, source, active, created_at) VALUES (?, ?, ?, ?, 'nico', 1, ?)`,
-      ).run(i.kind, i.match, norm.value, accountId, i.ts);
+        `INSERT INTO sender_rules (user_id, kind, match, value, account_id, source, active, created_at) VALUES (?, ?, ?, ?, ?, 'nico', 1, ?)`,
+      ).run(userId, i.kind, i.match, norm.value, accountId, i.ts);
       id = Number(res.lastInsertRowid);
     }
-    if (changed) audit(db, "sender_rule_created", i.ts, accountId, { rule_id: id, kind: i.kind, match: i.match });
-    const rule = db.prepare(`SELECT ${COLUMNS} FROM sender_rules WHERE id = ?`).get(id) as unknown as SenderRule;
+    if (changed) audit(db, "sender_rule_created", i.ts, userId, accountId, { rule_id: id, kind: i.kind, match: i.match });
+    const rule = db.prepare(`SELECT ${COLUMNS} FROM sender_rules WHERE id = ? AND user_id = ?`).get(id, userId) as unknown as SenderRule;
     db.exec("COMMIT");
     return { ok: true, rule: { ...rule }, changed, deactivated };
   } catch (e) {
@@ -109,21 +111,22 @@ export function createRule(
 
 export type DeactivateResult = { ok: true; rule: SenderRule; changed: boolean } | { ok: false; code: "not_found" };
 
-export function deactivateRule(db: DatabaseSync, id: number, ts: string): DeactivateResult {
+export function deactivateRule(db: DatabaseSync, userId: number, id: number, ts: string): DeactivateResult {
   db.exec("BEGIN IMMEDIATE");
   try {
-    const rule = db.prepare(`SELECT ${COLUMNS} FROM sender_rules WHERE id = ?`).get(id) as SenderRule | undefined;
+    // A rule of another user is "not_found" and stays untouched.
+    const rule = db.prepare(`SELECT ${COLUMNS} FROM sender_rules WHERE id = ? AND user_id = ?`).get(id, userId) as SenderRule | undefined;
     if (!rule) {
       db.exec("ROLLBACK");
       return { ok: false, code: "not_found" };
     }
     let changed = false;
     if (rule.active === 1) {
-      db.prepare("UPDATE sender_rules SET active = 0 WHERE id = ?").run(id);
-      audit(db, "sender_rule_deactivated", ts, rule.account_id, { rule_id: id, kind: rule.kind, match: rule.match });
+      db.prepare("UPDATE sender_rules SET active = 0 WHERE id = ? AND user_id = ?").run(id, userId);
+      audit(db, "sender_rule_deactivated", ts, userId, rule.account_id, { rule_id: id, kind: rule.kind, match: rule.match });
       changed = true;
     }
-    const after = db.prepare(`SELECT ${COLUMNS} FROM sender_rules WHERE id = ?`).get(id) as unknown as SenderRule;
+    const after = db.prepare(`SELECT ${COLUMNS} FROM sender_rules WHERE id = ? AND user_id = ?`).get(id, userId) as unknown as SenderRule;
     db.exec("COMMIT");
     return { ok: true, rule: { ...after }, changed };
   } catch (e) {
@@ -132,9 +135,9 @@ export function deactivateRule(db: DatabaseSync, id: number, ts: string): Deacti
   }
 }
 
-export function listRules(db: DatabaseSync, o: { includeInactive?: boolean } = {}): SenderRule[] {
-  const where = o.includeInactive ? "" : "WHERE active = 1";
-  return (db.prepare(`SELECT ${COLUMNS} FROM sender_rules ${where} ORDER BY id`).all() as unknown as SenderRule[]).map((r) => ({ ...r }));
+export function listRules(db: DatabaseSync, userId: number, o: { includeInactive?: boolean } = {}): SenderRule[] {
+  const where = o.includeInactive ? "WHERE user_id = ?" : "WHERE user_id = ? AND active = 1";
+  return (db.prepare(`SELECT ${COLUMNS} FROM sender_rules ${where} ORDER BY id`).all(userId) as unknown as SenderRule[]).map((r) => ({ ...r }));
 }
 
 export interface SenderRuleHit {
@@ -143,15 +146,15 @@ export interface SenderRuleHit {
 }
 
 /** Active rules that apply to a mail from `sender` in `accountId`: exact address or exact domain; global or this account. */
-export function senderRuleHit(db: DatabaseSync, sender: string, accountId: string): SenderRuleHit {
+export function senderRuleHit(db: DatabaseSync, userId: number, sender: string, accountId: string): SenderRuleHit {
   const s = splitSender(sender);
   const none = { allowlisted: false, blacklisted: false };
   if (!s) return none;
   const kinds = db.prepare(
     `SELECT DISTINCT kind FROM sender_rules
-     WHERE active = 1 AND (account_id IS NULL OR account_id = ?)
+     WHERE user_id = ? AND active = 1 AND (account_id IS NULL OR account_id = ?)
        AND ((match = 'address' AND value = ?) OR (match = 'domain' AND value = ?))`,
-  ).all(accountId, s.address, s.domain) as { kind: RuleKind }[];
+  ).all(userId, accountId, s.address, s.domain) as { kind: RuleKind }[];
   return {
     allowlisted: kinds.some((k) => k.kind === "allowlist"),
     blacklisted: kinds.some((k) => k.kind === "blacklist"),

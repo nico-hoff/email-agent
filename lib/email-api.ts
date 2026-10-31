@@ -369,10 +369,11 @@ function inView(view: View, d: Derived): boolean {
   }
 }
 
-export function listEmails(db: DatabaseSync, q: ListQuery, deps: ApiDeps = {}): ListResult {
+export function listEmails(db: DatabaseSync, userId: number, q: ListQuery, deps: ApiDeps = {}): ListResult {
   const readNoul = deps.readNoul ?? interpretNoul;
-  const where: string[] = [];
-  const params: string[] = [];
+  // Tenant scope: only mails of this user's accounts (ADR 0029).
+  const where: string[] = ["a.user_id = ?"];
+  const params: (string | number)[] = [userId];
   if (q.account !== null) {
     where.push("e.account_id = ?");
     params.push(q.account);
@@ -381,7 +382,7 @@ export function listEmails(db: DatabaseSync, q: ListQuery, deps: ApiDeps = {}): 
     where.push("c.status = ?");
     params.push(q.status);
   }
-  const rows = db.prepare(`${SELECT_ROWS} ${where.length ? "WHERE " + where.join(" AND ") : ""}`).all(...params) as unknown as Row[];
+  const rows = db.prepare(`${SELECT_ROWS} WHERE ${where.join(" AND ")}`).all(...params) as unknown as Row[];
   const all = rows.map((r) => derive(r, readNoul));
 
   const counts: Counts = { important: 0, open: 0, noise: 0, all: all.length };
@@ -402,7 +403,7 @@ export function listEmails(db: DatabaseSync, q: ListQuery, deps: ApiDeps = {}): 
   const last = page.at(-1);
   const next_cursor = list.length > q.limit && last ? encodeCursor(last.key) : null;
 
-  const accounts = (db.prepare("SELECT id, label, color FROM accounts ORDER BY id").all() as { id: string; label: string; color: string | null }[])
+  const accounts = (db.prepare("SELECT id, label, color FROM accounts WHERE user_id = ? ORDER BY id").all(userId) as { id: string; label: string; color: string | null }[])
     .map(accountTag);
   const auto_actions = Object.fromEntries(accounts.map((a) => [a.id, deps.autoActionModes?.get(a.id) ?? "dry_run"] as const));
   return { emails: page.map((d) => buildItem(db, d, readNoul)), next_cursor, counts, accounts, auto_actions, view };
@@ -430,9 +431,9 @@ export interface EmailDetail extends EmailItem {
   locations: { folder: string; is_active: boolean; first_seen_at: string; last_seen_at: string }[];
 }
 
-export function getEmailDetail(db: DatabaseSync, id: number, deps: ApiDeps = {}): EmailDetail | null {
+export function getEmailDetail(db: DatabaseSync, userId: number, id: number, deps: ApiDeps = {}): EmailDetail | null {
   const readNoul = deps.readNoul ?? interpretNoul;
-  const row = db.prepare(`${SELECT_ROWS} WHERE e.id = ?`).get(id) as unknown as Row | undefined;
+  const row = db.prepare(`${SELECT_ROWS} WHERE e.id = ? AND a.user_id = ?`).get(id, userId) as unknown as Row | undefined;
   if (!row) return null;
   const item = buildItem(db, derive(row, readNoul), readNoul);
   const history = (db.prepare(

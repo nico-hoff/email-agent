@@ -8,6 +8,7 @@ import { openDatabase } from "../lib/db.ts";
 import { syncAccounts } from "../lib/accounts.ts";
 import { QUESTION_SET_VERSION } from "../lib/constants.ts";
 import type { NormalizedAnswer, NoulReading } from "../lib/jev-response.ts";
+import { runAsUser } from "../lib/tenant.ts";
 
 // Outside the Veryfront runtime nobody registers the SchemaValidator that defineSchema() needs at
 // module load (the runtime does it in bootstrap, see agent-contract notes). Not a public export,
@@ -68,6 +69,7 @@ function harness(interpret: typeof byValue | null = byValue) {
   let opened = 0;
   let closed = 0;
   const tool = createGetEmailContext({
+    userId: 1,
     openDb: () => {
       opened++;
       return new Proxy(s.db, {
@@ -184,4 +186,19 @@ test("T41 guard: no MCP route and no MCP configuration (agent-contract section 2
     const src = readFileSync(join(root, name), "utf8");
     assert.ok(!/\bmcp\b/.test(src), `${name} must not enable MCP`);
   }
+});
+
+test("tenant scope: no bound user fails closed; the ambient user (runAsUser) decides; a mail of another user is not found", async () => {
+  const h = harness();
+  try {
+    h.db.exec(`INSERT INTO users (id,email,password_hash,role,status,created_at,updated_at) VALUES (2,'two@x.test','${"h".repeat(40)}','user','active','${T}','${T}')`);
+    const keepOpen = { prepare: (sql: string) => h.db.prepare(sql), close: () => {} } as unknown as typeof h.db;
+    const ambient = createGetEmailContext({ openDb: () => keepOpen, interpret: byValue });
+    assert.deepEqual(await ambient.execute({ email_id: 5 }), { ok: false, code: "email_not_found" }, "no user bound");
+    const asOne = await runAsUser(1, () => ambient.execute({ email_id: 5 }));
+    assert.ok(asOne.ok);
+    assert.deepEqual(await runAsUser(2, () => ambient.execute({ email_id: 5 })), { ok: false, code: "email_not_found" }, "user 2 owns no account");
+    h.db.exec("UPDATE accounts SET user_id = 2");
+    assert.deepEqual(await h.tool.execute({ email_id: 5 }), { ok: false, code: "email_not_found" }, "pinned user 1 no longer owns it");
+  } finally { h.done(); }
 });

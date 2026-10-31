@@ -79,6 +79,32 @@ export function verifySession(value: string, key: Uint8Array, now: number = Date
   return { ok: true, login: Buffer.from(m[2], "base64url").toString("utf8") };
 }
 
+// --- users mode cookie ---------------------------------------------------------------------------------------------
+function userMac(key: Uint8Array, iat: number, userId: number, token: string): Buffer {
+  return createHmac("sha256", key).update(`v2|${iat}|${userId}|${token}`).digest();
+}
+
+/** `v2.<issued at, base36>.<user id>.<session token>.<HMAC>`; the token is also checked against its server-side row. */
+export function issueUserSession(userId: number, token: string, key: Uint8Array, now: number = Date.now()): string {
+  return `v2.${now.toString(36)}.${userId}.${token}.${userMac(key, now, userId, token).toString("base64url")}`;
+}
+
+export function verifyUserSession(
+  value: string,
+  key: Uint8Array,
+  now: number = Date.now(),
+): { ok: true; userId: number; token: string } | { ok: false } {
+  const m = /^v2\.([0-9a-z]{1,12})\.([1-9][0-9]{0,14})\.([A-Za-z0-9_-]{43})\.([A-Za-z0-9_-]{43})$/.exec(value);
+  if (!m) return { ok: false };
+  const iat = parseInt(m[1], 36);
+  const userId = Number(m[2]);
+  const given = Buffer.from(m[4], "base64url");
+  const expected = userMac(key, iat, userId, m[3]);
+  if (given.length !== expected.length || !timingSafeEqual(given, expected)) return { ok: false };
+  if (iat > now + MAX_CLOCK_SKEW_MS || now - iat > SESSION_TTL_MS) return { ok: false };
+  return { ok: true, userId, token: m[3] };
+}
+
 export function readCookie(header: string | null, name: string): string | null {
   if (!header) return null;
   for (const part of header.split(";")) {
@@ -114,18 +140,27 @@ export function isHttpsRequest(request: Request): boolean {
   return new URL(request.url).protocol === "https:" || request.headers.get("x-forwarded-proto") === "https";
 }
 
-// --- password mode (public hosting, e.g. fly.io) -------------------------------------------------------------------
-export type AuthMode = "synthetic" | "password" | "tailnet";
+// --- password and users mode (public hosting, e.g. fly.io) -----------------------------------------------------------
+export type AuthMode = "synthetic" | "users" | "password" | "tailnet";
 /** Fixed session identity of the password mode: there is exactly one user, the holder of APP_PASSWORD. */
 export const PASSWORD_IDENTITY = "password-user";
 export const MIN_PASSWORD_CHARS = 16;
+/** CSRF identity of the users mode before login (login and registration forms); after login it is `user:<id>`. */
+export const USERS_PRE_LOGIN_IDENTITY = "users-pre-login";
+
+/** Identity string of a signed-in user in the users mode: CSRF binding, rate-limit key, briefing cache key. */
+export function userIdentity(userId: number): string {
+  return `user:${userId}`;
+}
 
 /**
- * Pure mode choice. Synthetic dev mode wins; otherwise a set APP_PASSWORD (even an empty or too short one, which then
- * fails closed) selects the password mode, and the Tailscale header is not read at all. Unset = tailnet mode.
+ * Pure mode choice. Synthetic dev mode wins; then the explicit AUTH_MODE=users (ADR 0022/0029); otherwise a set
+ * APP_PASSWORD (even an empty or too short one, which then fails closed) selects the password mode, and the Tailscale
+ * header is not read at all. Unset = tailnet mode. Password and tailnet stay as transitional modes mapped to the owner.
  */
-export function selectAuthMode(o: { synthetic: boolean; appPassword: string | undefined }): AuthMode {
+export function selectAuthMode(o: { synthetic: boolean; appPassword: string | undefined; authMode?: string | undefined }): AuthMode {
   if (o.synthetic) return "synthetic";
+  if (o.authMode === "users") return "users";
   return o.appPassword === undefined ? "tailnet" : "password";
 }
 

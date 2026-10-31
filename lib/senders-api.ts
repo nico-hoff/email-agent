@@ -4,8 +4,9 @@
 import { z } from "zod";
 import type { DatabaseSync } from "node:sqlite";
 import { validateDatabasePath } from "./accounts.ts";
-import { type AuthContext, defaultAuthContext, defaultMutationLimiter, guardMutation } from "./auth-runtime.ts";
+import { type AuthContext, defaultAuthContext, defaultMutationLimiter, guardMutation, requireUser } from "./auth-runtime.ts";
 import { PROJECT_ROOT } from "./constants.ts";
+import { ownsEmail } from "./tenant.ts";
 import { openDatabase } from "./db.ts";
 import { parseEmailId } from "./email-status.ts";
 import { FEEDBACK_KINDS, feedbackState, recordFeedback } from "./feedback.ts";
@@ -51,7 +52,7 @@ async function readBody(request: Request): Promise<Record<string, unknown> | nul
 async function mutate(
   request: Request,
   deps: ApiDeps,
-  run: (db: DatabaseSync, ts: string, body: Record<string, unknown>) => Response,
+  run: (db: DatabaseSync, ts: string, body: Record<string, unknown>, userId: number) => Response,
   options: { body?: boolean } = {},
 ): Promise<Response> {
   const gate = guardMutation(request, deps.auth, deps.limiter);
@@ -65,7 +66,7 @@ async function mutate(
   let db: DatabaseSync | undefined;
   try {
     db = deps.openDb();
-    return run(db, (deps.now?.() ?? new Date()).toISOString(), body);
+    return run(db, (deps.now?.() ?? new Date()).toISOString(), body, gate.userId);
   } catch {
     return json({ error: "unavailable" }, 500);
   } finally {
@@ -73,11 +74,14 @@ async function mutate(
   }
 }
 
-function read(deps: Pick<ApiDeps, "openDb">, run: (db: DatabaseSync) => Response): Response {
+/** GET: the session decides whose data is read (401 without one), never a parameter of the request. */
+function read(request: Request, deps: Pick<ApiDeps, "openDb"> & { auth: AuthContext }, run: (db: DatabaseSync, userId: number) => Response): Response {
+  const who = requireUser(request, deps.auth);
+  if (!who.ok) return who.response;
   let db: DatabaseSync | undefined;
   try {
     db = deps.openDb();
-    return run(db);
+    return run(db, who.userId);
   } catch {
     return json({ error: "unavailable" }, 500);
   } finally {
@@ -89,23 +93,23 @@ function read(deps: Pick<ApiDeps, "openDb">, run: (db: DatabaseSync) => Response
 const feedbackBody = z.strictObject({ kind: z.enum(FEEDBACK_KINDS), value: z.string().max(64).optional() });
 
 export function handleFeedbackPost(request: Request, rawId: unknown, deps: ApiDeps): Promise<Response> {
-  return mutate(request, deps, (db, ts, body) => {
+  return mutate(request, deps, (db, ts, body, userId) => {
     const id = parseEmailId(rawId);
     if (id === null) return json({ error: "not_found" }, 404);
     const parsed = feedbackBody.safeParse(body);
     if (!parsed.success) return json({ error: "invalid_body" }, 400);
-    const r = recordFeedback(db, { emailId: id, kind: parsed.data.kind, value: parsed.data.value, ts });
+    const r = recordFeedback(db, userId, { emailId: id, kind: parsed.data.kind, value: parsed.data.value, ts });
     if (!r.ok) return r.code === "not_found" ? json({ error: "not_found" }, 404) : json({ error: r.code }, 400);
-    return json({ ok: true, id, kind: parsed.data.kind, changed: r.changed, feedback: feedbackState(db, id) });
+    return json({ ok: true, id, kind: parsed.data.kind, changed: r.changed, feedback: feedbackState(db, userId, id) });
   });
 }
 
-export function handleFeedbackGet(rawId: unknown, deps: Pick<ApiDeps, "openDb">): Response {
+export function handleFeedbackGet(request: Request, rawId: unknown, deps: Pick<ApiDeps, "openDb" | "auth">): Response {
   const id = parseEmailId(rawId);
   if (id === null) return json({ error: "not_found" }, 404);
-  return read(deps, (db) => {
-    if (!db.prepare("SELECT 1 FROM emails WHERE id = ?").get(id)) return json({ error: "not_found" }, 404);
-    return json({ id, feedback: feedbackState(db, id) });
+  return read(request, deps, (db, userId) => {
+    if (!ownsEmail(db, userId, id)) return json({ error: "not_found" }, 404);
+    return json({ id, feedback: feedbackState(db, userId, id) });
   });
 }
 
@@ -118,25 +122,25 @@ const ruleBody = z.strictObject({
 });
 
 export function handleRulesCreate(request: Request, deps: ApiDeps): Promise<Response> {
-  return mutate(request, deps, (db, ts, body) => {
+  return mutate(request, deps, (db, ts, body, userId) => {
     const parsed = ruleBody.safeParse(body);
     if (!parsed.success) return json({ error: "invalid_body" }, 400);
-    const r = createRule(db, { kind: parsed.data.kind, match: parsed.data.match, value: parsed.data.value, accountId: parsed.data.account_id, ts });
+    const r = createRule(db, userId, { kind: parsed.data.kind, match: parsed.data.match, value: parsed.data.value, accountId: parsed.data.account_id, ts });
     if (!r.ok) return json({ error: r.code }, 400);
     return json({ ok: true, rule: r.rule, changed: r.changed, deactivated_rule_ids: r.deactivated });
   });
 }
 
-export function handleRulesList(request: Request, deps: Pick<ApiDeps, "openDb">): Response {
+export function handleRulesList(request: Request, deps: Pick<ApiDeps, "openDb" | "auth">): Response {
   const includeInactive = new URL(request.url).searchParams.get("include_inactive") === "1";
-  return read(deps, (db) => json({ rules: listRules(db, { includeInactive }) }));
+  return read(request, deps, (db, userId) => json({ rules: listRules(db, userId, { includeInactive }) }));
 }
 
 export function handleRuleDeactivate(request: Request, rawId: unknown, deps: ApiDeps): Promise<Response> {
-  return mutate(request, deps, (db, ts) => {
+  return mutate(request, deps, (db, ts, _body, userId) => {
     const id = parseEmailId(rawId); // same strict positive-integer shape
     if (id === null) return json({ error: "not_found" }, 404);
-    const r = deactivateRule(db, id, ts);
+    const r = deactivateRule(db, userId, id, ts);
     if (!r.ok) return json({ error: "not_found" }, 404);
     return json({ ok: true, rule: r.rule, changed: r.changed });
   }, { body: false });
@@ -145,15 +149,15 @@ export function handleRuleDeactivate(request: Request, rawId: unknown, deps: Api
 // ---- HITL ----
 const dismissBody = z.strictObject({ match: z.enum(RULE_MATCHES), value: z.string().min(1).max(254) });
 
-export function handleHitlList(deps: Pick<ApiDeps, "openDb">): Response {
-  return read(deps, (db) => json({ candidates: listHitl(db) }));
+export function handleHitlList(request: Request, deps: Pick<ApiDeps, "openDb" | "auth">): Response {
+  return read(request, deps, (db, userId) => json({ candidates: listHitl(db, userId) }));
 }
 
 export function handleHitlDismiss(request: Request, deps: ApiDeps): Promise<Response> {
-  return mutate(request, deps, (db, ts, body) => {
+  return mutate(request, deps, (db, ts, body, userId) => {
     const parsed = dismissBody.safeParse(body);
     if (!parsed.success) return json({ error: "invalid_body" }, 400);
-    const r = dismissHitl(db, parsed.data.match, parsed.data.value, ts);
+    const r = dismissHitl(db, userId, parsed.data.match, parsed.data.value, ts);
     if (!r.ok) return r.code === "not_found" ? json({ error: "not_found" }, 404) : json({ error: r.code }, 400);
     return json({ ok: true, changed: r.changed });
   });

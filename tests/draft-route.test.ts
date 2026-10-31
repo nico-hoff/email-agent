@@ -252,8 +252,8 @@ describe("H12: the draft marker never reaches disk, logs or later requests", () 
       assert.doesNotMatch(dump(t.db), new RegExp(marker), `database: ${marker}`);
       assert.equal(logged.join("\n").includes(marker), false, `logs: ${marker}`);
       // follow-up requests: the list and the detail of the same mail
-      const list = JSON.stringify(listEmails(t.db, { view: "all", account: null, status: null, limit: 50, cursor: null }));
-      const detail = JSON.stringify(getEmailDetail(t.db, 1));
+      const list = JSON.stringify(listEmails(t.db, 1, { view: "all", account: null, status: null, limit: 50, cursor: null }));
+      const detail = JSON.stringify(getEmailDetail(t.db, 1, 1));
       assert.equal(list.includes(marker), false, `GET /api/emails: ${marker}`);
       assert.equal(detail.includes(marker), false, `GET /api/emails/1: ${marker}`);
     }

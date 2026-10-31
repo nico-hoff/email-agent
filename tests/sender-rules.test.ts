@@ -23,7 +23,7 @@ const audits = (db: DatabaseSync) =>
 describe("createRule", () => {
   test("stores a lower-cased address rule with source nico, active, and audits ids and codes only", () => {
     const db = setup();
-    const r = createRule(db, { kind: "blacklist", match: "address", value: " Spam@Junk.TEST ", ts: T });
+    const r = createRule(db, 1, { kind: "blacklist", match: "address", value: " Spam@Junk.TEST ", ts: T });
     assert.ok(r.ok);
     assert.deepEqual({ ...r.rule }, { id: 1, kind: "blacklist", match: "address", value: "spam@junk.test", account_id: null, source: "nico", active: 1, created_at: T });
     assert.deepEqual(r.deactivated, []);
@@ -38,90 +38,90 @@ describe("createRule", () => {
   test("a domain rule needs a plausible domain; freemail domains are refused for domain rules only", () => {
     const db = setup();
     for (const bad of ["", "nodot", "a b.test", "-x.test", "x..test", "x.test/", "@x.test", "a@x.test"]) {
-      const r = createRule(db, { kind: "blacklist", match: "domain", value: bad, ts: T });
+      const r = createRule(db, 1, { kind: "blacklist", match: "domain", value: bad, ts: T });
       assert.deepEqual(r, { ok: false, code: "invalid_value" }, bad);
     }
     for (const d of ["gmail.com", "WEB.DE", "gmx.de", "outlook.com", "icloud.com"]) {
-      assert.deepEqual(createRule(db, { kind: "blacklist", match: "domain", value: d, ts: T }), { ok: false, code: "freemail_domain" }, d);
+      assert.deepEqual(createRule(db, 1, { kind: "blacklist", match: "domain", value: d, ts: T }), { ok: false, code: "freemail_domain" }, d);
     }
-    assert.ok(createRule(db, { kind: "blacklist", match: "address", value: "someone@gmail.com", ts: T }).ok, "single freemail addresses are fine");
-    assert.ok(createRule(db, { kind: "allowlist", match: "domain", value: "firma.example", ts: T }).ok);
-    assert.equal(listRules(db).length, 2);
+    assert.ok(createRule(db, 1, { kind: "blacklist", match: "address", value: "someone@gmail.com", ts: T }).ok, "single freemail addresses are fine");
+    assert.ok(createRule(db, 1, { kind: "allowlist", match: "domain", value: "firma.example", ts: T }).ok);
+    assert.equal(listRules(db, 1).length, 2);
   });
 
   test("an address rule needs exactly one @ and a domain", () => {
     const db = setup();
     for (const bad of ["", "x.test", "a@", "@x.test", "a@@x.test", "a b@x.test", "a@x"]) {
-      assert.deepEqual(createRule(db, { kind: "allowlist", match: "address", value: bad, ts: T }), { ok: false, code: "invalid_value" }, bad);
+      assert.deepEqual(createRule(db, 1, { kind: "allowlist", match: "address", value: bad, ts: T }), { ok: false, code: "invalid_value" }, bad);
     }
   });
 
   test("an unknown account is refused, a known one is stored", () => {
     const db = setup();
-    assert.deepEqual(createRule(db, { kind: "blacklist", match: "domain", value: "x.test", accountId: "nope", ts: T }), { ok: false, code: "unknown_account" });
-    const r = createRule(db, { kind: "blacklist", match: "domain", value: "x.test", accountId: "a", ts: T });
+    assert.deepEqual(createRule(db, 1, { kind: "blacklist", match: "domain", value: "x.test", accountId: "nope", ts: T }), { ok: false, code: "unknown_account" });
+    const r = createRule(db, 1, { kind: "blacklist", match: "domain", value: "x.test", accountId: "a", ts: T });
     assert.ok(r.ok && r.rule.account_id === "a");
   });
 
   test("creating the same rule again changes nothing and audits nothing", () => {
     const db = setup();
-    const first = createRule(db, { kind: "blacklist", match: "domain", value: "x.test", ts: T });
-    const again = createRule(db, { kind: "blacklist", match: "domain", value: "X.test", ts: T2 });
+    const first = createRule(db, 1, { kind: "blacklist", match: "domain", value: "x.test", ts: T });
+    const again = createRule(db, 1, { kind: "blacklist", match: "domain", value: "X.test", ts: T2 });
     assert.ok(first.ok && again.ok);
     assert.equal(again.rule.id, first.rule.id);
     assert.equal(again.changed, false);
-    assert.equal(listRules(db).length, 1);
+    assert.equal(listRules(db, 1).length, 1);
     assert.equal(audits(db).length, 1);
   });
 
   test("the opposite rule for the same target replaces the active one (one verdict per target)", () => {
     const db = setup();
-    const b = createRule(db, { kind: "blacklist", match: "domain", value: "x.test", ts: T });
+    const b = createRule(db, 1, { kind: "blacklist", match: "domain", value: "x.test", ts: T });
     assert.ok(b.ok);
-    const w = createRule(db, { kind: "allowlist", match: "domain", value: "x.test", ts: T2 });
+    const w = createRule(db, 1, { kind: "allowlist", match: "domain", value: "x.test", ts: T2 });
     assert.ok(w.ok);
     assert.deepEqual(w.deactivated, [b.rule.id]);
-    assert.deepEqual(listRules(db).map((r) => [r.kind, r.active]), [["allowlist", 1]]);
-    assert.deepEqual(listRules(db, { includeInactive: true }).map((r) => [r.kind, r.active]), [["blacklist", 0], ["allowlist", 1]]);
+    assert.deepEqual(listRules(db, 1).map((r) => [r.kind, r.active]), [["allowlist", 1]]);
+    assert.deepEqual(listRules(db, 1, { includeInactive: true }).map((r) => [r.kind, r.active]), [["blacklist", 0], ["allowlist", 1]]);
     // another account's or another target's rule stays untouched
-    createRule(db, { kind: "blacklist", match: "domain", value: "y.test", ts: T });
-    createRule(db, { kind: "blacklist", match: "domain", value: "x.test", accountId: "a", ts: T });
-    createRule(db, { kind: "allowlist", match: "address", value: "p@x.test", ts: T });
-    assert.deepEqual(listRules(db).map((r) => r.id).sort(), [2, 3, 4, 5]);
+    createRule(db, 1, { kind: "blacklist", match: "domain", value: "y.test", ts: T });
+    createRule(db, 1, { kind: "blacklist", match: "domain", value: "x.test", accountId: "a", ts: T });
+    createRule(db, 1, { kind: "allowlist", match: "address", value: "p@x.test", ts: T });
+    assert.deepEqual(listRules(db, 1).map((r) => r.id).sort(), [2, 3, 4, 5]);
   });
 
   test("a deactivated rule is reactivated by creating it again (the row is kept)", () => {
     const db = setup();
-    const r = createRule(db, { kind: "blacklist", match: "address", value: "a@x.test", ts: T });
+    const r = createRule(db, 1, { kind: "blacklist", match: "address", value: "a@x.test", ts: T });
     assert.ok(r.ok);
-    assert.ok(deactivateRule(db, r.rule.id, T2).ok);
-    assert.equal(listRules(db).length, 0);
-    const again = createRule(db, { kind: "blacklist", match: "address", value: "a@x.test", ts: T2 });
+    assert.ok(deactivateRule(db, 1, r.rule.id, T2).ok);
+    assert.equal(listRules(db, 1).length, 0);
+    const again = createRule(db, 1, { kind: "blacklist", match: "address", value: "a@x.test", ts: T2 });
     assert.ok(again.ok && again.changed && again.rule.id === r.rule.id && again.rule.active === 1);
-    assert.equal(listRules(db, { includeInactive: true }).length, 1);
+    assert.equal(listRules(db, 1, { includeInactive: true }).length, 1);
   });
 });
 
 describe("deactivateRule", () => {
   test("switches the rule off, audits, is idempotent, and reports unknown ids", () => {
     const db = setup();
-    const r = createRule(db, { kind: "allowlist", match: "domain", value: "x.test", ts: T });
+    const r = createRule(db, 1, { kind: "allowlist", match: "domain", value: "x.test", ts: T });
     assert.ok(r.ok);
-    const d = deactivateRule(db, r.rule.id, T2);
+    const d = deactivateRule(db, 1, r.rule.id, T2);
     assert.ok(d.ok && d.changed && d.rule.active === 0);
-    const d2 = deactivateRule(db, r.rule.id, T2);
+    const d2 = deactivateRule(db, 1, r.rule.id, T2);
     assert.ok(d2.ok && !d2.changed);
     assert.deepEqual(audits(db).map((a) => a.action), ["sender_rule_created", "sender_rule_deactivated"]);
-    assert.deepEqual(deactivateRule(db, 999, T2), { ok: false, code: "not_found" });
+    assert.deepEqual(deactivateRule(db, 1, 999, T2), { ok: false, code: "not_found" });
   });
 });
 
 describe("senderRuleHit", () => {
   test("matches the exact address and the exact domain, not subdomains or look-alikes", () => {
     const db = setup();
-    createRule(db, { kind: "blacklist", match: "address", value: "bad@x.test", ts: T });
-    createRule(db, { kind: "blacklist", match: "domain", value: "junk.test", ts: T });
-    const hit = (s: string, acc = "a") => senderRuleHit(db, s, acc);
+    createRule(db, 1, { kind: "blacklist", match: "address", value: "bad@x.test", ts: T });
+    createRule(db, 1, { kind: "blacklist", match: "domain", value: "junk.test", ts: T });
+    const hit = (s: string, acc = "a") => senderRuleHit(db, 1, s, acc);
     assert.deepEqual(hit("bad@x.test"), { allowlisted: false, blacklisted: true });
     assert.deepEqual(hit("BAD@X.TEST"), { allowlisted: false, blacklisted: true });
     assert.deepEqual(hit("other@x.test"), { allowlisted: false, blacklisted: false });
@@ -133,20 +133,20 @@ describe("senderRuleHit", () => {
 
   test("an account-bound rule only applies to that account; inactive rules never apply", () => {
     const db = setup();
-    createRule(db, { kind: "allowlist", match: "domain", value: "x.test", accountId: "a", ts: T });
-    const bl = createRule(db, { kind: "blacklist", match: "domain", value: "y.test", ts: T });
-    assert.deepEqual(senderRuleHit(db, "p@x.test", "a"), { allowlisted: true, blacklisted: false });
-    assert.deepEqual(senderRuleHit(db, "p@x.test", "b"), { allowlisted: false, blacklisted: false });
+    createRule(db, 1, { kind: "allowlist", match: "domain", value: "x.test", accountId: "a", ts: T });
+    const bl = createRule(db, 1, { kind: "blacklist", match: "domain", value: "y.test", ts: T });
+    assert.deepEqual(senderRuleHit(db, 1, "p@x.test", "a"), { allowlisted: true, blacklisted: false });
+    assert.deepEqual(senderRuleHit(db, 1, "p@x.test", "b"), { allowlisted: false, blacklisted: false });
     assert.ok(bl.ok);
-    deactivateRule(db, bl.rule.id, T2);
-    assert.deepEqual(senderRuleHit(db, "p@y.test", "a"), { allowlisted: false, blacklisted: false });
+    deactivateRule(db, 1, bl.rule.id, T2);
+    assert.deepEqual(senderRuleHit(db, 1, "p@y.test", "a"), { allowlisted: false, blacklisted: false });
   });
 
   test("allowlist and blacklist for overlapping targets are both reported (the rule engine lets protection win)", () => {
     const db = setup();
-    createRule(db, { kind: "blacklist", match: "domain", value: "x.test", ts: T });
-    createRule(db, { kind: "allowlist", match: "address", value: "ok@x.test", ts: T });
-    assert.deepEqual(senderRuleHit(db, "ok@x.test", "a"), { allowlisted: true, blacklisted: true });
-    assert.deepEqual(senderRuleHit(db, "bad@x.test", "a"), { allowlisted: false, blacklisted: true });
+    createRule(db, 1, { kind: "blacklist", match: "domain", value: "x.test", ts: T });
+    createRule(db, 1, { kind: "allowlist", match: "address", value: "ok@x.test", ts: T });
+    assert.deepEqual(senderRuleHit(db, 1, "ok@x.test", "a"), { allowlisted: true, blacklisted: true });
+    assert.deepEqual(senderRuleHit(db, 1, "bad@x.test", "a"), { allowlisted: false, blacklisted: true });
   });
 });

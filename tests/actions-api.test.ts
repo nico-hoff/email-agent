@@ -59,7 +59,7 @@ describe("GET /api/actions", () => {
   });
 
   test("dry_run list: items have exactly the contract fields, newest first, no content", () => {
-    const r = listActions(setup(), q("?mode=dry_run"));
+    const r = listActions(setup(), 1, q("?mode=dry_run"));
     assert.deepEqual(r.actions.map((a) => a.id), [6, 3, 2, 1]);
     assert.deepEqual(Object.keys(r.actions[0]).sort(), ["account", "action", "created_at", "email_id", "failure_code", "id", "mode", "rule", "status"]);
     assert.deepEqual({ ...r.actions[3] }, {
@@ -75,13 +75,13 @@ describe("GET /api/actions", () => {
       dry_run: { planned: 3, done: 0, failed: 0, undone: 1 },
       live: { planned: 0, done: 1, failed: 1, undone: 0 },
     };
-    for (const qs of ["?mode=dry_run", "?mode=live&limit=1", "?status=failed", ""]) assert.deepEqual(listActions(setup(), q(qs)).counts, expected, qs);
+    for (const qs of ["?mode=dry_run", "?mode=live&limit=1", "?status=failed", ""]) assert.deepEqual(listActions(setup(), 1, q(qs)).counts, expected, qs);
   });
 
   test("live list and status filter", () => {
     const db = setup();
-    assert.deepEqual(listActions(db, q("?mode=live")).actions.map((a) => [a.id, a.status, a.failure_code]), [[5, "failed", "store_rejected"], [4, "done", null]]);
-    assert.deepEqual(listActions(db, q("?mode=dry_run&status=planned")).actions.map((a) => a.id), [6, 2, 1]);
+    assert.deepEqual(listActions(db, 1, q("?mode=live")).actions.map((a) => [a.id, a.status, a.failure_code]), [[5, "failed", "store_rejected"], [4, "done", null]]);
+    assert.deepEqual(listActions(db, 1, q("?mode=dry_run&status=planned")).actions.map((a) => a.id), [6, 2, 1]);
   });
 
   test("keyset pagination follows the cursor without gaps or repeats, also across equal timestamps", () => {
@@ -90,14 +90,14 @@ describe("GET /api/actions", () => {
     let cursor: string | null = null;
     let pages = 0;
     do {
-      const r = listActions(db, q(`?limit=2${cursor ? `&cursor=${cursor}` : ""}`));
+      const r = listActions(db, 1, q(`?limit=2${cursor ? `&cursor=${cursor}` : ""}`));
       seen.push(...r.actions.map((a) => a.id));
       cursor = r.next_cursor;
       pages++;
     } while (cursor && pages < 10);
     assert.deepEqual(seen, [6, 5, 4, 3, 2, 1], "the undo log entry (id 7) is not listed");
     assert.equal(pages, 3);
-    assert.equal(listActions(db, q("?limit=50")).next_cursor, null);
+    assert.equal(listActions(db, 1, q("?limit=50")).next_cursor, null);
   });
 
   test("the route is GET only, guarded without a session, and unavailable data answers a code", async () => {

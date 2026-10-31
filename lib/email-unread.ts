@@ -30,7 +30,7 @@ export async function handleUnread(request: Request, rawId: unknown, deps: Unrea
   let db: DatabaseSync | undefined;
   try {
     db = deps.openDb();
-    const r = await deps.actions(db).undoSeen(id);
+    const r = await deps.actions(db).undoSeen(gate.userId, id);
     if (r.ok) return json({ ok: true, id, mode: r.mode, seen: false });
     return json({ error: r.code }, STATUS_BY_CODE.get(r.code) ?? 502);
   } catch {

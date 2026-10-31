@@ -1,6 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import { upsertSeen } from "./email-status.ts";
 import { recordSenderMail } from "./senders.ts";
+import { accountUserId } from "./tenant.ts";
 import type { MessageMeta } from "./imap.ts";
 
 export interface IngestInput {
@@ -48,7 +49,7 @@ export function ingestMail(db: DatabaseSync, i: IngestInput): { emailId: number;
         )
         .run(accountId, meta.messageId, meta.sender, meta.subject, meta.receivedAt, ts);
       emailId = Number(res.lastInsertRowid);
-      recordSenderMail(db, meta.sender, meta.dmarc, ts);
+      recordSenderMail(db, accountUserId(db, accountId), meta.sender, meta.dmarc, ts);
     } else {
       const prev = db
         .prepare("SELECT folder FROM email_locations WHERE email_id = ? AND is_active = 1")

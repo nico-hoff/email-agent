@@ -74,7 +74,7 @@ test("eligible mail: metadata from SQLite, fresh excerpt via the active location
     const { port, calls } = fakePort({ source: `From: a@b.test\r\nSubject: s\r\n\r\n${body}\r\n` });
     const factoryCalls: string[] = [];
     const before = tableCounts(db);
-    const r = await buildAgentInput({ db, portFactory: (acc) => { factoryCalls.push(acc); return port; }, interpret: byValue }, 1);
+    const r = await buildAgentInput({ db, userId: 1, portFactory: (acc) => { factoryCalls.push(acc); return port; }, interpret: byValue }, 1);
     assert.ok(r.ok);
     assert.deepEqual(factoryCalls, ["a1"]);
     assert.deepEqual(calls, ["connect", "fetch INBOX 101", "close"]);
@@ -96,7 +96,7 @@ test("eligible mail: metadata from SQLite, fresh excerpt via the active location
 test("blocked mail never reaches IMAP", async () => {
   const { db, dir } = setup();
   try {
-    const r = await buildAgentInput({ db, portFactory: () => { throw new Error("IMAP must not be touched"); }, interpret: byValue }, 2);
+    const r = await buildAgentInput({ db, userId: 1, portFactory: () => { throw new Error("IMAP must not be touched"); }, interpret: byValue }, 2);
     assert.deepEqual(r, { ok: false, code: "not_eligible", reasons: ["security_auth"] });
   } finally {
     db.close();
@@ -107,7 +107,7 @@ test("blocked mail never reaches IMAP", async () => {
 test("default interpreter without a known question set version blocks even an ordinary mail (fail-closed)", async () => {
   const { db, dir } = setup();
   try {
-    const r = await buildAgentInput({ db, portFactory: () => { throw new Error("IMAP must not be touched"); } }, 1);
+    const r = await buildAgentInput({ db, userId: 1, portFactory: () => { throw new Error("IMAP must not be touched"); } }, 1);
     assert.deepEqual(r, { ok: false, code: "not_eligible", reasons: ["addresses_an_ai"] });
   } finally {
     db.close();
@@ -119,11 +119,11 @@ test("default (calibrated) interpreter: 0.02 allowed, 0.35 and security_auth blo
   const { db, dir } = setup();
   try {
     const { port, calls } = fakePort();
-    const ok = await buildAgentInput({ db, portFactory: () => port }, 6);
+    const ok = await buildAgentInput({ db, userId: 1, portFactory: () => port }, 6);
     assert.ok(ok.ok);
     assert.equal(ok.input.needs_my_reply, "positive");
     assert.deepEqual(calls, ["connect", "fetch INBOX 106", "close"]);
-    const never = { db, portFactory: () => { throw new Error("IMAP must not be touched"); } };
+    const never = { db, userId: 1, portFactory: () => { throw new Error("IMAP must not be touched"); } };
     assert.deepEqual(await buildAgentInput(never, 7), { ok: false, code: "not_eligible", reasons: ["addresses_an_ai"] });
     assert.deepEqual(await buildAgentInput(never, 8), { ok: false, code: "not_eligible", reasons: ["security_auth"] });
   } finally {
@@ -135,7 +135,7 @@ test("default (calibrated) interpreter: 0.02 allowed, 0.35 and security_auth blo
 test("unknown, unclassified and location-less mails fail without IMAP", async () => {
   const { db, dir } = setup();
   try {
-    const deps = { db, portFactory: (): ImapPort => { throw new Error("IMAP must not be touched"); }, interpret: byValue };
+    const deps = { db, userId: 1, portFactory: (): ImapPort => { throw new Error("IMAP must not be touched"); }, interpret: byValue };
     assert.deepEqual(await buildAgentInput(deps, 99), { ok: false, code: "email_not_found" });
     assert.deepEqual(await buildAgentInput(deps, 3), { ok: false, code: "not_classified" });
     assert.deepEqual(await buildAgentInput(deps, 4), { ok: false, code: "source_gone" });
@@ -149,7 +149,7 @@ test("uses the latest classified answers even when a newer run is pending", asyn
   const { db, dir } = setup();
   try {
     const { port } = fakePort();
-    const r = await buildAgentInput({ db, portFactory: () => port, interpret: byValue }, 5);
+    const r = await buildAgentInput({ db, userId: 1, portFactory: () => port, interpret: byValue }, 5);
     assert.ok(r.ok);
   } finally {
     db.close();
@@ -161,10 +161,10 @@ test("missing message maps to source_gone, IMAP errors to fetch_failed without d
   const { db, dir } = setup();
   try {
     const gone = fakePort({ source: null });
-    assert.deepEqual(await buildAgentInput({ db, portFactory: () => gone.port, interpret: byValue }, 1), { ok: false, code: "source_gone" });
+    assert.deepEqual(await buildAgentInput({ db, userId: 1, portFactory: () => gone.port, interpret: byValue }, 1), { ok: false, code: "source_gone" });
     assert.equal(gone.calls.at(-1), "close");
     const bad = fakePort({ throws: true });
-    const r = await buildAgentInput({ db, portFactory: () => bad.port, interpret: byValue }, 1);
+    const r = await buildAgentInput({ db, userId: 1, portFactory: () => bad.port, interpret: byValue }, 1);
     assert.deepEqual(r, { ok: false, code: "fetch_failed" });
     assert.equal(bad.calls.at(-1), "close");
   } finally {

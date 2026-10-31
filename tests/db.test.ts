@@ -38,17 +38,17 @@ function throwsSql(db: DatabaseSync, sql: string, pattern: RegExp): void {
 const norm = (s: string) => s.replace(/\s+/g, " ").trim();
 
 const ALLOWLIST: Record<string, string[]> = {
-  accounts: ["id", "label", "host", "port", "mailbox", "spam_mailbox", "enabled", "color"],
+  accounts: ["id", "label", "host", "port", "mailbox", "spam_mailbox", "enabled", "color", "user_id"],
   email_status: ["email_id", "seen", "done", "updated_at"],
   mailbox_actions: [
     "id", "email_id", "location_id", "rule", "action", "mode", "status", "failure_code", "reason_json", "created_at", "done_at",
   ],
   feedback: ["id", "email_id", "classification_id", "kind", "value_json", "actor", "created_at"],
   senders: [
-    "id", "address", "domain", "first_seen_at", "last_seen_at", "mails_seen", "marked_spam", "marked_not_spam",
+    "id", "user_id", "address", "domain", "first_seen_at", "last_seen_at", "mails_seen", "marked_spam", "marked_not_spam",
     "jev_spam_count", "dmarc_pass", "hitl_asked_at", "hitl_asked_count",
   ],
-  sender_rules: ["id", "kind", "match", "value", "account_id", "source", "active", "created_at"],
+  sender_rules: ["id", "user_id", "kind", "match", "value", "account_id", "source", "active", "created_at"],
   mailbox_state: ["account_id", "mailbox", "uid_validity", "last_uid", "updated_at"],
   worker_status: [
     "account_id",
@@ -101,16 +101,31 @@ const ALLOWLIST: Record<string, string[]> = {
     "account_id",
     "email_id",
     "details_json",
+    "user_id",
   ],
-  user_state: ["key", "value_json", "updated_at"],
+  user_state: ["user_id", "key", "value_json", "updated_at"],
+  users: ["id", "email", "password_hash", "role", "status", "created_at", "updated_at"],
+  user_sessions: ["id", "user_id", "created_at", "expires_at", "last_used_at", "revoked_at"],
+  invites: ["id", "code_hash", "role", "created_by", "created_at", "expires_at", "used_at", "used_by"],
   schema_migrations: ["version", "applied_at"],
 };
 
 const T = "2026-10-26T19:48:46.692Z";
 
-function seed(db: DatabaseSync): void {
+/** Rows as the old migrations (001 to 005) wrote them: no user_id yet. */
+function seedLegacy(db: DatabaseSync): void {
   db.exec(`
     INSERT INTO accounts (id, label, host, port, mailbox) VALUES ('a1','A','h',993,'INBOX'), ('a2','B','h',993,'INBOX');
+    INSERT INTO emails (id, account_id, message_id, sender, subject, received_at, first_seen_at)
+      VALUES (1,'a1','<m1@x>','s@x.test','s','${T}','${T}');
+    INSERT INTO classifications (id, email_id, question_set_version, model_requested, status, created_at, updated_at)
+      VALUES (1,1,'v1','m','pending','${T}','${T}');
+  `);
+}
+
+function seed(db: DatabaseSync): void {
+  db.exec(`
+    INSERT INTO accounts (id, label, host, port, mailbox, user_id) VALUES ('a1','A','h',993,'INBOX',1), ('a2','B','h',993,'INBOX',1);
     INSERT INTO emails (id, account_id, message_id, sender, subject, received_at, first_seen_at)
       VALUES (1,'a1','<m1@x>','s@x.test','s','${T}','${T}');
     INSERT INTO classifications (id, email_id, question_set_version, model_requested, status, created_at, updated_at)
@@ -242,7 +257,7 @@ describe("UNIQUE", () => {
   test("accounts primary key", () => {
     const db = fresh();
     seed(db);
-    throwsSql(db, `INSERT INTO accounts (id,label,host,port,mailbox) VALUES ('a1','x','h',1,'m')`, /UNIQUE|PRIMARY KEY/);
+    throwsSql(db, `INSERT INTO accounts (id,label,host,port,mailbox,user_id) VALUES ('a1','x','h',1,'m',1)`, /UNIQUE|PRIMARY KEY/);
   });
   test("mailbox_state primary key (account_id, mailbox)", () => {
     const db = fresh();
@@ -306,9 +321,9 @@ describe("UNIQUE", () => {
 describe("CHECK and json_valid", () => {
   test("accounts.port range and enabled", () => {
     const db = fresh();
-    throwsSql(db, `INSERT INTO accounts (id,label,host,port,mailbox) VALUES ('x','l','h',0,'m')`, /CHECK/);
-    throwsSql(db, `INSERT INTO accounts (id,label,host,port,mailbox) VALUES ('x','l','h',65536,'m')`, /CHECK/);
-    throwsSql(db, `INSERT INTO accounts (id,label,host,port,mailbox,enabled) VALUES ('x','l','h',1,'m',2)`, /CHECK/);
+    throwsSql(db, `INSERT INTO accounts (id,label,host,port,mailbox,user_id) VALUES ('x','l','h',0,'m',1)`, /CHECK/);
+    throwsSql(db, `INSERT INTO accounts (id,label,host,port,mailbox,user_id) VALUES ('x','l','h',65536,'m',1)`, /CHECK/);
+    throwsSql(db, `INSERT INTO accounts (id,label,host,port,mailbox,enabled,user_id) VALUES ('x','l','h',1,'m',2,1)`, /CHECK/);
   });
   test("mailbox_state.last_uid >= 0", () => {
     const db = fresh();
@@ -375,10 +390,10 @@ describe("002 email_status and accounts.color", () => {
   });
   test("accounts.color is optional and only #rrggbb in lower case", () => {
     const db = fresh();
-    db.exec(`INSERT INTO accounts (id,label,host,port,mailbox) VALUES ('n','l','h',993,'INBOX')`);
-    db.exec(`INSERT INTO accounts (id,label,host,port,mailbox,color) VALUES ('c','l','h',993,'INBOX','#0a1b2c')`);
+    db.exec(`INSERT INTO accounts (id,label,host,port,mailbox,user_id) VALUES ('n','l','h',993,'INBOX',1)`);
+    db.exec(`INSERT INTO accounts (id,label,host,port,mailbox,color,user_id) VALUES ('c','l','h',993,'INBOX','#0a1b2c',1)`);
     for (const bad of ["red", "#fff", "#0A1B2C", "#0a1b2g", "0a1b2c", "#0a1b2c0"]) {
-      throwsSql(db, `INSERT INTO accounts (id,label,host,port,mailbox,color) VALUES ('x','l','h',993,'INBOX','${bad}')`, /CHECK/);
+      throwsSql(db, `INSERT INTO accounts (id,label,host,port,mailbox,color,user_id) VALUES ('x','l','h',993,'INBOX','${bad}',1)`, /CHECK/);
     }
     assert.equal((db.prepare("SELECT color FROM accounts WHERE id = 'n'").get() as { color: string | null }).color, null);
   });
@@ -388,12 +403,12 @@ describe("002 email_status and accounts.color", () => {
     writeFileSync(join(dir, "001_init.sql"), readFileSync(join(MIGRATIONS_DIR, "001_init.sql"), "utf8"));
     const path = join(tmp, "upgrade.db");
     const old = openDatabase(path, dir);
-    seed(old);
+    seedLegacy(old);
     old.close();
     const db = openDatabase(path);
     opened.push(db);
     assert.equal((db.prepare("SELECT COUNT(*) AS n FROM emails").get() as { n: number }).n, 1);
-    assert.deepEqual((db.prepare("SELECT version FROM schema_migrations ORDER BY version").all() as { version: number }[]).map((r) => r.version), [1, 2, 3, 4, 5]);
+    assert.deepEqual((db.prepare("SELECT version FROM schema_migrations ORDER BY version").all() as { version: number }[]).map((r) => r.version), [1, 2, 3, 4, 5, 6]);
     db.exec(`INSERT INTO email_status (email_id,seen,updated_at) VALUES (1,1,'${T}')`);
   });
 });
@@ -444,7 +459,7 @@ describe("003 mailbox_actions", () => {
     for (const f of ["001_init.sql", "002_status_and_account_color.sql"]) writeFileSync(join(dir, f), readFileSync(join(MIGRATIONS_DIR, f), "utf8"));
     const path = join(tmp, "upgrade2.db");
     const old = openDatabase(path, dir);
-    seed(old);
+    seedLegacy(old);
     old.close();
     const db = openDatabase(path);
     opened.push(db);
@@ -456,10 +471,10 @@ describe("003 mailbox_actions", () => {
 describe("005 user_state", () => {
   test("key is unique, value_json must be valid JSON, nothing references a mail", () => {
     const db = fresh();
-    db.exec(`INSERT INTO user_state (key,value_json,updated_at) VALUES ('last_opened_at','{"at":"${T}"}','${T}')`);
-    throwsSql(db, `INSERT INTO user_state (key,value_json,updated_at) VALUES ('last_opened_at','{}','${T}')`, /UNIQUE|PRIMARY/);
-    throwsSql(db, `INSERT INTO user_state (key,value_json,updated_at) VALUES ('x','{nope','${T}')`, /CHECK/);
-    throwsSql(db, `INSERT INTO user_state (key,updated_at) VALUES ('y','${T}')`, /NOT NULL/);
+    db.exec(`INSERT INTO user_state (user_id,key,value_json,updated_at) VALUES (1,'last_opened_at','{"at":"${T}"}','${T}')`);
+    throwsSql(db, `INSERT INTO user_state (user_id,key,value_json,updated_at) VALUES (1,'last_opened_at','{}','${T}')`, /UNIQUE|PRIMARY/);
+    throwsSql(db, `INSERT INTO user_state (user_id,key,value_json,updated_at) VALUES (1,'x','{nope','${T}')`, /CHECK/);
+    throwsSql(db, `INSERT INTO user_state (user_id,key,updated_at) VALUES (1,'y','${T}')`, /NOT NULL/);
   });
   test("a database with 001 to 003 only upgrades", () => {
     const dir = join(tmp, "migs-003-only");
@@ -467,7 +482,7 @@ describe("005 user_state", () => {
     for (const f of ["001_init.sql", "002_status_and_account_color.sql", "003_mailbox_actions.sql"]) writeFileSync(join(dir, f), readFileSync(join(MIGRATIONS_DIR, f), "utf8"));
     const path = join(tmp, "upgrade3.db");
     const old = openDatabase(path, dir);
-    seed(old);
+    seedLegacy(old);
     old.close();
     const db = openDatabase(path);
     opened.push(db);
@@ -493,7 +508,7 @@ describe("004 feedback, senders, sender_rules", () => {
   });
   test("senders: unique lower-case address, non-negative counters, defaults", () => {
     const db = fresh();
-    const ins = (a: string, d: string, extra = "") => `INSERT INTO senders (address,domain,first_seen_at,last_seen_at${extra ? "," + extra.split("=")[0] : ""}) VALUES ('${a}','${d}','${T}','${T}'${extra ? "," + extra.split("=")[1] : ""})`;
+    const ins = (a: string, d: string, extra = "") => `INSERT INTO senders (user_id,address,domain,first_seen_at,last_seen_at${extra ? "," + extra.split("=")[0] : ""}) VALUES (1,'${a}','${d}','${T}','${T}'${extra ? "," + extra.split("=")[1] : ""})`;
     db.exec(ins("a@x.test", "x.test"));
     throwsSql(db, ins("a@x.test", "x.test"), /UNIQUE/);
     throwsSql(db, ins("A@x.test", "x.test"), /CHECK/);
@@ -508,7 +523,7 @@ describe("004 feedback, senders, sender_rules", () => {
     const db = fresh();
     seed(db);
     const ins = (kind: string, match: string, value: string, acc: string | null, source = "nico") =>
-      `INSERT INTO sender_rules (kind,"match",value,account_id,source,created_at) VALUES ('${kind}','${match}','${value}',${acc === null ? "NULL" : `'${acc}'`},'${source}','${T}')`;
+      `INSERT INTO sender_rules (user_id,kind,"match",value,account_id,source,created_at) VALUES (1,'${kind}','${match}','${value}',${acc === null ? "NULL" : `'${acc}'`},'${source}','${T}')`;
     throwsSql(db, ins("greylist", "domain", "x.test", null), /CHECK/);
     throwsSql(db, ins("blacklist", "host", "x.test", null), /CHECK/);
     throwsSql(db, ins("blacklist", "domain", "X.test", null), /CHECK/);
@@ -530,7 +545,7 @@ describe("004 feedback, senders, sender_rules", () => {
     for (const f of ["001_init.sql", "002_status_and_account_color.sql", "003_mailbox_actions.sql"]) writeFileSync(join(dir, f), readFileSync(join(MIGRATIONS_DIR, f), "utf8"));
     const path = join(tmp, "upgrade3-004.db");
     const old = openDatabase(path, dir);
-    seed(old);
+    seedLegacy(old);
     old.exec(`INSERT INTO emails (id,account_id,message_id,sender,subject,received_at,first_seen_at) VALUES
       (2,'a1','<m2@x>','s@x.test','s2','${T}','2026-10-27T10:00:00.000Z'),
       (3,'a1','<m3@x>','other@y.test','s3','${T}','${T}'),
@@ -545,6 +560,154 @@ describe("004 feedback, senders, sender_rules", () => {
         { address: "s@x.test", domain: "x.test", first_seen_at: T, last_seen_at: "2026-10-27T10:00:00.000Z", mails_seen: 2, jev_spam_count: 0 },
       ],
     );
+  });
+});
+
+describe("006 users, sessions, invites and the tenant key", () => {
+  const H = "h".repeat(40);
+  const SID = "a".repeat(64);
+  const user = (email: string, extra = "") =>
+    `INSERT INTO users (email,password_hash,role,status,created_at,updated_at${extra ? "," + extra.split("=")[0] : ""}) VALUES ('${email}','${H}','user','active','${T}','${T}'${extra ? "," + extra.split("=")[1] : ""})`;
+
+  test("users: the migration creates the unclaimed owner (id 1); email unique, lower case, bounded; role and status lists; active needs a hash", () => {
+    const db = fresh();
+    assert.deepEqual({ ...db.prepare("SELECT id,email,password_hash,role,status FROM users").get() },
+      { id: 1, email: "owner@unclaimed.invalid", password_hash: null, role: "admin", status: "unclaimed" });
+    db.exec(user("a@x.test"));
+    throwsSql(db, user("a@x.test"), /UNIQUE/);
+    throwsSql(db, user("A@x.test"), /CHECK/);
+    throwsSql(db, user("a@"), /CHECK/);
+    throwsSql(db, user(`${"a".repeat(250)}@x.test`), /CHECK/);
+    throwsSql(db, `INSERT INTO users (email,password_hash,role,status,created_at,updated_at) VALUES ('r@x.test','${H}','root','active','${T}','${T}')`, /CHECK/);
+    throwsSql(db, `INSERT INTO users (email,password_hash,role,status,created_at,updated_at) VALUES ('s@x.test','${H}','user','banned','${T}','${T}')`, /CHECK/);
+    throwsSql(db, `INSERT INTO users (email,password_hash,role,status,created_at,updated_at) VALUES ('n@x.test',NULL,'user','active','${T}','${T}')`, /CHECK/);
+    throwsSql(db, `INSERT INTO users (email,password_hash,role,status,created_at,updated_at) VALUES ('d@x.test',NULL,'user','disabled','${T}','${T}')`, /CHECK/);
+    throwsSql(db, `INSERT INTO users (email,password_hash,role,status,created_at,updated_at) VALUES ('t@x.test','short','user','active','${T}','${T}')`, /CHECK/);
+    db.exec(`INSERT INTO users (email,password_hash,role,status,created_at,updated_at) VALUES ('u@x.test',NULL,'user','unclaimed','${T}','${T}')`);
+  });
+
+  test("user_sessions: id is a SHA-256 hex, user must exist, expiry after creation", () => {
+    const db = fresh();
+    const ins = (id: string, uid: number, exp = "2026-11-26T19:48:46.692Z") =>
+      `INSERT INTO user_sessions (id,user_id,created_at,expires_at,last_used_at) VALUES ('${id}',${uid},'${T}','${exp}','${T}')`;
+    db.exec(ins(SID, 1));
+    throwsSql(db, ins(SID, 1), /UNIQUE|PRIMARY/);
+    throwsSql(db, ins("b".repeat(64), 99), /FOREIGN KEY/);
+    throwsSql(db, ins("short", 1), /CHECK/);
+    throwsSql(db, ins("G".repeat(64), 1), /CHECK/);
+    throwsSql(db, ins("c".repeat(64), 1, T), /CHECK/);
+    throwsSql(db, ins("d".repeat(64), 1, "2026-01-01T00:00:00.000Z"), /CHECK/);
+    throwsSql(db, `INSERT INTO user_sessions (id,user_id,created_at,expires_at) VALUES ('${"e".repeat(64)}',1,'${T}','2027-01-01')`, /NOT NULL/);
+  });
+
+  test("invites: unique hash of fixed shape, role list, creator must exist, used_at and used_by only together, expiry after creation", () => {
+    const db = fresh();
+    const ins = (hash: string, extra = "created_by=1", role = "user", exp = "2026-11-26T19:48:46.692Z") => {
+      const [k, v] = extra.split("=");
+      return `INSERT INTO invites (code_hash,role,${k},created_at,expires_at) VALUES ('${hash}','${role}',${v},'${T}','${exp}')`;
+    };
+    db.exec(ins(SID));
+    throwsSql(db, ins(SID), /UNIQUE/);
+    throwsSql(db, ins("b".repeat(64), "created_by=99"), /FOREIGN KEY/);
+    throwsSql(db, ins("b".repeat(64), "created_by=1", "root"), /CHECK/);
+    throwsSql(db, ins("short"), /CHECK/);
+    throwsSql(db, ins("Z".repeat(64)), /CHECK/);
+    throwsSql(db, ins("c".repeat(64), "created_by=1", "user", T), /CHECK/);
+    throwsSql(db, `UPDATE invites SET used_at = '${T}'`, /CHECK/);
+    throwsSql(db, `UPDATE invites SET used_by = 1`, /CHECK/);
+    throwsSql(db, `UPDATE invites SET used_at = '${T}', used_by = 99`, /FOREIGN KEY/);
+    db.exec(`UPDATE invites SET used_at = '${T}', used_by = 1`);
+  });
+
+  test("accounts.user_id: required by trigger (insert and update), must reference a user, (id, user_id) is unique", () => {
+    const db = fresh();
+    throwsSql(db, `INSERT INTO accounts (id,label,host,port,mailbox) VALUES ('n','l','h',993,'INBOX')`, /user_id is required/);
+    throwsSql(db, `INSERT INTO accounts (id,label,host,port,mailbox,user_id) VALUES ('n','l','h',993,'INBOX',99)`, /FOREIGN KEY/);
+    db.exec(user("b@x.test"));
+    db.exec(`INSERT INTO accounts (id,label,host,port,mailbox,user_id) VALUES ('n','l','h',993,'INBOX',2)`);
+    throwsSql(db, `UPDATE accounts SET user_id = NULL WHERE id = 'n'`, /user_id is required/);
+    throwsSql(db, `UPDATE accounts SET user_id = 99 WHERE id = 'n'`, /FOREIGN KEY/);
+    db.exec(`UPDATE accounts SET label = 'x' WHERE id = 'n'`);
+    assert.deepEqual({ ...db.prepare("SELECT user_id FROM accounts WHERE id = 'n'").get() }, { user_id: 2 });
+  });
+
+  test("senders: user_id required and a user; unique per user and address, the same address may exist for two users", () => {
+    const db = fresh();
+    db.exec(user("b@x.test"));
+    const ins = (uid: string, a = "a@x.test") => `INSERT INTO senders (user_id,address,domain,first_seen_at,last_seen_at) VALUES (${uid},'${a}','x.test','${T}','${T}')`;
+    db.exec(ins("1"));
+    db.exec(ins("2"));
+    throwsSql(db, ins("1"), /UNIQUE/);
+    throwsSql(db, ins("NULL", "n@x.test"), /NOT NULL/);
+    throwsSql(db, ins("99", "n@x.test"), /FOREIGN KEY/);
+  });
+
+  test("sender_rules: user_id required, an account of another user is rejected by the composite FK, uniqueness is per user", () => {
+    const db = fresh();
+    db.exec(user("b@x.test"));
+    db.exec(`INSERT INTO accounts (id,label,host,port,mailbox,user_id) VALUES ('mine','l','h',993,'INBOX',1), ('theirs','l','h',993,'INBOX',2)`);
+    const ins = (uid: string, acc: string | null, value = "x.test") =>
+      `INSERT INTO sender_rules (user_id,kind,"match",value,account_id,source,created_at) VALUES (${uid},'blacklist','domain','${value}',${acc === null ? "NULL" : `'${acc}'`},'nico','${T}')`;
+    throwsSql(db, ins("NULL", null), /NOT NULL/);
+    throwsSql(db, ins("99", null), /FOREIGN KEY/);
+    db.exec(ins("1", "mine"));
+    throwsSql(db, ins("1", "theirs"), /FOREIGN KEY/);
+    throwsSql(db, ins("2", "mine"), /FOREIGN KEY/);
+    db.exec(ins("2", "theirs"));
+    db.exec(ins("1", null));
+    db.exec(ins("2", null));
+    throwsSql(db, ins("1", null), /UNIQUE/);
+    throwsSql(db, ins("2", "theirs"), /UNIQUE/);
+  });
+
+  test("user_state: primary key (user_id, key), user must exist", () => {
+    const db = fresh();
+    db.exec(user("b@x.test"));
+    const ins = (uid: number) => `INSERT INTO user_state (user_id,key,value_json,updated_at) VALUES (${uid},'k','{}','${T}')`;
+    db.exec(ins(1));
+    db.exec(ins(2));
+    throwsSql(db, ins(1), /UNIQUE|PRIMARY/);
+    throwsSql(db, ins(99), /FOREIGN KEY/);
+  });
+
+  test("audit_log.user_id is optional, must reference a user, and the table stays append-only", () => {
+    const db = fresh();
+    db.exec(`INSERT INTO audit_log (occurred_at,trace_id,actor,action) VALUES ('${T}','t','system','x')`);
+    db.exec(`INSERT INTO audit_log (occurred_at,trace_id,actor,action,user_id) VALUES ('${T}','t','system','x',1)`);
+    throwsSql(db, `INSERT INTO audit_log (occurred_at,trace_id,actor,action,user_id) VALUES ('${T}','t','system','x',99)`, /FOREIGN KEY/);
+    throwsSql(db, `UPDATE audit_log SET user_id = 1`, /append-only/);
+  });
+
+  test("a database with data from 001 to 005 upgrades: everything belongs to user 1, nothing is lost, foreign keys hold", () => {
+    const dir = join(tmp, "migs-001-005");
+    mkdirSync(dir);
+    for (const f of readdirSync(MIGRATIONS_DIR).filter((f) => !f.startsWith("006_"))) writeFileSync(join(dir, f), readFileSync(join(MIGRATIONS_DIR, f), "utf8"));
+    const path = join(tmp, "upgrade6.db");
+    const old = openDatabase(path, dir);
+    seedLegacy(old);
+    old.exec(`
+      INSERT INTO senders (address,domain,first_seen_at,last_seen_at,mails_seen,marked_spam,jev_spam_count,hitl_asked_count) VALUES ('z@x.test','x.test','${T}','${T}',4,2,3,1);
+      INSERT INTO sender_rules (kind,"match",value,account_id,source,created_at) VALUES ('blacklist','domain','x.test','a2','nico','${T}'), ('allowlist','address','z@x.test',NULL,'nico','${T}');
+      INSERT INTO user_state (key,value_json,updated_at) VALUES ('last_opened_at','{"at":"${T}"}','${T}');
+      INSERT INTO audit_log (occurred_at,trace_id,actor,action,account_id,email_id) VALUES ('${T}','t','system','email_done','a1',1);
+    `);
+    old.close();
+    const db = openDatabase(path);
+    opened.push(db);
+    const rows = (sql: string) => db.prepare(sql).all().map((r) => ({ ...r }));
+    assert.deepEqual(rows("SELECT id,user_id FROM accounts ORDER BY id"), [{ id: "a1", user_id: 1 }, { id: "a2", user_id: 1 }]);
+    assert.deepEqual(rows("SELECT user_id,address,mails_seen,marked_spam,jev_spam_count,hitl_asked_count FROM senders"),
+      [{ user_id: 1, address: "z@x.test", mails_seen: 4, marked_spam: 2, jev_spam_count: 3, hitl_asked_count: 1 }]);
+    assert.deepEqual(rows(`SELECT id,user_id,kind,value,account_id FROM sender_rules ORDER BY id`),
+      [{ id: 1, user_id: 1, kind: "blacklist", value: "x.test", account_id: "a2" }, { id: 2, user_id: 1, kind: "allowlist", value: "z@x.test", account_id: null }]);
+    assert.deepEqual(rows("SELECT user_id,key FROM user_state"), [{ user_id: 1, key: "last_opened_at" }]);
+    assert.deepEqual(rows("SELECT user_id FROM audit_log"), [{ user_id: null }], "old audit rows stay without a user");
+    assert.deepEqual(rows("SELECT id,email,status FROM users"), [{ id: 1, email: "owner@unclaimed.invalid", status: "unclaimed" }]);
+    assert.equal((db.prepare("SELECT COUNT(*) AS n FROM emails").get() as { n: number }).n, 1);
+    assert.deepEqual(rows("PRAGMA foreign_key_check"), []);
+    // The rebuilt tables still work with the old rows.
+    db.exec(`INSERT INTO senders (user_id,address,domain,first_seen_at,last_seen_at) VALUES (1,'new@x.test','x.test','${T}','${T}')`);
+    throwsSql(db, `INSERT INTO senders (user_id,address,domain,first_seen_at,last_seen_at) VALUES (1,'z@x.test','x.test','${T}','${T}')`, /UNIQUE/);
   });
 });
 
@@ -567,7 +730,7 @@ describe("migration runner", () => {
     const b = openDatabase(path);
     opened.push(b);
     const rows = b.prepare("SELECT version FROM schema_migrations").all() as { version: number }[];
-    assert.deepEqual(rows.map((r) => r.version), [1, 2, 3, 4, 5]);
+    assert.deepEqual(rows.map((r) => r.version), [1, 2, 3, 4, 5, 6]);
   });
 
   test("numeric (not lexical) order, applied once", () => {

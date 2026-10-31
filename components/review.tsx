@@ -274,7 +274,7 @@ export function UndoToast(
 
 const noop = (): void => {};
 
-/** Small "more" menu in the header (Aussortiert, Absender): keeps the header short, 44 pt touch targets. */
+/** Small "more" menu in the header (Aussortiert, Absender, Profil): keeps the header short, 44 pt touch targets. */
 export function HeaderMenu({ defaultOpen }: { defaultOpen?: boolean }): React.JSX.Element {
   const [open, setOpen] = useState(defaultOpen === true);
   const box = useRef<HTMLDivElement | null>(null);
@@ -301,6 +301,7 @@ export function HeaderMenu({ defaultOpen }: { defaultOpen?: boolean }): React.JS
       <div className="menu-list" role="menu" hidden={!open}>
         <a className="menu-item" role="menuitem" href="/aussortiert">Aussortiert</a>
         <a className="menu-item" role="menuitem" href="/absender">Absender</a>
+        <a className="menu-item" role="menuitem" href="/profil">Profil</a>
       </div>
     </div>
   );

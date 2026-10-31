@@ -75,18 +75,18 @@ test("blocked mails never reach the agent or the IMAP port (H11)", async () => {
     for (const id of [2, 3]) {
       const { agent, inputs } = fakeAgent();
       const { port, calls } = fakePort();
-      const r = await draftReply({ db, portFactory: () => port, agent, interpret: byValue }, id);
+      const r = await draftReply({ db, userId: 1, portFactory: () => port, agent, interpret: byValue }, id);
       assert.equal(r.ok, false);
       if (!r.ok) assert.equal(r.code, "not_eligible");
       assert.deepEqual(inputs, []);
       assert.deepEqual(calls, []);
     }
     const { agent, inputs } = fakeAgent();
-    const r = await draftReply({ db, portFactory: () => fakePort().port, agent, interpret: byValue }, 99);
+    const r = await draftReply({ db, userId: 1, portFactory: () => fakePort().port, agent, interpret: byValue }, 99);
     assert.deepEqual(r, { ok: false, code: "email_not_found" });
     assert.deepEqual(inputs, []);
     // default interpreter is fail-closed (unmapped)
-    const d = await draftReply({ db, portFactory: () => fakePort().port, agent }, 1);
+    const d = await draftReply({ db, userId: 1, portFactory: () => fakePort().port, agent }, 1);
     assert.equal(d.ok, false);
     assert.deepEqual(inputs, []);
   } finally { db.close(); rmSync(dir, { recursive: true, force: true }); }
@@ -96,7 +96,7 @@ test("IMAP failure yields a fixed code without details", async () => {
   const { db, dir } = setup();
   try {
     const { agent, inputs } = fakeAgent();
-    const r = await draftReply({ db, portFactory: () => fakePort({ throws: true }).port, agent, interpret: byValue }, 1);
+    const r = await draftReply({ db, userId: 1, portFactory: () => fakePort({ throws: true }).port, agent, interpret: byValue }, 1);
     assert.deepEqual(r, { ok: false, code: "fetch_failed" });
     assert.deepEqual(inputs, []);
   } finally { db.close(); rmSync(dir, { recursive: true, force: true }); }
@@ -110,7 +110,7 @@ test("success returns the schema object, passes the fenced input and the abort s
       generate: async (a) => { seen.push(a); return { data: GOOD, usage: { promptTokens: 120, completionTokens: 40, totalTokens: 160 } }; },
     };
     const ac = new AbortController();
-    const r = await draftReply({ db, portFactory: () => fakePort().port, agent, interpret: byValue }, 1, ac.signal);
+    const r = await draftReply({ db, userId: 1, portFactory: () => fakePort().port, agent, interpret: byValue }, 1, ac.signal);
     assert.ok(r.ok);
     if (r.ok) {
       assert.deepEqual(r.draft, GOOD);
@@ -130,11 +130,11 @@ test("invalid agent output and agent errors give fixed codes", async () => {
   try {
     for (const bad of [null,{ draft: "x" }, { ...GOOD, language: "fr" }, { ...GOOD, reasons: [1] }, "text"]) {
       const { agent } = fakeAgent(bad);
-      const r = await draftReply({ db, portFactory: () => fakePort().port, agent, interpret: byValue }, 1);
+      const r = await draftReply({ db, userId: 1, portFactory: () => fakePort().port, agent, interpret: byValue }, 1);
       assert.deepEqual(r, { ok: false, code: "invalid_output" });
     }
     const failing: DraftAgent = { generate: async () => { throw new Error(`provider said ${EXCERPT_MARKER}`); } };
-    const r = await draftReply({ db, portFactory: () => fakePort().port, agent: failing, interpret: byValue }, 1);
+    const r = await draftReply({ db, userId: 1, portFactory: () => fakePort().port, agent: failing, interpret: byValue }, 1);
     assert.deepEqual(r, { ok: false, code: "agent_failed" });
     assert.equal(db.prepare("SELECT COUNT(*) AS c FROM audit_log WHERE action = 'draft_generated'").get()?.c, 0);
   } finally { db.close(); rmSync(dir, { recursive: true, force: true }); }
@@ -144,7 +144,7 @@ test("audit draft_generated holds only ids, model, latency and tokens (D17)", as
   const { db, dir } = setup();
   try {
     const { agent } = fakeAgent();
-    const r = await draftReply({ db, portFactory: () => fakePort().port, agent, interpret: byValue, traceId: "trace-1" }, 1);
+    const r = await draftReply({ db, userId: 1, portFactory: () => fakePort().port, agent, interpret: byValue, traceId: "trace-1" }, 1);
     assert.ok(r.ok);
     const rows = db.prepare("SELECT actor, action, account_id, email_id, trace_id, details_json FROM audit_log WHERE action = 'draft_generated'").all() as
       { actor: string; account_id: string; email_id: number; trace_id: string; details_json: string }[];
@@ -169,9 +169,9 @@ test("H12: neither draft nor excerpt marker reaches any table or any log output"
   process.stderr.write = ((c: unknown) => { out.push(String(c)); return true; }) as never;
   try {
     const { agent } = fakeAgent();
-    const r = await draftReply({ db, portFactory: () => fakePort().port, agent, interpret: byValue }, 1);
+    const r = await draftReply({ db, userId: 1, portFactory: () => fakePort().port, agent, interpret: byValue }, 1);
     const failing: DraftAgent = { generate: async () => { throw new Error(`${DRAFT_MARKER} ${EXCERPT_MARKER}`); } };
-    await draftReply({ db, portFactory: () => fakePort().port, agent: failing, interpret: byValue }, 1);
+    await draftReply({ db, userId: 1, portFactory: () => fakePort().port, agent: failing, interpret: byValue }, 1);
     assert.ok(r.ok);
   } finally {
     process.stdout.write = so;

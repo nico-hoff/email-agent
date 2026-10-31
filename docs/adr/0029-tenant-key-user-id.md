@@ -1,0 +1,26 @@
+# 0029 Mandantenschlüssel `user_id`, Sitzungen und Einladungen (Umsetzung von 0022)
+
+- Status: angenommen
+- Datum: 2026-10-31
+- Bezug: 0022 (Nutzerkonten), 0003 (Schema), 0011 (Zugangsmodi), 0012 (CSRF, Rate-Limits), 0013 (synthetische Dev-DB), `docs/erd.md` (Migration 006), `docs/access-contract.md`
+
+## Kontext
+0022 verlangt ein mehrnutzerfähiges Datenmodell: jede nutzerbezogene Tabelle bekommt `user_id`, jede Abfrage filtert danach. Dazu muss festgelegt werden, welche Tabellen den Schlüssel selbst tragen und welche ihn über Fremdschlüssel erben, wie die vorhandenen Daten übernommen werden, wie Sitzungen und Einladungen gespeichert werden und wie sich die Übergangsmodi (Passwort, Tailnet) verhalten. SQLite kann bei eingeschalteten Fremdschlüsseln keine `NOT NULL`-FK-Spalte mit Default per `ADD COLUMN` anlegen, und die Migration läuft in einer Transaktion, in der `PRAGMA foreign_keys` nicht umschaltbar ist.
+
+## Entscheidung
+- **Mandantenwurzeln mit eigener Spalte `user_id`:** `accounts`, `senders`, `sender_rules`, `user_state` (jeweils verpflichtend) und `audit_log` (optional, alte Zeilen und Systemereignisse bleiben `NULL`; die Tabelle bleibt append-only).
+- **Alle anderen Tabellen gehören einem Nutzer über die FK-Kette zu `accounts`:** `emails` → `accounts`; `email_locations`, `email_status`, `classifications`, `classification_answers`, `mailbox_actions`, `feedback` → `emails`; `mailbox_state`, `worker_status` → `accounts`. **Regel: jede Abfrage auf diese Tabellen verbindet bis `accounts.user_id` und filtert danach.** Das gilt für Listen, Detail, Änderungen, Zähler, Briefing-Kontext, Entwurfs-Eingabe, das Agenten-Tool, Absender, Regeln und HITL. Der Zugriff auf eine fremde ID verhält sich wie der auf eine nicht vorhandene: 404 (nie 403), keine Änderung, keine Audit-Zeile.
+- **Account-IDs bleiben globale Text-Schlüssel.** `UNIQUE (id, user_id)` auf `accounts` ist Elternschlüssel für `sender_rules (account_id, user_id) → accounts (id, user_id)`: eine Regel kann keinem Konto eines anderen Nutzers zugeordnet werden (Schema und Code prüfen es).
+- **Migration 006:** `users` mit Nutzer 1 (`owner@unclaimed.invalid`, Admin, `unclaimed`, ohne Hash); alle vorhandenen Daten gehören ihm. `accounts.user_id` wird nullable angelegt, per `UPDATE` auf 1 gesetzt und durch zwei `BEFORE`-Trigger (INSERT, UPDATE) gegen `NULL` geschützt. `senders`, `sender_rules` und `user_state` werden als Blatttabellen neu aufgebaut (`senders UNIQUE (user_id, address)`, `sender_rules`-Unique-Index mit `user_id`, `user_state PRIMARY KEY (user_id, key)`). Das erste `user:create` (Rolle Admin) übernimmt die Zeile von Nutzer 1 statt eine neue einzufügen, damit die Daten bei Nico bleiben.
+- **Sitzungen:** Tabelle `user_sessions`, `id` ist der SHA-256 des zufälligen Tokens (das Token liegt nur im Cookie). Cookie `v2.<iat36>.<user_id>.<token>.<mac>` (HMAC wie `v1`, `HttpOnly`, `SameSite=Strict`, immer `Secure` außer Loopback-Ausnahme wie im Passwortmodus). Der Guard prüft zuerst das MAC, dann die Zeile (vorhanden, nicht widerrufen, nicht abgelaufen, Nutzer `active`). Abmelden widerruft die Zeile, „Auf allen Geräten abmelden“ alle Zeilen des Nutzers, Sperren eines Nutzers ebenfalls.
+- **Einladungen:** Tabelle `invites`, nur `SHA-256(code)` wird gespeichert, der Code (100 Bit) erscheint einmal. Verbrauch und Anlegen des Nutzers geschehen in einer `BEGIN IMMEDIATE`-Transaktion (ein Code erzeugt höchstens ein Konto, auch bei parallelen Anfragen). Falsche, benutzte und abgelaufene Codes liefern dieselbe Antwort. Offene Registrierung gibt es nicht.
+- **Passwörter:** scrypt (N=2^15, r=8, p=1) im selbstbeschreibenden Format `scrypt$N$r$p$salt$hash`, Mindestlänge 12. Login: Antwortzeit für unbekannte E-Mails gleich (Dummy-Hash), eine einheitliche 401, feste Verzögerung bei Fehlschlag, Rate-Limits je E-Mail (Hash) und global (0012).
+- **Modi:** Reihenfolge `--synthetic` → `AUTH_MODE=users` → `APP_PASSWORD` → Tailnet. Passwort- und Tailnet-Modus bleiben als Übergang und bilden auf Nutzer 1 ab (Daten-Scope). Im synthetischen Dev-Modus beansprucht der Start Nutzer 1 als `dev@synthetic.invalid` (festes, nur dafür gedachtes Passwort in `docs/access-contract.md`). Konten aus der Konten-Datei gehören Nutzer 1; der Abgleich mit der Datei fasst nur dessen Konten an.
+- **Agenten-Tool:** `get-email-context` bekommt den Nutzer nicht vom Modell, sondern aus dem asynchronen Kontext der Anfrage (`runAsUser` in `lib/tenant.ts`); fehlt er, antwortet das Tool wie bei einer unbekannten Mail.
+
+## Folgen
+- Neue Abfragen auf Mandantentabellen brauchen eine `userId` und den Join auf `accounts.user_id`; `tests/tenant-isolation.test.ts` deckt jede Datenfunktion und Route mit zwei Nutzern ab und muss mit jeder neuen Funktion wachsen.
+- Worker (Ingest, Pipeline, Absender-Statistik, Regeln, Postfach-Aktionen) nutzen die `user_id` des verarbeiteten Kontos.
+- Konten pro Nutzer in der UI (R2) vergeben generierte Konto-IDs; `accounts.user_id` ist dann der Besitzer.
+- `AUTH_MODE=users` auf fly verlangt vor dem Deploy `npm run user:create` auf der Maschine; `APP_PASSWORD` wird dann nicht mehr gebraucht. Das Entfernen der Übergangsmodi bekommt eine eigene ADR.
+- Grenzen: kein Passwort-Reset, keine E-Mail-Bestätigung, keine Mehrfaktor-Anmeldung, Rate-Limits je Prozess (eine Maschine).

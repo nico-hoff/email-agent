@@ -22,6 +22,8 @@ export type AgentInputResult =
 
 export interface AgentInputDeps {
   db: DatabaseSync;
+  /** Whose mail may be read (ADR 0029): a mail of another user is "email_not_found". */
+  userId: number;
   /** Read-only IMAP port per account; only called for eligible mails. */
   portFactory: (accountId: string) => ImapPort;
   interpret?: NoulInterpreter;
@@ -74,7 +76,9 @@ export function loadAnswers(db: DatabaseSync, classificationId: number): Normali
  * and only then fetch the excerpt fresh over the active location. Writes nothing.
  */
 export async function buildAgentInput(deps: AgentInputDeps, emailId: number): Promise<AgentInputResult> {
-  const email = deps.db.prepare("SELECT account_id, sender, subject FROM emails WHERE id = ?").get(emailId) as
+  const email = deps.db.prepare(
+    "SELECT e.account_id, e.sender, e.subject FROM emails e JOIN accounts a ON a.id = e.account_id WHERE e.id = ? AND a.user_id = ?",
+  ).get(emailId, deps.userId) as
     | { account_id: string; sender: string; subject: string }
     | undefined;
   if (!email) return { ok: false, code: "email_not_found" };

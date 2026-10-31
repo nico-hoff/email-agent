@@ -95,7 +95,7 @@ describe("H13: POST /api/briefing", () => {
     }
     assert.equal(t.fake.calls.length, 0);
     assert.equal(t.resolverCalls(), 0);
-    assert.equal(readLastOpened(t.db), null);
+    assert.equal(readLastOpened(t.db, 1), null);
   });
 
   test("session without a valid CSRF proof: 403", async () => {
@@ -106,7 +106,7 @@ describe("H13: POST /api/briefing", () => {
       assert.equal((await handleBriefing(post(headers), t.deps)).status, 403);
     }
     assert.equal(t.fake.calls.length, 0);
-    assert.equal(readLastOpened(t.db), null);
+    assert.equal(readLastOpened(t.db, 1), null);
   });
 
   test("rate limit: 429 with retry-after once the budget is used", async () => {
@@ -158,7 +158,7 @@ describe("streaming with the model", () => {
     const t = setup();
     const s = await signIn(t.auth);
     await (await handleBriefing(post(good(s)), t.deps)).text();
-    assert.equal(readLastOpened(t.db), T0.toISOString());
+    assert.equal(readLastOpened(t.db, 1), T0.toISOString());
     assert.deepEqual(audits(t.db), [{
       actor: "system", action: "briefing_generated", account_id: null, email_id: null,
       details_json: JSON.stringify({ model: "openai/openai/gpt-6-luna", latency_ms: 0, prompt_tokens: 100, completion_tokens: 20, total_tokens: 120, mails: 2 }),
@@ -179,7 +179,7 @@ describe("streaming with the model", () => {
     assert.equal(cached[1].data.text, "- Eins\n- Zwei");
     assert.equal(cached[2].data.cached, true);
     assert.equal(audits(t.db).length, 1, "a cache hit is no new generation");
-    assert.equal(readLastOpened(t.db), new Date(T0.getTime() + BRIEFING_CACHE_MS - 1000).toISOString(), "opening still counts");
+    assert.equal(readLastOpened(t.db, 1), new Date(T0.getTime() + BRIEFING_CACHE_MS - 1000).toISOString(), "opening still counts");
 
     t.advance(2000);
     await (await handleBriefing(post(good(s)), t.deps)).text();
@@ -208,7 +208,7 @@ describe("streaming with the model", () => {
     await reader.cancel();
     await new Promise((r) => setTimeout(r, 20));
     assert.equal(hang.calls[0].abortSignal?.aborted, true);
-    assert.equal(readLastOpened(t.db), null);
+    assert.equal(readLastOpened(t.db, 1), null);
     assert.equal(audits(t.db).length, 0);
     t.deps.agent = () => t.fake.agent;
     const next = parseSse(await (await handleBriefing(post(good(s)), t.deps)).text());
@@ -221,7 +221,7 @@ describe("fallback without a model", () => {
     const t = setup();
     t.deps.agent = () => undefined;
     const s = await signIn(t.auth);
-    const expected = fallbackBriefing(loadBriefingContext(t.db, T0));
+    const expected = fallbackBriefing(loadBriefingContext(t.db, 1, T0));
     const events = parseSse(await (await handleBriefing(post(good(s)), t.deps)).text());
     assert.deepEqual(events.map((e) => e.event), ["meta", "delta", "done"]);
     assert.equal(events[0].data.source, "fallback");
@@ -230,7 +230,7 @@ describe("fallback without a model", () => {
     assert.equal(events[2].data.source, "fallback");
     assert.equal(events[2].data.model, undefined);
     assert.equal(audits(t.db).length, 0);
-    assert.equal(readLastOpened(t.db), T0.toISOString());
+    assert.equal(readLastOpened(t.db, 1), T0.toISOString());
   });
 
   test("synthetic mode never calls a model, even when an agent exists", async () => {
@@ -260,7 +260,7 @@ describe("fallback without a model", () => {
       assert.deepEqual(events[1].data, { code: "agent_failed", fallback: true });
       assert.equal(events[3].data.source, "fallback");
       assert.equal(audits(t.db).length, 0);
-      assert.equal(readLastOpened(t.db), T0.toISOString());
+      assert.equal(readLastOpened(t.db, 1), T0.toISOString());
     }
   });
 

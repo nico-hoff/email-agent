@@ -23,7 +23,7 @@ test("GET /api/status reads worker state and classification counts from SQLite o
     db.prepare("INSERT INTO emails (id, account_id, message_id, sender, subject, received_at, first_seen_at) VALUES (1,'a1','m','who@secret.example','TOPSECRET','t','t')").run();
     db.prepare("INSERT INTO classifications (email_id, question_set_version, model_requested, status, attempts, created_at, updated_at) VALUES (1,'v','m','pending',0,'t','t')").run();
     db.close();
-    const res = await GET();
+    const res = await GET(new Request("http://x/api/status"));
     assert.equal(res.status, 200);
     const text = await res.text();
     for (const bad of ["secret", "TOPSECRET", "who@", "Secret Label"]) assert.ok(!text.includes(bad), bad);
@@ -52,7 +52,7 @@ test("GET /api/status resolves a relative DATABASE_PATH against PROJECT_ROOT, no
     db.close();
     process.env.DATABASE_PATH = relative(PROJECT_ROOT, file);
     process.chdir(dir);
-    const res = await GET();
+    const res = await GET(new Request("http://x/api/status"));
     assert.equal(res.status, 200);
     assert.deepEqual((await res.json()).workers.map((w: { account_id: string }) => w.account_id), ["a1"]);
   } finally {

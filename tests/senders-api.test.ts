@@ -37,7 +37,7 @@ function setup(opts: { limit?: number } = {}) {
     mailbox: "INBOX", spam_threshold: 0.9, enabled: true,
   } as never]);
   db.prepare("INSERT INTO emails (id, account_id, message_id, sender, subject, received_at, first_seen_at) VALUES (1,'a1','<m1>','s@x.example','SUBJECT-MARKER',?,?)").run(T, T);
-  recordSenderMail(db, "s@x.example", "pass", T);
+  recordSenderMail(db, 1, "s@x.example", "pass", T);
   const unclosable = { prepare: db.prepare.bind(db), exec: db.exec.bind(db), close() {} } as unknown as DatabaseSync;
   const deps: ApiDeps = { auth, limiter: createMutationLimiter(undefined, opts.limit), openDb: () => unclosable, now: () => new Date(T) };
   return { auth, db, deps };
@@ -138,7 +138,7 @@ describe("POST /api/emails/:id/feedback", () => {
     const cat = await handleFeedbackPost(post("/api/emails/1/feedback", good(s), { kind: "category_wrong", value: "business" }), "1", t.deps);
     assert.equal(cat.status, 200);
     assert.equal(((await cat.json()) as { feedback: { category: string } }).feedback.category, "business");
-    const get = handleFeedbackGet("1", t.deps);
+    const get = handleFeedbackGet(new Request("http://x/"), "1", t.deps);
     assert.deepEqual(await get.json(), { id: 1, feedback: { spam: "spam_correct", reply: null, category: "business" } });
   });
 
@@ -153,7 +153,7 @@ describe("POST /api/emails/:id/feedback", () => {
     }
     for (const id of ["2", "0", "-1", "abc", undefined]) assert.equal((await send(id, { kind: "not_spam" })).status, 404, String(id));
     assert.equal(writes(t.db), 0);
-    assert.equal(handleFeedbackGet("2", t.deps).status, 404);
+    assert.equal(handleFeedbackGet(new Request("http://x/"), "2", t.deps).status, 404);
   });
 });
 
@@ -205,7 +205,7 @@ describe("HITL over HTTP", () => {
     const t = setup();
     const s = await signIn(t.auth);
     t.db.prepare("UPDATE senders SET jev_spam_count = 3, mails_seen = 4, dmarc_pass = 2").run();
-    const list = (await handleHitlList(t.deps).json()) as { candidates: Record<string, unknown>[] };
+    const list = (await handleHitlList(new Request("http://x/"), t.deps).json()) as { candidates: Record<string, unknown>[] };
     assert.deepEqual(list.candidates, [{
       key: "address:s@x.example", match: "address", value: "s@x.example", jev_spam_count: 3, mails_seen: 4, dmarc_pass_rate: 0.5, sample_email_ids: [],
     }]);
@@ -213,7 +213,7 @@ describe("HITL over HTTP", () => {
     assert.equal(bad.status, 404);
     const ok = await handleHitlDismiss(post("/api/senders/hitl/dismiss", good(s), { match: "address", value: "S@x.example" }), t.deps);
     assert.deepEqual(await ok.json(), { ok: true, changed: true });
-    assert.deepEqual(((await handleHitlList(t.deps).json()) as { candidates: unknown[] }).candidates, []);
+    assert.deepEqual(((await handleHitlList(new Request("http://x/"), t.deps).json()) as { candidates: unknown[] }).candidates, []);
     assert.equal((await handleHitlDismiss(post("/api/senders/hitl/dismiss", good(s), { match: "address", value: "bad" }), t.deps)).status, 400);
   });
 
@@ -222,7 +222,7 @@ describe("HITL over HTTP", () => {
     const s = await signIn(t.auth);
     t.db.prepare("UPDATE senders SET jev_spam_count = 3").run();
     const texts = [
-      await handleHitlList(t.deps).text(),
+      await handleHitlList(new Request("http://x/"), t.deps).text(),
       await (await handleFeedbackPost(post("/api/emails/1/feedback", good(s), { kind: "spam_correct" }), "1", t.deps)).text(),
       await handleRulesList(new Request("http://x/api/senders/rules"), t.deps).text(),
     ];

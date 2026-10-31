@@ -323,7 +323,7 @@ describe("undo (H19)", () => {
     const id = addMail(t.db, "a", { uidValidity: 9 });
     await t.actions.evaluate(id);
     t.calls.length = 0;
-    const u = await t.actions.undoSeen(id);
+    const u = await t.actions.undoSeen(1, id);
     assert.deepEqual(u, { ok: true, mode: "live" });
     assert.equal(t.calls.length, 1);
     assert.deepEqual([t.calls[0].fn, t.calls[0].folder, t.calls[0].uidValidity], ["removeSeen", "INBOX", 9]);
@@ -344,7 +344,7 @@ describe("undo (H19)", () => {
     const id = addMail(t.db, "a");
     await t.actions.evaluate(id);
     failing = true;
-    assert.deepEqual(await t.actions.undoSeen(id), { ok: false, code: "store_rejected" });
+    assert.deepEqual(await t.actions.undoSeen(1, id), { ok: false, code: "store_rejected" });
     assert.equal(seenOf(t.db, id), 1);
     assert.deepEqual(rows(t.db).map((x) => [x.rule, x.status, x.failure_code]), [["spam_seen", "done", null], ["undo", "failed", "store_rejected"]]);
   });
@@ -355,7 +355,7 @@ describe("undo (H19)", () => {
     t.db.prepare("UPDATE email_status SET seen = 0").run();
     await t.actions.evaluate(id);
     upsertSeen(t.db, id, true, T0.toISOString());
-    assert.deepEqual(await t.actions.undoSeen(id), { ok: true, mode: "dry_run" });
+    assert.deepEqual(await t.actions.undoSeen(1, id), { ok: true, mode: "dry_run" });
     assert.equal(seenOf(t.db, id), 0);
     assert.deepEqual(t.calls, []);
     assert.deepEqual(t.factoryCalls, []);
@@ -365,7 +365,7 @@ describe("undo (H19)", () => {
   test("a mail without an action on a live account: \\Seen is removed and a tombstone stops a later mark", async () => {
     const t = setup([account("a", "live")]);
     const id = addMail(t.db, "a", { seen: true });
-    assert.deepEqual(await t.actions.undoSeen(id), { ok: true, mode: "live" });
+    assert.deepEqual(await t.actions.undoSeen(1, id), { ok: true, mode: "live" });
     assert.equal(t.calls[0].fn, "removeSeen");
     assert.deepEqual(rows(t.db).map((x) => [x.rule, x.status]), [["undo", "done"], ["spam_seen", "undone"]]);
     t.calls.length = 0;
@@ -380,7 +380,7 @@ describe("undo (H19)", () => {
     await live.actions.evaluate(id);
     const fake = fakePort();
     const later = createMailboxActions({ db: live.db, accounts: [account("a", "dry_run")], killSwitchFile: live.killSwitchFile, now: () => T0, writePortFor: () => fake.port });
-    assert.deepEqual(await later.undoSeen(id), { ok: true, mode: "live" });
+    assert.deepEqual(await later.undoSeen(1, id), { ok: true, mode: "live" });
     assert.equal(fake.calls[0].fn, "removeSeen");
   });
 
@@ -390,7 +390,7 @@ describe("undo (H19)", () => {
     await t.actions.evaluate(id);
     t.calls.length = 0;
     t.kill();
-    assert.deepEqual(await t.actions.undoSeen(id), { ok: false, code: "kill_switch" });
+    assert.deepEqual(await t.actions.undoSeen(1, id), { ok: false, code: "kill_switch" });
     assert.deepEqual(t.calls, []);
     assert.equal(seenOf(t.db, id), 1);
     assert.equal(rows(t.db).length, 1);
@@ -398,10 +398,10 @@ describe("undo (H19)", () => {
 
   test("unknown mail and a live account without credentials fail with a code", async () => {
     const t = setup([account("a", "live")]);
-    assert.deepEqual(await t.actions.undoSeen(999), { ok: false, code: "not_found" });
+    assert.deepEqual(await t.actions.undoSeen(1, 999), { ok: false, code: "not_found" });
     const bare = createMailboxActions({ db: t.db, accounts: [account("a", "live")], killSwitchFile: t.killSwitchFile, now: () => T0, writePortFor: () => undefined });
     const id = addMail(t.db, "a", { seen: true });
-    assert.deepEqual(await bare.undoSeen(id), { ok: false, code: "account_unavailable" });
+    assert.deepEqual(await bare.undoSeen(1, id), { ok: false, code: "account_unavailable" });
   });
 });
 
@@ -419,7 +419,7 @@ describe("sender rules (M5, H17)", () => {
   test("an allowlisted sender (address or domain) gets no action even at is_spam 0.99 and in the provider spam folder", async () => {
     for (const [match, value] of [["address", SENDER], ["domain", "example.test"]] as const) {
       const t = setup([account("a", "live")]);
-      createRule(t.db, { kind: "allowlist", match, value, ts: T0.toISOString() });
+      createRule(t.db, 1, { kind: "allowlist", match, value, ts: T0.toISOString() });
       const id = addMail(t.db, "a", { spam: 0.99, folder: "Junk" });
       assert.equal((await t.actions.evaluate(id)).outcome, "no_action", match);
       assert.deepEqual(rows(t.db), []);
@@ -429,14 +429,14 @@ describe("sender rules (M5, H17)", () => {
 
   test("an allowlist rule bound to another account does not protect", async () => {
     const t = setup([account("a", "dry_run"), account("b", "dry_run")]);
-    createRule(t.db, { kind: "allowlist", match: "domain", value: "example.test", accountId: "b", ts: T0.toISOString() });
+    createRule(t.db, 1, { kind: "allowlist", match: "domain", value: "example.test", accountId: "b", ts: T0.toISOString() });
     assert.equal((await t.actions.evaluate(addMail(t.db, "a", { spam: 0.99 }))).outcome, "planned");
     assert.equal((await t.actions.evaluate(addMail(t.db, "b", { spam: 0.99 }))).outcome, "no_action");
   });
 
   test("a blacklisted sender is marked read (reason blacklisted) even when Jev is unsure; live writes only \\Seen", async () => {
     const t = setup([account("a", "live")]);
-    createRule(t.db, { kind: "blacklist", match: "address", value: SENDER, ts: T0.toISOString() });
+    createRule(t.db, 1, { kind: "blacklist", match: "address", value: SENDER, ts: T0.toISOString() });
     const id = addMail(t.db, "a", { spam: 0.2, category: "personal" });
     assert.equal((await t.actions.evaluate(id)).outcome, "done");
     assert.deepEqual(t.calls.map((c) => c.fn), ["addSeen"]);
@@ -445,10 +445,10 @@ describe("sender rules (M5, H17)", () => {
 
   test("a deactivated rule no longer applies; protected categories still win over the blacklist", async () => {
     const t = setup([account("a", "dry_run")]);
-    const r = createRule(t.db, { kind: "blacklist", match: "address", value: SENDER, ts: T0.toISOString() });
+    const r = createRule(t.db, 1, { kind: "blacklist", match: "address", value: SENDER, ts: T0.toISOString() });
     assert.ok(r.ok);
     assert.equal((await t.actions.evaluate(addMail(t.db, "a", { spam: 0.2, category: "security_auth" }))).outcome, "no_action");
-    deactivateRule(t.db, r.rule.id, T0.toISOString());
+    deactivateRule(t.db, 1, r.rule.id, T0.toISOString());
     assert.equal((await t.actions.evaluate(addMail(t.db, "a", { spam: 0.2, category: "personal" }))).outcome, "no_action");
   });
 });

@@ -8,5 +8,5 @@ export async function POST(request: Request, context: { params: Record<string, s
 
 export async function GET(request: Request, context: { params: Record<string, string> | Promise<Record<string, string>> }): Promise<Response> {
   const params = await context.params;
-  return handleFeedbackGet(params.id, defaultApiDeps());
+  return handleFeedbackGet(request, params.id, defaultApiDeps());
 }

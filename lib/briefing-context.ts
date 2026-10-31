@@ -137,11 +137,11 @@ export function fallbackBriefing(ctx: BriefingContext): string {
 // ---- database -------------------------------------------------------------------------------------------------
 
 /** All open, non-spam mails of the app (3.6), via the same rules as GET /api/emails?view=open (paged, already sorted). */
-function loadOpenMails(db: DatabaseSync): OpenMail[] {
+function loadOpenMails(db: DatabaseSync, userId: number): OpenMail[] {
   const out: OpenMail[] = [];
   let cursor: SortKey | null = null;
   for (let page = 0; page < MAX_PAGES; page++) {
-    const res = listEmails(db, { view: "open", account: null, status: null, limit: PAGED_MAX_LIMIT, cursor });
+    const res = listEmails(db, userId, { view: "open", account: null, status: null, limit: PAGED_MAX_LIMIT, cursor });
     for (const m of res.emails) {
       if (m.provider_spam || m.category === "spam") continue;
       const answers = m.classification?.answers;
@@ -167,40 +167,41 @@ function loadOpenMails(db: DatabaseSync): OpenMail[] {
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 
-function countNew(db: DatabaseSync, since: string): number {
+function countNew(db: DatabaseSync, userId: number, since: string): number {
   const row = db.prepare(
-    `SELECT COUNT(*) AS n FROM emails e
-     WHERE e.first_seen_at > ?
+    `SELECT COUNT(*) AS n FROM emails e JOIN accounts acc ON acc.id = e.account_id
+     WHERE acc.user_id = ? AND e.first_seen_at > ?
        AND COALESCE((
          SELECT json_extract(a.answer_json, '$.value') FROM classification_answers a
          WHERE a.classification_id = (SELECT MAX(id) FROM classifications WHERE email_id = e.id) AND a.question_key = 'category'
        ), '') NOT IN ('spam', 'newsletter_promo')`,
-  ).get(since) as { n: number };
+  ).get(userId, since) as { n: number };
   return row.n;
 }
 
-function countAutoRead(db: DatabaseSync, since: string): number {
+function countAutoRead(db: DatabaseSync, userId: number, since: string): number {
   const row = db.prepare(
-    "SELECT COUNT(*) AS n FROM mailbox_actions WHERE mode = 'live' AND status = 'done' AND action = 'mark_seen' AND done_at > ?",
-  ).get(since) as { n: number };
+    `SELECT COUNT(*) AS n FROM mailbox_actions m JOIN emails e ON e.id = m.email_id JOIN accounts a ON a.id = e.account_id
+     WHERE a.user_id = ? AND m.mode = 'live' AND m.status = 'done' AND m.action = 'mark_seen' AND m.done_at > ?`,
+  ).get(userId, since) as { n: number };
   return row.n;
 }
 
 /** Open HITL questions (E7): the same list the app shows (lib/sender-hitl.ts). Any problem means 0, never an error. */
-function countOpenQuestions(db: DatabaseSync): number {
+function countOpenQuestions(db: DatabaseSync, userId: number): number {
   try {
-    return listHitl(db).length;
+    return listHitl(db, userId).length;
   } catch {
     return 0;
   }
 }
 
-export function loadBriefingContext(db: DatabaseSync, _now: Date): BriefingContext {
-  const open = loadOpenMails(db);
-  const last = readLastOpened(db);
+export function loadBriefingContext(db: DatabaseSync, userId: number, _now: Date): BriefingContext {
+  const open = loadOpenMails(db, userId);
+  const last = readLastOpened(db, userId);
   return buildBriefingContext(open, {
-    new_since_last_open: last === null ? null : countNew(db, last),
-    auto_marked_read: last === null ? null : countAutoRead(db, last),
-    open_questions: countOpenQuestions(db),
+    new_since_last_open: last === null ? null : countNew(db, userId, last),
+    auto_marked_read: last === null ? null : countAutoRead(db, userId, last),
+    open_questions: countOpenQuestions(db, userId),
   });
 }

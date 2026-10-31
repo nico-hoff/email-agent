@@ -6,6 +6,13 @@ Quelle der Wahrheit für das SQLite-Schema. Jede Migration `db/migrations/NNN_*.
 
 ```mermaid
 erDiagram
+  users ||--o{ accounts : "besitzt (Mandant)"
+  users ||--o{ user_sessions : "Sitzungen"
+  users ||--o{ invites : "erstellt"
+  users ||--o{ senders : "Absender je Nutzer"
+  users ||--o{ sender_rules : "Regeln je Nutzer"
+  users ||--o{ user_state : "Zustand je Nutzer"
+  users |o--o{ audit_log : "optional"
   accounts ||--o{ mailbox_state : "Checkpoint je Ordner"
   accounts ||--o| worker_status : "Betriebszustand"
   accounts ||--o{ emails : empfaengt
@@ -21,8 +28,36 @@ erDiagram
   accounts |o--o{ audit_log : betrifft
   emails |o--o{ audit_log : betrifft
 
+  users {
+    integer id PK
+    text email UK
+    text password_hash
+    text role
+    text status
+    text created_at
+    text updated_at
+  }
+  user_sessions {
+    text id PK
+    integer user_id FK
+    text created_at
+    text expires_at
+    text last_used_at
+    text revoked_at
+  }
+  invites {
+    integer id PK
+    text code_hash UK
+    text role
+    integer created_by FK
+    text created_at
+    text expires_at
+    text used_at
+    integer used_by FK
+  }
   accounts {
     text id PK
+    integer user_id FK
     text label
     text host
     integer port
@@ -108,6 +143,7 @@ erDiagram
     text done_at
   }
   user_state {
+    integer user_id PK, FK
     text key PK
     text value_json
     text updated_at
@@ -123,6 +159,7 @@ erDiagram
   }
   senders {
     integer id PK
+    integer user_id FK
     text address UK
     text domain
     text first_seen_at
@@ -137,6 +174,7 @@ erDiagram
   }
   sender_rules {
     integer id PK
+    integer user_id FK
     text kind
     text match
     text value
@@ -153,6 +191,7 @@ erDiagram
     text action
     text account_id FK
     integer email_id FK
+    integer user_id FK
     text details_json
   }
 ```
@@ -164,7 +203,9 @@ Mermaid kann zusammengesetzte Eindeutigkeit nicht gruppieren. Maßgeblich sind d
 - `classifications`: `UNIQUE (email_id, question_set_version, model_requested)`.
 - `classification_answers`: `UNIQUE (classification_id, question_key)`.
 - `mailbox_actions`: partieller Unique-Index `(email_id, rule) WHERE rule <> 'undo'` (je Mail und Regel höchstens eine Aktion; Undo-Zeilen dürfen sich wiederholen).
-- `sender_rules`: Unique-Index `(kind, match, value, COALESCE(account_id, ''))` (ein Ausdrucksindex, damit auch Regeln ohne Konto nicht doppelt vorkommen; SQLite behandelt NULL in UNIQUE sonst als verschieden).
+- `sender_rules`: Unique-Index `(kind, match, value, COALESCE(account_id, ''))` (ein Ausdrucksindex, damit auch Regeln ohne Konto nicht doppelt vorkommen; SQLite behandelt NULL in UNIQUE sonst als verschieden). Seit 006 mit `user_id` als erster Spalte.
+- `senders` (006): `UNIQUE (user_id, address)`; `user_state` (006): `PRIMARY KEY (user_id, key)`.
+- `accounts` (006): `UNIQUE (id, user_id)` als Elternschlüssel für den zusammengesetzten FK `sender_rules (account_id, user_id) → accounts (id, user_id)`; ohne Konto (`account_id` NULL) wird der FK nicht geprüft.
 
 ## Entwurfsentscheidungen
 
@@ -190,6 +231,11 @@ Mermaid kann zusammengesetzte Eindeutigkeit nicht gruppieren. Maßgeblich sind d
 18. **HITL-Marker (004).** `hitl_asked_at` und `hitl_asked_count` merken, wann Nico gefragt wurde und wie hoch `jev_spam_count` damals war. Ein Absender wird erst wieder Kandidat, wenn `jev_spam_count` darüber liegt (Plan v5, E7: „noch nicht gefragt oder seit der Frage weitere Urteile“). Plan v5, Abschnitt 4, hatte nur `hitl_asked_at`; ohne den Zählerstand lässt sich „seitdem weitere Urteile“ nicht entscheiden (Abweichung, `docs/DEVIATIONS.md`). Bei Domain-Vorschlägen gilt die Summe über alle Adressen der Domain.
 19. **`sender_rules` (004).** Eine Regel gilt für eine Adresse oder eine Domain (`match`), optional für ein Konto (`account_id`), dauerhaft, bis Nico sie deaktiviert (`active = 0`; Zeilen werden nie gelöscht, die Eindeutigkeit bleibt erhalten, ein erneutes Anlegen aktiviert die Zeile wieder). `source` ist `nico` (Nicos ausdrückliche Entscheidung); `suggested_confirmed` ist für spätere, vom Agenten vorgeschlagene und von Nico bestätigte Regeln reserviert. Ein aktiver Eintrag je Ziel: Legt Nico die Gegenregel an, wird die bisherige im selben Schritt deaktiviert. `value` ist kleingeschrieben (Adresse oder Domain).
 20. **Audit der Rückmeldungen und Regeln (004).** `feedback_recorded`, `sender_rule_created`, `sender_rule_deactivated` und `sender_hitl_dismissed` stehen mit `actor = 'system'` im `audit_log`; `details_json.source = 'nico'` hält die Herkunft fest, weil ein neuer Akteur `nico` den Umbau der append-only-Tabelle verlangt (siehe Nr. 12 und 14). `details_json` enthält nur IDs und Codes (`kind`, `match`, `rule_id`), nie Adressen, Domains oder Betreffs.
+
+21. **Mandantenschlüssel `user_id` (006, ADR 0029).** Mandantenwurzel sind `accounts`, `senders`, `sender_rules`, `user_state` (jeweils `user_id` verpflichtend) und `audit_log` (`user_id` optional; alte Zeilen und Systemereignisse bleiben NULL, die Tabelle bleibt append-only). **Alle anderen Tabellen gehören einem Nutzer über die FK-Kette zu `accounts`:** `emails` → `accounts`; `email_locations`, `email_status`, `classifications`, `classification_answers`, `mailbox_actions`, `feedback` → `emails`; `mailbox_state`, `worker_status` → `accounts`. Jede Abfrage auf diese Tabellen verbindet bis `accounts.user_id` und filtert danach. Eine fremde ID verhält sich wie eine nicht vorhandene (404, nie 403, nie eine Änderung).
+22. **`accounts.user_id` per ALTER mit Trigger.** SQLite kann bei eingeschalteten Fremdschlüsseln keine `NOT NULL`-FK-Spalte mit Default per `ADD COLUMN` anlegen (innerhalb der Migrations-Transaktion lässt sich `foreign_keys` nicht abschalten). Die Spalte ist deshalb nullable, die Migration setzt alle vorhandenen Zeilen auf Nutzer 1, und zwei `BEFORE`-Trigger (INSERT, UPDATE) verbieten NULL. `senders`, `sender_rules` und `user_state` werden als Blattmigrationen neu aufgebaut (keine Tabelle verweist auf sie) und tragen `user_id NOT NULL`.
+23. **Nutzer, Sitzungen, Einladungen (006).** `users`: E-Mail (klein geschrieben, eindeutig), scrypt-Hash im selbstbeschreibenden Format (Parameter, Salz, Hash), Rolle `admin|user`, Status `unclaimed|active|disabled` (aktiv oder gesperrt verlangt einen Hash). Die Migration legt Nutzer 1 an (`owner@unclaimed.invalid`, Admin, `unclaimed`); alle bisherigen Daten gehören ihm. Das erste `user:create` übernimmt (claimt) diese Zeile (E-Mail, Hash, `active`), statt eine neue einzufügen, damit die Daten bei Nico bleiben. `user_sessions.id` ist der SHA-256 (hex) des zufälligen Sitzungstokens; das Token selbst wird nie gespeichert. Sitzungen sind serverseitig widerrufbar (`revoked_at`). `invites.code_hash` ist der SHA-256 des Codes (der Code wird einmal angezeigt, nie gespeichert); eine Einladung ist einmalig (`used_at`/`used_by` gemeinsam gesetzt) und läuft ab.
+24. **Audit der Nutzerverwaltung.** `user_created`, `invite_created` und `invite_used` stehen mit `actor = 'system'` und `user_id` im `audit_log`; `details_json` enthält nur IDs und die Rolle, nie E-Mail-Adressen, Codes oder Tokens.
 
 ## Verbindungs-Pragmas (nicht Teil der Migration, bei jeder Verbindung setzen)
 
@@ -414,6 +460,118 @@ CREATE TABLE user_state (
 ```
 
 `audit_log.action` kennt zusätzlich `briefing_generated` und `draft_generated`.
+
+## DDL (`db/migrations/006_users.sql`)
+
+```sql
+CREATE TABLE users (
+  id            INTEGER PRIMARY KEY,
+  email         TEXT NOT NULL UNIQUE CHECK (email = lower(email) AND length(email) BETWEEN 3 AND 254),
+  password_hash TEXT CHECK (password_hash IS NULL OR length(password_hash) BETWEEN 20 AND 512),
+  role          TEXT NOT NULL CHECK (role IN ('admin', 'user')),
+  status        TEXT NOT NULL CHECK (status IN ('unclaimed', 'active', 'disabled')),
+  created_at    TEXT NOT NULL,
+  updated_at    TEXT NOT NULL,
+  CHECK (status = 'unclaimed' OR password_hash IS NOT NULL)
+);
+
+INSERT INTO users (id, email, password_hash, role, status, created_at, updated_at)
+VALUES (1, 'owner@unclaimed.invalid', NULL, 'admin', 'unclaimed',
+        strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+
+CREATE TABLE user_sessions (
+  id           TEXT PRIMARY KEY CHECK (length(id) = 64 AND id NOT GLOB '*[^0-9a-f]*'),
+  user_id      INTEGER NOT NULL REFERENCES users (id),
+  created_at   TEXT NOT NULL,
+  expires_at   TEXT NOT NULL,
+  last_used_at TEXT NOT NULL,
+  revoked_at   TEXT,
+  CHECK (expires_at > created_at)
+);
+CREATE INDEX user_sessions_user ON user_sessions (user_id);
+
+CREATE TABLE invites (
+  id         INTEGER PRIMARY KEY,
+  code_hash  TEXT NOT NULL UNIQUE CHECK (length(code_hash) = 64 AND code_hash NOT GLOB '*[^0-9a-f]*'),
+  role       TEXT NOT NULL CHECK (role IN ('admin', 'user')),
+  created_by INTEGER NOT NULL REFERENCES users (id),
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  used_at    TEXT,
+  used_by    INTEGER REFERENCES users (id),
+  CHECK (expires_at > created_at),
+  CHECK ((used_at IS NULL) = (used_by IS NULL))
+);
+
+ALTER TABLE accounts ADD COLUMN user_id INTEGER REFERENCES users (id);
+UPDATE accounts SET user_id = 1;
+CREATE UNIQUE INDEX accounts_id_user ON accounts (id, user_id);
+CREATE INDEX accounts_user ON accounts (user_id);
+
+CREATE TRIGGER accounts_user_required_insert BEFORE INSERT ON accounts
+WHEN NEW.user_id IS NULL
+BEGIN SELECT RAISE(ABORT, 'accounts.user_id is required'); END;
+
+CREATE TRIGGER accounts_user_required_update BEFORE UPDATE ON accounts
+WHEN NEW.user_id IS NULL
+BEGIN SELECT RAISE(ABORT, 'accounts.user_id is required'); END;
+
+CREATE TABLE senders_new (
+  id               INTEGER PRIMARY KEY,
+  user_id          INTEGER NOT NULL REFERENCES users (id),
+  address          TEXT NOT NULL CHECK (address = lower(address)),
+  domain           TEXT NOT NULL CHECK (domain = lower(domain)),
+  first_seen_at    TEXT NOT NULL,
+  last_seen_at     TEXT NOT NULL,
+  mails_seen       INTEGER NOT NULL DEFAULT 0 CHECK (mails_seen >= 0),
+  marked_spam      INTEGER NOT NULL DEFAULT 0 CHECK (marked_spam >= 0),
+  marked_not_spam  INTEGER NOT NULL DEFAULT 0 CHECK (marked_not_spam >= 0),
+  jev_spam_count   INTEGER NOT NULL DEFAULT 0 CHECK (jev_spam_count >= 0),
+  dmarc_pass       INTEGER NOT NULL DEFAULT 0 CHECK (dmarc_pass >= 0),
+  hitl_asked_at    TEXT,
+  hitl_asked_count INTEGER NOT NULL DEFAULT 0 CHECK (hitl_asked_count >= 0),
+  UNIQUE (user_id, address)
+);
+INSERT INTO senders_new (id, user_id, address, domain, first_seen_at, last_seen_at, mails_seen, marked_spam, marked_not_spam, jev_spam_count, dmarc_pass, hitl_asked_at, hitl_asked_count)
+SELECT id, 1, address, domain, first_seen_at, last_seen_at, mails_seen, marked_spam, marked_not_spam, jev_spam_count, dmarc_pass, hitl_asked_at, hitl_asked_count FROM senders;
+DROP TABLE senders;
+ALTER TABLE senders_new RENAME TO senders;
+CREATE INDEX senders_domain ON senders (user_id, domain);
+
+CREATE TABLE sender_rules_new (
+  id         INTEGER PRIMARY KEY,
+  user_id    INTEGER NOT NULL REFERENCES users (id),
+  kind       TEXT NOT NULL CHECK (kind IN ('blacklist', 'allowlist')),
+  match      TEXT NOT NULL CHECK (match IN ('address', 'domain')),
+  value      TEXT NOT NULL CHECK (value = lower(value) AND length(value) BETWEEN 1 AND 254),
+  account_id TEXT,
+  source     TEXT NOT NULL CHECK (source IN ('nico', 'suggested_confirmed')),
+  active     INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (account_id, user_id) REFERENCES accounts (id, user_id)
+);
+INSERT INTO sender_rules_new (id, user_id, kind, match, value, account_id, source, active, created_at)
+SELECT id, 1, kind, match, value, account_id, source, active, created_at FROM sender_rules;
+DROP TABLE sender_rules;
+ALTER TABLE sender_rules_new RENAME TO sender_rules;
+CREATE UNIQUE INDEX sender_rules_once ON sender_rules (user_id, kind, match, value, COALESCE(account_id, ''));
+CREATE INDEX sender_rules_lookup ON sender_rules (user_id, match, value) WHERE active = 1;
+
+CREATE TABLE user_state_new (
+  user_id    INTEGER NOT NULL REFERENCES users (id),
+  key        TEXT NOT NULL,
+  value_json TEXT NOT NULL CHECK (json_valid(value_json)),
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (user_id, key)
+);
+INSERT INTO user_state_new (user_id, key, value_json, updated_at) SELECT 1, key, value_json, updated_at FROM user_state;
+DROP TABLE user_state;
+ALTER TABLE user_state_new RENAME TO user_state;
+
+ALTER TABLE audit_log ADD COLUMN user_id INTEGER REFERENCES users (id);
+```
+
+`audit_log.action` kennt zusätzlich `user_created`, `invite_created` und `invite_used`.
 
 ## Schema-Test (`tests/db.test.ts`)
 

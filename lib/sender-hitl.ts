@@ -89,18 +89,19 @@ export interface HitlItem extends HitlCandidate {
  * The newest mails of the sender or domain that Jev judged as spam (is_spam positive under the calibration), so that
  * Nico can open an example before deciding. Ids only.
  */
-export function sampleEmailIds(db: DatabaseSync, match: RuleMatch, value: string, limit = HITL_SAMPLE_IDS): number[] {
+export function sampleEmailIds(db: DatabaseSync, userId: number, match: RuleMatch, value: string, limit = HITL_SAMPLE_IDS): number[] {
   const where = match === "address"
     ? "lower(e.sender) = ?"
     : "substr(lower(e.sender), instr(lower(e.sender), '@') + 1) = ?";
   const rows = db.prepare(
     `SELECT e.id AS id, c.question_set_version AS version, a.answer_json AS answer
      FROM emails e
+     JOIN accounts acc ON acc.id = e.account_id
      JOIN classifications c ON c.id = (SELECT MAX(id) FROM classifications WHERE email_id = e.id AND status = 'classified')
      JOIN classification_answers a ON a.classification_id = c.id AND a.question_key = 'is_spam' AND a.type = 'noul'
-     WHERE ${where}
+     WHERE acc.user_id = ? AND ${where}
      ORDER BY e.received_at DESC, e.id DESC LIMIT 200`,
-  ).all(value) as { id: number; version: string; answer: string }[];
+  ).all(userId, value) as { id: number; version: string; answer: string }[];
   const ids: number[] = [];
   for (const r of rows) {
     let v: unknown;
@@ -116,41 +117,42 @@ export function sampleEmailIds(db: DatabaseSync, match: RuleMatch, value: string
   return ids;
 }
 
-export function listHitl(db: DatabaseSync): HitlItem[] {
+export function listHitl(db: DatabaseSync, userId: number): HitlItem[] {
   const senders = db.prepare(
     `SELECT address, domain, mails_seen, dmarc_pass, jev_spam_count, hitl_asked_count FROM senders
-     WHERE domain IN (SELECT domain FROM senders WHERE jev_spam_count > 0)`,
-  ).all() as unknown as HitlSender[];
-  const rules = db.prepare("SELECT kind, match, value FROM sender_rules WHERE active = 1").all() as unknown as HitlRule[];
+     WHERE user_id = ? AND domain IN (SELECT domain FROM senders WHERE user_id = ? AND jev_spam_count > 0)`,
+  ).all(userId, userId) as unknown as HitlSender[];
+  const rules = db.prepare("SELECT kind, match, value FROM sender_rules WHERE user_id = ? AND active = 1").all(userId) as unknown as HitlRule[];
   return hitlCandidates(senders.map((s) => ({ ...s })), rules.map((r) => ({ ...r })))
-    .map((c) => ({ ...c, sample_email_ids: sampleEmailIds(db, c.match, c.value) }));
+    .map((c) => ({ ...c, sample_email_ids: sampleEmailIds(db, userId, c.match, c.value) }));
 }
 
 export type DismissResult = { ok: true; changed: boolean } | { ok: false; code: "invalid_value" | "not_found" };
 
 /** "Not now": remembers that Nico was asked at the current count. The question returns after further verdicts. */
-export function dismissHitl(db: DatabaseSync, match: RuleMatch, rawValue: string, ts: string): DismissResult {
+export function dismissHitl(db: DatabaseSync, userId: number, match: RuleMatch, rawValue: string, ts: string): DismissResult {
   const value = rawValue.trim().toLowerCase();
   const key = match === "address" ? splitSender(value)?.address : isValidDomain(value) ? value : undefined;
   if (key === undefined) return { ok: false, code: "invalid_value" };
   const col = match === "address" ? "address = ?" : "domain = ?";
+  // Only this user's sender rows are looked at and changed; another user's sender is "not_found".
   db.exec("BEGIN IMMEDIATE");
   try {
-    const n = (db.prepare(`SELECT COUNT(*) AS n FROM senders WHERE ${col}`).get(key) as { n: number }).n;
+    const n = (db.prepare(`SELECT COUNT(*) AS n FROM senders WHERE user_id = ? AND ${col}`).get(userId, key) as { n: number }).n;
     if (n === 0) {
       db.exec("ROLLBACK");
       return { ok: false, code: "not_found" };
     }
     const res = db.prepare(
       `UPDATE senders SET hitl_asked_at = ?, hitl_asked_count = jev_spam_count
-       WHERE ${col} AND hitl_asked_count <> jev_spam_count`,
-    ).run(ts, key);
+       WHERE user_id = ? AND ${col} AND hitl_asked_count <> jev_spam_count`,
+    ).run(ts, userId, key);
     const changed = Number(res.changes) > 0;
     if (changed) {
       db.prepare(
-        `INSERT INTO audit_log (occurred_at, trace_id, actor, action, account_id, email_id, details_json)
-         VALUES (?, ?, 'system', 'sender_hitl_dismissed', NULL, NULL, ?)`,
-      ).run(ts, randomUUID(), JSON.stringify({ source: "nico", match }));
+        `INSERT INTO audit_log (occurred_at, trace_id, actor, action, account_id, email_id, user_id, details_json)
+         VALUES (?, ?, 'system', 'sender_hitl_dismissed', NULL, NULL, ?, ?)`,
+      ).run(ts, randomUUID(), userId, JSON.stringify({ source: "nico", match }));
     }
     db.exec("COMMIT");
     return { ok: true, changed };

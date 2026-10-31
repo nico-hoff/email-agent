@@ -364,12 +364,13 @@ main { display: block; min-width: 0; }
 .welcome button:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
 .welcome-form { display: grid; gap: 8px; width: 100%; max-width: 20rem; text-align: left; }
 .welcome-label { font-size: 14px; font-weight: 600; color: var(--muted); }
-.welcome input[type="password"] {
+.welcome input[type="password"], .welcome input[type="email"], .welcome input[type="text"] {
   box-sizing: border-box; width: 100%; min-height: 52px; padding: 0 16px; font: inherit; font-size: 17px; color: var(--text);
   background: var(--surface-2); border: 1px solid var(--border); border-radius: 14px;
 }
-.welcome input[type="password"]:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.welcome input[type="password"]:focus-visible, .welcome input[type="email"]:focus-visible, .welcome input[type="text"]:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 .welcome-form button { max-width: none; }
+.welcome .welcome-link { margin-top: 0; background: transparent; color: var(--accent); font-size: 16px; font-weight: 600; }
 .welcome p[role="alert"] { color: var(--danger-fg); background: var(--danger-bg); padding: 12px 14px; border-radius: 12px; }
 
 /* ---- Signal inbox (phase 12): segments with counts, account chips and tags, groups, folded noise ---- */
@@ -633,3 +634,18 @@ main { display: block; min-width: 0; }
 
 .hitl-actions .btn { flex: 1 1 auto; overflow: visible; text-overflow: clip; font-weight: 600; }
 .hitl-actions .btn-quiet { flex: 0 0 auto; }
+
+/* ---- Profil (R1) ---- */
+.kv { display: grid; gap: 8px; margin: 0; }
+.kv > div { display: grid; gap: 2px; }
+.kv dt { font-size: 13px; color: var(--muted); }
+.kv dd { margin: 0; overflow-wrap: anywhere; font-weight: 650; }
+.profile-actions { display: grid; gap: 8px; }
+.profile-actions .btn-wide { margin: 0; }
+.sub-h { margin: 16px 0 6px; font-size: 13px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.invite-new { margin-top: 12px; padding: 12px; border-radius: 12px; background: var(--info-bg); color: var(--info-fg); }
+.invite-new .hint { color: inherit; margin: 0 0 6px; }
+.invite-code {
+  margin: 4px 0 8px; padding: 12px; border-radius: 10px; background: var(--surface); color: var(--text);
+  font: 700 20px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0.04em; text-align: center; user-select: all; overflow-wrap: anywhere;
+}

@@ -1,6 +1,7 @@
 import { buildAgentInput, formatAgentInput, type AgentInputDeps } from "./agent-input.ts";
 import type { AgentBlockReason } from "./agent-eligibility.ts";
 import { REPLY_DRAFTER_MODEL } from "./constants.ts";
+import { runAsUser } from "./tenant.ts";
 
 /** Result of the reply agent (docs/agent-contract.md section 1). Lives in memory only (D17/H3). */
 export interface ReplyDraft {
@@ -58,7 +59,8 @@ export async function draftReply(deps: DraftReplyDeps, emailId: number, abortSig
   const started = clock();
   let response: Awaited<ReturnType<DraftAgent["generate"]>>;
   try {
-    response = await deps.agent.generate({ input, ...(abortSignal ? { abortSignal } : {}) });
+    // The tool get-email-context reads the user from this async context, never from the model's arguments (ADR 0029).
+    response = await runAsUser(deps.userId, () => deps.agent.generate({ input, ...(abortSignal ? { abortSignal } : {}) }));
   } catch {
     // No error details: provider messages could echo prompt content (H3/H4).
     return { ok: false, code: "agent_failed" };
@@ -76,9 +78,9 @@ export async function draftReply(deps: DraftReplyDeps, emailId: number, abortSig
   const account = deps.db.prepare("SELECT account_id FROM emails WHERE id = ?").get(emailId) as { account_id: string } | undefined;
   try {
     deps.db.prepare(
-      `INSERT INTO audit_log (occurred_at, trace_id, actor, action, account_id, email_id, details_json)
-       VALUES (?, ?, 'system', 'draft_generated', ?, ?, ?)`,
-    ).run((deps.now ?? (() => new Date()))().toISOString(), deps.traceId ?? crypto.randomUUID(), account?.account_id ?? null, emailId,
+      `INSERT INTO audit_log (occurred_at, trace_id, actor, action, account_id, email_id, user_id, details_json)
+       VALUES (?, ?, 'system', 'draft_generated', ?, ?, ?, ?)`,
+    ).run((deps.now ?? (() => new Date()))().toISOString(), deps.traceId ?? crypto.randomUUID(), account?.account_id ?? null, emailId, deps.userId,
       JSON.stringify({ model: REPLY_DRAFTER_MODEL, latency_ms, ...usage }));
   } catch {
     // The draft stays usable; a failed audit write must not leak details either.

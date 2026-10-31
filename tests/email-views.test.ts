@@ -362,7 +362,7 @@ describe("needs_my_reply once it is calibrated (injected reading)", () => {
     const f = fixture([{ id: 1, recv: day(20), route: "ignore", needs: 0.7, urgency: 1 }, { id: 2, recv: day(20), route: "ignore", needs: 0.2, urgency: 1 }]);
     try {
       const readNoul = (a: { key: string; value: unknown }) => (a.key === "needs_my_reply" ? ((a.value as number) >= 0.5 ? "positive" : "negative") : "unmapped");
-      const res = listEmails(f.db, { view: "open", account: null, status: null, limit: 50, cursor: null }, { readNoul: readNoul as never });
+      const res = listEmails(f.db, 1, { view: "open", account: null, status: null, limit: 50, cursor: null }, { readNoul: readNoul as never });
       assert.deepEqual(res.emails.map((e) => e.id), [1]);
       assert.equal(res.emails[0].needs_my_reply, "positive");
       assert.deepEqual(res.counts, { important: 2, open: 1, noise: 0, all: 2 });
@@ -445,8 +445,8 @@ describe("GET /api/emails/:id", () => {
   test("getEmailDetail is pure over the database and exports only GET on the route", () => {
     const f = fixture([{ id: 1, recv: day(20) }]);
     try {
-      assert.equal(getEmailDetail(f.db, 1)?.id, 1);
-      assert.equal(getEmailDetail(f.db, 2), null);
+      assert.equal(getEmailDetail(f.db, 1, 1)?.id, 1);
+      assert.equal(getEmailDetail(f.db, 1, 2), null);
       assert.deepEqual(Object.keys(detailRoute).sort(), ["GET"]);
       assert.deepEqual(Object.keys(listRoute).sort(), ["GET"]);
     } finally { cleanup(f); }

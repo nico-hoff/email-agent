@@ -11,6 +11,7 @@ import { createImapWritePort, ImapWriteError, type ImapWritePort } from "./imap-
 import type { NormalizedAnswer } from "./jev-response.ts";
 import { decideSpamSeen } from "./mailbox-rules.ts";
 import { senderRuleHit } from "./sender-rules.ts";
+import { accountUserId } from "./tenant.ts";
 
 export { DAILY_ACTION_LIMIT };
 
@@ -50,7 +51,7 @@ export interface MailboxActions {
   /** One bounded pass over already classified mails (start-up). Also executes dry-run rows of accounts now `live`. */
   backfill(o?: { limit?: number }): Promise<BackfillResult>;
   /** "Wieder ungelesen": live accounts remove \Seen on the server, dry-run accounts change the app status only. */
-  undoSeen(emailId: number): Promise<UndoResult>;
+  undoSeen(userId: number, emailId: number): Promise<UndoResult>;
 }
 
 interface ActionRow { id: number; mode: "dry_run" | "live"; status: string; reason_json: string }
@@ -176,7 +177,7 @@ export function createMailboxActions(opts: MailboxActionsOptions): MailboxAction
       questionSetVersion: cls.version,
       inProviderSpam: acct?.spam_mailbox != null && acct.spam_mailbox === loc.folder,
       seen,
-      ...senderRuleHit(db, mail.sender, accountId),
+      ...senderRuleHit(db, accountUserId(db, accountId), mail.sender, accountId),
     });
     const ts = now();
 
@@ -227,8 +228,10 @@ export function createMailboxActions(opts: MailboxActionsOptions): MailboxAction
     return execute(actionId, emailId, accountId, loc);
   }
 
-  async function undoNow(emailId: number): Promise<UndoResult> {
-    const mail = db.prepare("SELECT account_id FROM emails WHERE id = ?").get(emailId) as { account_id: string } | undefined;
+  async function undoNow(userId: number, emailId: number): Promise<UndoResult> {
+    // Tenant scope: a foreign mail is "not_found" (ADR 0029).
+    const mail = db.prepare("SELECT e.account_id FROM emails e JOIN accounts a ON a.id = e.account_id WHERE e.id = ? AND a.user_id = ?")
+      .get(emailId, userId) as { account_id: string } | undefined;
     if (!mail) return { ok: false, code: "not_found" };
     const accountId = mail.account_id;
     const row = existingAction(emailId);
@@ -336,6 +339,6 @@ export function createMailboxActions(opts: MailboxActionsOptions): MailboxAction
       }
     },
     backfill: (o = {}) => enqueue(() => backfillNow(o.limit ?? BACKFILL_LIMIT)),
-    undoSeen: (emailId) => enqueue(() => undoNow(emailId)),
+    undoSeen: (userId, emailId) => enqueue(() => undoNow(userId, emailId)),
   };
 }

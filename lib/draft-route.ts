@@ -46,7 +46,7 @@ export async function handleDraft(request: Request, rawId: unknown, deps: DraftR
     if (!agent) return json({ error: "agent_unavailable" }, 503);
     db = deps.openDb();
     const result = await draftReply(
-      { db, portFactory: deps.portFactory, agent, ...(deps.now ? { now: deps.now } : {}) },
+      { db, userId: gate.userId, portFactory: deps.portFactory, agent, ...(deps.now ? { now: deps.now } : {}) },
       id,
       request.signal,
     );

@@ -141,7 +141,7 @@ describe("loadBriefingContext (database)", () => {
     add(d, 5, { answers: { category: "spam" }, subject: "Spam with cta" });
     add(d, 6, { folder: "Junk", subject: "Provider spam" });
     add(d, 7, { answers: { addresses_an_ai: 0.9 }, subject: "Addresses an AI" });
-    const ctx = loadBriefingContext(d, new Date(T));
+    const ctx = loadBriefingContext(d, 1, new Date(T));
     assert.deepEqual(ctx.mails.map((m) => m.subject), ["Open urgent"]);
     assert.equal(ctx.flagged_count, 1);
     assert.equal(ctx.open_total, 2);
@@ -159,40 +159,40 @@ describe("loadBriefingContext (database)", () => {
     act.run(1, 1, "spam_seen", "mark_seen", "live", "done", "2026-10-27T06:00:00.000Z", "2026-10-27T06:00:00.000Z"); // before
     act.run(2, 2, "spam_seen", "mark_seen", "live", "done", "2026-10-27T07:10:00.000Z", "2026-10-27T07:10:00.000Z"); // counts
     act.run(3, 3, "spam_seen", "mark_seen", "dry_run", "planned", "2026-10-27T07:40:00.000Z", null);                  // planned: no
-    const first = loadBriefingContext(d, new Date(T));
+    const first = loadBriefingContext(d, 1, new Date(T));
     assert.equal(first.new_since_last_open, null);
     assert.equal(first.auto_marked_read, null);
-    setUserState(d, "last_opened_at", { at: "2026-10-27T06:30:00.000Z" }, T);
-    const again = loadBriefingContext(d, new Date(T));
+    setUserState(d, 1, "last_opened_at", { at: "2026-10-27T06:30:00.000Z" }, T);
+    const again = loadBriefingContext(d, 1, new Date(T));
     assert.equal(again.new_since_last_open, 1, "mail 2 only: mail 1 is older, mail 3 is a newsletter");
     assert.equal(again.auto_marked_read, 1);
   });
 
   test("open sender questions are the HITL list of the app: threshold, domain grouping, rules and dismissals; a broken table never breaks the briefing", () => {
     const d = db();
-    assert.equal(loadBriefingContext(d, new Date(T)).open_questions, 0);
+    assert.equal(loadBriefingContext(d, 1, new Date(T)).open_questions, 0);
     const add = (address: string, spam: number, asked = 0) =>
-      d.prepare("INSERT INTO senders (address, domain, first_seen_at, last_seen_at, mails_seen, jev_spam_count, hitl_asked_count) VALUES (?, ?, ?, ?, 5, ?, ?)")
+      d.prepare("INSERT INTO senders (user_id, address, domain, first_seen_at, last_seen_at, mails_seen, jev_spam_count, hitl_asked_count) VALUES (1, ?, ?, ?, ?, 5, ?, ?)")
         .run(address, address.slice(address.indexOf("@") + 1), T, T, spam, asked);
     add("a@x.test", 3);
     add("b@y.test", 1);
     add("c@z.test", 5);
-    assert.equal(loadBriefingContext(d, new Date(T)).open_questions, 2);
-    d.prepare("INSERT INTO sender_rules (kind, match, value, source, created_at) VALUES ('allowlist', 'domain', 'z.test', 'nico', ?)").run(T);
-    assert.equal(loadBriefingContext(d, new Date(T)).open_questions, 1, "a rule closes the question");
+    assert.equal(loadBriefingContext(d, 1, new Date(T)).open_questions, 2);
+    d.prepare("INSERT INTO sender_rules (user_id, kind, match, value, source, created_at) VALUES (1, 'allowlist', 'domain', 'z.test', 'nico', ?)").run(T);
+    assert.equal(loadBriefingContext(d, 1, new Date(T)).open_questions, 1, "a rule closes the question");
     d.prepare("UPDATE senders SET hitl_asked_count = 3 WHERE address = 'a@x.test'").run();
-    assert.equal(loadBriefingContext(d, new Date(T)).open_questions, 0, "asked and no new verdict");
+    assert.equal(loadBriefingContext(d, 1, new Date(T)).open_questions, 0, "asked and no new verdict");
     add("p@shop.test", 2);
     add("q@shop.test", 1);
-    assert.equal(loadBriefingContext(d, new Date(T)).open_questions, 1, "verdicts of two addresses of one domain: one domain question");
+    assert.equal(loadBriefingContext(d, 1, new Date(T)).open_questions, 1, "verdicts of two addresses of one domain: one domain question");
     d.exec("DROP TABLE senders; CREATE TABLE senders (other TEXT)");
-    assert.equal(loadBriefingContext(d, new Date(T)).open_questions, 0);
+    assert.equal(loadBriefingContext(d, 1, new Date(T)).open_questions, 0);
   });
 
   test("never reads a body: the context carries no field beyond the allowlist", () => {
     const d = db();
     add(d, 1, {});
-    const ctx = loadBriefingContext(d, new Date(T));
+    const ctx = loadBriefingContext(d, 1, new Date(T));
     assert.deepEqual(Object.keys(ctx).sort(), ["auto_marked_read", "flagged_count", "mails", "new_since_last_open", "open_questions", "open_total"]);
   });
 });
@@ -200,10 +200,10 @@ describe("loadBriefingContext (database)", () => {
 describe("user_state", () => {
   test("round trip and overwrite; invalid stored JSON reads as undefined", () => {
     const d = openDatabase(":memory:");
-    assert.equal(getUserState(d, "last_opened_at"), undefined);
-    setUserState(d, "last_opened_at", { at: T }, T);
-    setUserState(d, "last_opened_at", { at: "2026-10-28T00:00:00.000Z" }, T);
-    assert.deepEqual(getUserState(d, "last_opened_at"), { at: "2026-10-28T00:00:00.000Z" });
+    assert.equal(getUserState(d, 1, "last_opened_at"), undefined);
+    setUserState(d, 1, "last_opened_at", { at: T }, T);
+    setUserState(d, 1, "last_opened_at", { at: "2026-10-28T00:00:00.000Z" }, T);
+    assert.deepEqual(getUserState(d, 1, "last_opened_at"), { at: "2026-10-28T00:00:00.000Z" });
     assert.equal((d.prepare("SELECT COUNT(*) AS n FROM user_state").get() as { n: number }).n, 1);
   });
 });

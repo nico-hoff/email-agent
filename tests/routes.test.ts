@@ -19,7 +19,7 @@ test("/api/health, /api/status and /api/emails respond ok", async () => {
     const status = await import("../app/api/status/route.ts");
     const emails = await import("../app/api/emails/route.ts");
     assert.equal(health.GET().status, 200);
-    assert.equal((await status.GET()).status, 200);
+    assert.equal((await status.GET(new Request("http://x/api/status"))).status, 200);
     assert.equal((await emails.GET(new Request("http://localhost/api/emails"))).status, 200);
   } finally {
     if (prev === undefined) delete process.env.DATABASE_PATH;

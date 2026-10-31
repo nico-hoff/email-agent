@@ -162,13 +162,14 @@ export async function handleBriefing(request: Request, deps: BriefingDeps): Prom
   const now = deps.now ?? (() => new Date());
   const clock = deps.clock ?? (() => performance.now());
 
+  const userId = gate.userId;
   const cached = deps.cache.get(gate.login, now().getTime());
   let ctx: BriefingContext | undefined;
   if (!cached) {
     let db: DatabaseSync | undefined;
     try {
       db = deps.openDb();
-      ctx = loadBriefingContext(db, now());
+      ctx = loadBriefingContext(db, userId, now());
     } catch {
       return json({ error: "briefing_unavailable" }, 500);
     } finally {
@@ -188,12 +189,12 @@ export async function handleBriefing(request: Request, deps: BriefingDeps): Prom
     try {
       db = deps.openDb();
       const ts = now().toISOString();
-      setUserState(db, LAST_OPENED_KEY, { at: ts }, ts);
+      setUserState(db, userId, LAST_OPENED_KEY, { at: ts }, ts);
       if (audit) {
         db.prepare(
-          `INSERT INTO audit_log (occurred_at, trace_id, actor, action, account_id, email_id, details_json)
-           VALUES (?, ?, 'system', 'briefing_generated', NULL, NULL, ?)`,
-        ).run(ts, (deps.traceId ?? randomUUID)(), JSON.stringify({
+          `INSERT INTO audit_log (occurred_at, trace_id, actor, action, account_id, email_id, user_id, details_json)
+           VALUES (?, ?, 'system', 'briefing_generated', NULL, NULL, ?, ?)`,
+        ).run(ts, (deps.traceId ?? randomUUID)(), userId, JSON.stringify({
           model: audit.model, latency_ms: audit.latency_ms, prompt_tokens: audit.usage.prompt_tokens,
           completion_tokens: audit.usage.completion_tokens, total_tokens: audit.usage.total_tokens, mails: audit.mails,
         }));

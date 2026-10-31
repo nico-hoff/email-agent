@@ -38,6 +38,7 @@ Neue ADR: nächste freie Nummer, Vorlage unten, Eintrag in dieser Tabelle, im se
 | [0030](0030-follow-ups-reminders.md) | Follow-ups und Erinnerungen (eigene Tabelle; SQLite-Workflow-Backend später) | angenommen (Stufe 1) |
 | [0031](0031-user-memory-preferences.md) | Nutzer-Gedächtnis: Präferenzen lernen (add/search), nicht Veryfront Knowledge | angenommen |
 | [0032](0032-question-set-v2-default.md) | Fragenset v2 ist Standard, Schwellen je Fragenset-Version | angenommen |
+| [0033](0033-tenant-key-user-id.md) | Mandantenschlüssel `user_id`, Sitzungen, Einladungen | angenommen |
 | [0041](0041-classifier-model-per-user.md) | Klassifikationsmodell (System One) pro Nutzer wählbar, Schwellen je Modell, Premium vorbereitet | angenommen |
 
 ## Vorlage

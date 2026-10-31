@@ -27,18 +27,22 @@ export type RecordResult =
 
 interface FeedbackRow { kind: FeedbackKind; value_json: string }
 
-function latestOfTopic(db: DatabaseSync, emailId: number, topic: readonly FeedbackKind[]): FeedbackRow | undefined {
+function latestOfTopic(db: DatabaseSync, userId: number, emailId: number, topic: readonly FeedbackKind[]): FeedbackRow | undefined {
   const marks = topic.map(() => "?").join(",");
-  return db.prepare(`SELECT kind, value_json FROM feedback WHERE email_id = ? AND kind IN (${marks}) ORDER BY id DESC LIMIT 1`)
-    .get(emailId, ...topic) as FeedbackRow | undefined;
+  return db.prepare(
+    `SELECT f.kind, f.value_json FROM feedback f JOIN emails e ON e.id = f.email_id JOIN accounts a ON a.id = e.account_id
+     WHERE f.email_id = ? AND a.user_id = ? AND f.kind IN (${marks}) ORDER BY f.id DESC LIMIT 1`,
+  ).get(emailId, userId, ...topic) as FeedbackRow | undefined;
 }
 
 export function recordFeedback(
   db: DatabaseSync,
+  userId: number,
   i: { emailId: number; kind: FeedbackKind; value?: unknown; ts: string },
 ): RecordResult {
   if (!FEEDBACK_KINDS.includes(i.kind)) return { ok: false, code: "invalid_kind" };
-  const mail = db.prepare("SELECT account_id, sender FROM emails WHERE id = ?").get(i.emailId) as
+  // Tenant scope: a mail of another user is "not_found" and nothing is written (ADR 0029).
+  const mail = db.prepare("SELECT e.account_id, e.sender FROM emails e JOIN accounts a ON a.id = e.account_id WHERE e.id = ? AND a.user_id = ?").get(i.emailId, userId) as
     | { account_id: string; sender: string }
     | undefined;
   if (!mail) return { ok: false, code: "not_found" };
@@ -53,7 +57,7 @@ export function recordFeedback(
 
   db.exec("BEGIN IMMEDIATE");
   try {
-    const prev = latestOfTopic(db, i.emailId, topicOf(i.kind));
+    const prev = latestOfTopic(db, userId, i.emailId, topicOf(i.kind));
     if (prev && prev.kind === i.kind && prev.value_json === valueJson) {
       db.exec("ROLLBACK");
       return { ok: true, changed: false };
@@ -65,11 +69,11 @@ export function recordFeedback(
     ).run(i.emailId, cls?.id ?? null, i.kind, valueJson, i.ts);
 
     if (SPAM_TOPIC.includes(i.kind)) {
-      const address = ensureSender(db, mail.sender, i.ts);
+      const address = ensureSender(db, userId, mail.sender, i.ts);
       if (address !== null) {
         const [inc, dec] = i.kind === "spam_correct" ? ["marked_spam", "marked_not_spam"] : ["marked_not_spam", "marked_spam"];
         const undo = prev !== undefined && prev.kind !== i.kind ? `, ${dec} = MAX(${dec} - 1, 0)` : "";
-        db.prepare(`UPDATE senders SET ${inc} = ${inc} + 1${undo} WHERE address = ?`).run(address);
+        db.prepare(`UPDATE senders SET ${inc} = ${inc} + 1${undo} WHERE user_id = ? AND address = ?`).run(userId, address);
       }
     }
     db.prepare(
@@ -91,10 +95,10 @@ export interface FeedbackState {
 }
 
 /** Latest answer per topic, for the buttons' current state. */
-export function feedbackState(db: DatabaseSync, emailId: number): FeedbackState {
-  const spam = latestOfTopic(db, emailId, SPAM_TOPIC)?.kind ?? null;
-  const reply = latestOfTopic(db, emailId, REPLY_TOPIC)?.kind ?? null;
-  const cat = latestOfTopic(db, emailId, CATEGORY_TOPIC);
+export function feedbackState(db: DatabaseSync, userId: number, emailId: number): FeedbackState {
+  const spam = latestOfTopic(db, userId, emailId, SPAM_TOPIC)?.kind ?? null;
+  const reply = latestOfTopic(db, userId, emailId, REPLY_TOPIC)?.kind ?? null;
+  const cat = latestOfTopic(db, userId, emailId, CATEGORY_TOPIC);
   let category: string | null = null;
   if (cat) {
     try {
