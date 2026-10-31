@@ -30,13 +30,13 @@ Im Tailnet-Modus (kein `APP_PASSWORD`) bindet die App an `127.0.0.1` (nie `0.0.0
 
 Auf einem öffentlich erreichbaren Host (`*.fly.dev`) darf der Tailnet-Header nicht als Beweis dienen: jeder kann `Tailscale-User-Login` selbst setzen. Deshalb gibt es den **Passwort-Modus**: Ist die Laufzeit-Variable `APP_PASSWORD` gesetzt, wird der Header **vollständig ignoriert** (auch wenn er mitgeschickt wird), die Allowlist-Datei entfällt, und man kommt nur mit dem Passwort hinein. Ist `APP_PASSWORD` nicht gesetzt, gilt wie bisher der Tailnet-Modus; `npm run dev` bleibt synthetisch und unverändert.
 
-Einrichtung (alles in Nicos fly-App, **keine `fly.toml` im Repo**; die App-Konfiguration liegt im fly-Dashboard):
+Einrichtung: das Repo enthält `fly.toml` (Region `fra`, eine Maschine, Volume, Health-Check) und das Dockerfile-Target `fly`; die vollständige Anleitung mit Kosten, Backup und Not-Aus steht in `docs/fly-deploy.md`. Auf fly startet der Server **nur mit gültigem `APP_PASSWORD`** (mindestens 16 Zeichen; sonst bricht der Start ab). Kurzfassung:
 
 1. Secrets setzen, **bevor** irgendetwas anderes hochgeladen wird:
    - `fly secrets set APP_PASSWORD=<mindestens 16 Zeichen>` (lange Passphrase; kürzer oder leer = Login gesperrt, siehe unten).
    - `fly secrets set OPENROUTER_API_KEY=<Schlüssel>` (für Jev).
-2. Umgebung: `BIND_ADDRESS=0.0.0.0` (Env-Eintrag oder `[env]`) und im HTTP-Dienst `internal_port = 3000`. Der Port 3000 ist der Standard der App. `BIND_ADDRESS=0.0.0.0` ist auch der Schalter, der den Loopback-Sonderfall beim Cookie (unten) ausschaltet.
-3. Datenbank und Sitzungsgeheimnis: `DATABASE_PATH=/data/email-agent.sqlite`. Der Container läuft als Benutzer `node`; `/data` im Image gehört `node` (Modus 0700). Ohne Volume ist `/data` flüchtig: Datenbank **und** das Sitzungsgeheimnis (`auth-secret`, entsteht bei jedem Start neu) sind nach einem Neustart weg, alle angemeldeten Sitzungen werden ungültig und man meldet sich neu an. Für Dauerbetrieb ein Volume auf `/data` legen (`fly volumes create`, Mount `/data`). Ein frisches fly-Volume gehört root: einmal `fly ssh console -C "chown node:node /data && chmod 700 /data"` ausführen, sonst kann die App dort nicht schreiben (nicht live geprüft).
+2. Umgebung: `BIND_ADDRESS=0.0.0.0`, `DATABASE_PATH=/data/email-agent.sqlite` und `internal_port = 3000` stehen in `fly.toml`. `BIND_ADDRESS=0.0.0.0` ist auch der Schalter, der den Loopback-Sonderfall beim Cookie (unten) ausschaltet.
+3. Volume: `fly volumes create email_data --region fra --size 1` (Mount `/data`, `fly.toml`). Ein frisches fly-Volume gehört unter Umständen root; das fly-Target des Dockerfiles startet deshalb als root, und `scripts/docker-entrypoint.sh` setzt `/data` auf `node:node`, Modus 0700, und wechselt dauerhaft auf `node` (lokal mit root-eigenem Volume geprüft, siehe `docs/fly-deploy.md`). Das Standard-Image (Compose) läuft unverändert als `node`. Ohne Volume wären Datenbank **und** Sitzungsgeheimnis (`auth-secret`) nach jedem Neustart weg.
 4. Erst wenn der Passwortschutz läuft (Startseite zeigt das Passwortfeld, `/api/emails` ohne Anmeldung liefert 401), die Konten-Datei und damit die IMAP-Zugänge hochladen (`ACCOUNTS_FILE`, Modus 0600). Vorher nicht.
 5. Deployen und im Browser `https://<app>.fly.dev` öffnen, Passwort eingeben. Die Sitzung gilt 30 Tage, Abmelden per `POST /api/auth/logout`.
 

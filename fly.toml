@@ -1,0 +1,35 @@
+# fly.io deployment, see docs/fly-deploy.md. Deploy only with APP_PASSWORD set (the server refuses to start otherwise).
+# Secrets (APP_PASSWORD, OPENROUTER_API_KEY, accounts) are never written here; use `fly secrets set`.
+app = 'email-agent'
+primary_region = 'fra'
+
+[build]
+  dockerfile = 'Dockerfile'
+  build-target = 'fly'
+
+[env]
+  BIND_ADDRESS = '0.0.0.0'
+  DATABASE_PATH = '/data/email-agent.sqlite'
+
+[mounts]
+  source = 'email_data'
+  destination = '/data'
+
+# One machine that never stops: it holds the IMAP IDLE connections and runs the automatic actions.
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = 'off'
+  auto_start_machines = false
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    grace_period = '30s'
+    interval = '30s'
+    method = 'GET'
+    path = '/api/health'
+    timeout = '5s'
+
+[[vm]]
+  size = 'shared-cpu-1x'
+  memory = '512mb'

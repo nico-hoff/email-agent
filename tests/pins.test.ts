@@ -7,7 +7,7 @@ const read = (p: string) => readFileSync(new URL(`../${p}`, import.meta.url), "u
 test("Node version is identical in .nvmrc, engines.node and Dockerfile", () => {
   const nvmrc = read(".nvmrc").trim();
   const engines = JSON.parse(read("package.json")).engines.node;
-  const from = /^FROM node:([^\s-]+)-slim\s*$/m.exec(read("Dockerfile"))?.[1];
+  const from = /^FROM node:([^\s-]+)-slim(?: AS \w+)?\s*$/m.exec(read("Dockerfile"))?.[1];
   assert.equal(nvmrc, "26.12.1");
   assert.equal(engines, nvmrc);
   assert.equal(from, nvmrc);

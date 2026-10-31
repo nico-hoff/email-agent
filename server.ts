@@ -8,6 +8,7 @@ import { createClassificationPipeline, createPersistResponse } from "./lib/class
 import { createJevClient, type JevClient } from "./lib/jev.ts";
 import { createImapFlowPort } from "./lib/imap.ts";
 import { applyOpenRouterEnv } from "./lib/openrouter-env.ts";
+import { assertFlyAuthConfigured } from "./lib/fly-guard.ts";
 import { findStyleScanHazards } from "./lib/dev-hazards.ts";
 import { DEFAULT_SPAM_THRESHOLD } from "./lib/accounts-config.ts";
 import { dataDirFromEnv, interceptRequest } from "./lib/auth-runtime.ts";
@@ -186,6 +187,9 @@ export async function createService(options: CreateServiceOptions = {}): Promise
   const log = options.log ?? ((m: string) => console.log(m));
   const synthetic = options.synthetic === true;
   const useWorkers = options.workers !== false && !synthetic;
+
+  // Public deployment (fly.io) without a configured password must not start at all (docs/fly-deploy.md).
+  assertFlyAuthConfigured(options.env ?? process.env);
 
   // O1a: the OpenAI provider of the reply agent talks to OpenRouter; derived from OPENROUTER_API_KEY, never overwritten.
   applyOpenRouterEnv(options.env ?? process.env);
