@@ -1,6 +1,6 @@
 # 0026 Themen als Jev-Choice: Alltagsthemen plus eigene Liste
 
-- Status: angenommen (Live-Probe offen)
+- Status: angenommen; Live-Probe 2026-10-31 erledigt (16 Optionen einstufig zuverlässig, siehe `docs/insights-topics.md`)
 - Datum: 2026-10-31
 - Bezug: Plan v5 M4, 0006, 0007, `docs/jev-contract.md`
 
