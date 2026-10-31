@@ -38,6 +38,20 @@ npm run dev                                 # Startzeile: workers=disabled data=
 
 http://127.0.0.1:3000 → Welcome → „Login“ (Dev-Identität). Briefing zeigt „Zusammenfassung ohne KI“, „Entwurf erzeugen“ meldet „Im Testmodus nicht verfügbar“ – beides gewollt. Klassifikationen kommen über `npm run eval:jev -- --source hf --seed 1 --n 100` (Jev-Kosten ca. 0,005 $) in die Dev-DB.
 
+### 2a. QA am iPhone über Tailscale (synthetisch, Nutzer-Modus)
+
+Der synthetische Dev-Modus nimmt mit Absicht nur Loopback-Hosts an (Schutz gegen DNS-Rebinding) und ist über die ts.net-Domain nicht erreichbar. Für QA-Loops am Handy daher der QA-Server: der echte Server im Nutzer-Modus (`AUTH_MODE=users`) auf einer eigenen Datenbank `data/qa-synthetic.sqlite` mit nur synthetischen Mails (Themen-Fixture + Smoke-Set, Antworten simuliert, kein Jev-Aufruf), ohne Konten-Datei, also ohne IMAP-Worker.
+
+```sh
+npm run qa:serve                 # legt Daten und den Nutzer qa@synthetic.invalid an, zeigt das Passwort einmal, startet auf 127.0.0.1:3000
+tailscale serve --bg 3000        # einmalig: HTTPS im Tailnet
+# iPhone: https://<rechner>.<tailnet>.ts.net → Anmelden mit qa@synthetic.invalid
+npm run qa:serve -- --reset      # frische Daten, neues Passwort
+tailscale serve --bg off         # wieder abschalten (bzw. tailscale serve reset)
+```
+
+Briefing und Entwürfe rufen hier echte Modelle auf, aber nur mit den synthetischen Metadaten (ADR 0028). Weitere Testnutzer: auf `/profil` „Einladung erstellen“.
+
 ## 3. Echtbetrieb (nur auf Nicos Auftrag)
 
 1. Konten-Datei prüfen (nur Feldnamen, keine Werte ausgeben): `label`, optional `color`, `spam_mailbox` exakt wie der Server-Ordner heißt (die Sample-Vorschau prüft Ordnernamen), `auto_actions` weglassen = `dry_run`.
