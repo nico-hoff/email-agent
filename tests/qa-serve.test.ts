@@ -6,7 +6,7 @@ import { after, describe, test } from "node:test";
 import { openDatabase } from "../lib/db.ts";
 import { verifyLogin } from "../lib/users.ts";
 import {
-  ensureQaUser, parseQaArgs, profileForTopic, QA_NO_ACCOUNTS_FILE, QA_USER_EMAIL, qaItems, qaServerEnv, seedQaDatabase,
+  ensureQaUser, parseQaArgs, portFree, runtimeProblem, profileForTopic, QA_NO_ACCOUNTS_FILE, QA_USER_EMAIL, qaItems, qaServerEnv, seedQaDatabase,
 } from "../scripts/qa-serve.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "qa-serve-"));
@@ -54,10 +54,22 @@ describe("qa-serve", () => {
     assert.equal(env.ACCOUNTS_FILE, QA_NO_ACCOUNTS_FILE);
     assert.equal(env.BIND_ADDRESS, "127.0.0.1");
     assert.equal(env.PORT, "3100");
+    assert.equal(env.VERYFRONT_TRUST_FORWARDED_HEADERS, "1");
+  });
+
+  test("runtime check: pinned node on the native arch", () => {
+    assert.equal(runtimeProblem("v26.12.1", "arm64", true), null);
+    assert.match(runtimeProblem("v24.18.1", "arm64", true) ?? "", /26\.12\.1 required/);
+    assert.match(runtimeProblem("v26.12.1", "x64", true) ?? "", /arm64/);
+    assert.equal(runtimeProblem("v26.12.1", "x64", false), null);
+  });
+
+  test("port check", async () => {
+    assert.equal(await portFree(0), true);
   });
 
   test("args", () => {
-    assert.deepEqual(parseQaArgs([]), { reset: false, port: 3000 });
+    assert.deepEqual(parseQaArgs([]), { reset: false, port: 3100 });
     assert.deepEqual(parseQaArgs(["--reset", "--port", "3100"]), { reset: true, port: 3100 });
     assert.ok("error" in parseQaArgs(["--port", "80"]));
     assert.ok("error" in parseQaArgs(["--bogus"]));

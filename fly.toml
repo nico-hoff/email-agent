@@ -9,6 +9,9 @@ primary_region = 'fra'
 
 [env]
   AUTH_MODE = 'users'
+  # fly's proxy terminates TLS and sets X-Forwarded-Proto itself; without this Veryfront names the CSRF cookie for
+  # http://<app> and every POST from the https page fails with 403 (docs/veryfront-guide.md, Fallstricke).
+  VERYFRONT_TRUST_FORWARDED_HEADERS = '1'
   BIND_ADDRESS = '0.0.0.0'
   DATABASE_PATH = '/data/email-agent.sqlite'
 

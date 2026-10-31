@@ -12,6 +12,8 @@ primary_region = 'fra'
 
 [env]
   BIND_ADDRESS = '0.0.0.0'
+  # TLS ends at fly's proxy: Veryfront must read X-Forwarded-Proto for the CSRF cookie (see fly.toml).
+  VERYFRONT_TRUST_FORWARDED_HEADERS = '1'
   DATABASE_PATH = '/data/email-agent.sqlite'
   # Opt-in for scripts/docker-entrypoint.sh: fill an empty database with the built-in synthetic set. Never set in fly.toml.
   PREVIEW_SEED_SYNTHETIC = '1'

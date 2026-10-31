@@ -43,12 +43,14 @@ http://127.0.0.1:3000 → Welcome → „Login“ (Dev-Identität). Briefing zei
 Der synthetische Dev-Modus nimmt mit Absicht nur Loopback-Hosts an (Schutz gegen DNS-Rebinding) und ist über die ts.net-Domain nicht erreichbar. Für QA-Loops am Handy daher der QA-Server: der echte Server im Nutzer-Modus (`AUTH_MODE=users`) auf einer eigenen Datenbank `data/qa-synthetic.sqlite` mit nur synthetischen Mails (Themen-Fixture + Smoke-Set, Antworten simuliert, kein Jev-Aufruf), ohne Konten-Datei, also ohne IMAP-Worker.
 
 ```sh
-npm run qa:serve                 # legt Daten und den Nutzer qa@synthetic.invalid an, zeigt das Passwort einmal, startet auf 127.0.0.1:3000
-tailscale serve --bg 3000        # einmalig: HTTPS im Tailnet
+npm run qa:serve                 # legt Daten und den Nutzer qa@synthetic.invalid an, zeigt das Passwort einmal, startet auf 127.0.0.1:3100
+tailscale serve --bg 3100        # einmalig: HTTPS im Tailnet (qa:serve blockiert das Terminal: zweites Fenster)
 # iPhone: https://<rechner>.<tailnet>.ts.net → Anmelden mit qa@synthetic.invalid
 npm run qa:serve -- --reset      # frische Daten, neues Passwort
 tailscale serve --bg off         # wieder abschalten (bzw. tailscale serve reset)
 ```
+
+Das Skript bricht ab, wenn nicht Node 26.12.1 nativ (arm64) läuft (in Nicos SSH-Shell stand Intel-Homebrew-Node 24 vorn im `PATH`: esbuild-Fehler, jede Seite 500) oder der Port belegt ist. Es setzt `VERYFRONT_TRUST_FORWARDED_HEADERS=1`, weil Tailscale Serve TLS beendet (sonst 403 bei jedem POST).
 
 Briefing und Entwürfe rufen hier echte Modelle auf, aber nur mit den synthetischen Metadaten (ADR 0028). Weitere Testnutzer: auf `/profil` „Einladung erstellen“.
 

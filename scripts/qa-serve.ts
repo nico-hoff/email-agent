@@ -2,16 +2,18 @@
 // separate database filled with synthetic mails only. No accounts file, so no IMAP worker runs; nothing touches a real
 // mailbox. The answers of the QA mails are SIMULATED from the expected topic of the synthetic fixture (no Jev call).
 //
-//   npm run qa:serve                      seed data/qa-synthetic.sqlite if empty, ensure the QA user, start on 127.0.0.1:3000
+//   npm run qa:serve                      seed data/qa-synthetic.sqlite if empty, ensure the QA user, start on 127.0.0.1:3100
 //   npm run qa:serve -- --reset           delete the QA database first (fresh data, new password)
-//   npm run qa:serve -- --port 3100       other port
-// Then (Nico, once): `tailscale serve --bg 3000` and open https://<machine>.<tailnet>.ts.net on the iPhone.
+//   npm run qa:serve -- --port 3200       other port
+// Then (Nico, once): `tailscale serve --bg 3100` and open https://<machine>.<tailnet>.ts.net on the iPhone.
 //
 // The QA user is qa@synthetic.invalid. Its password is generated on first creation and printed ONCE to this terminal
 // (it guards only synthetic data); with --reset a new one is generated. Mail data is never printed.
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, rmSync } from "node:fs";
+import { createServer } from "node:net";
+import { cpus } from "node:os";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { validateDatabasePath } from "../lib/accounts.ts";
@@ -30,6 +32,25 @@ export const QA_USER_EMAIL = "qa@synthetic.invalid";
 export const QA_NO_ACCOUNTS_FILE = "/nonexistent/email-agent-qa/no-accounts.json";
 const TOPICS_FIXTURE = join(PROJECT_ROOT, "tests", "fixtures", "eval", "topics-synthetic.jsonl");
 const PER_TOPIC = 3;
+/** Not 3000: other local tools often hold it (seen on the Mac: a WhatsApp bridge and a Docker container). */
+export const QA_DEFAULT_PORT = 3100;
+export const REQUIRED_NODE = "26.12.1";
+
+/** Node must be the pinned version on the machine's native architecture: native modules (esbuild) are installed for it. */
+export function runtimeProblem(version: string, arch: string, hostArm64: boolean): string | null {
+  if (version !== `v${REQUIRED_NODE}`) return `node ${version} found, ${REQUIRED_NODE} required (nvm use; check that no other node comes first in PATH)`;
+  if (hostArm64 && arch !== "arm64") return `node runs as ${arch} on an arm64 Mac (Rosetta/Intel Homebrew?): esbuild is installed for arm64`;
+  return null;
+}
+
+/** True when the port can be bound on 127.0.0.1. */
+export function portFree(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const srv = createServer();
+    srv.once("error", () => resolve(false));
+    srv.listen(port, "127.0.0.1", () => srv.close(() => resolve(true)));
+  });
+}
 
 interface Profile { category: string; route: string; urgency: number; importance: number; needsReply: number; spam: number }
 
@@ -92,12 +113,18 @@ export async function ensureQaUser(db: DatabaseSync, password: string = randomBy
 }
 
 export function qaServerEnv(base: Record<string, string | undefined>, dbPath: string, port: number): Record<string, string | undefined> {
-  return { ...base, AUTH_MODE: "users", DATABASE_PATH: dbPath, ACCOUNTS_FILE: QA_NO_ACCOUNTS_FILE, PORT: String(port), BIND_ADDRESS: "127.0.0.1" };
+  // Tailscale Serve terminates TLS and forwards plain HTTP to 127.0.0.1: Veryfront must trust X-Forwarded-Proto, otherwise
+  // it names its CSRF cookie for http://<host> and every POST from the https page fails with 403. The listener is
+  // loopback-only, so only this machine and Tailscale Serve can set the header.
+  return {
+    ...base, AUTH_MODE: "users", DATABASE_PATH: dbPath, ACCOUNTS_FILE: QA_NO_ACCOUNTS_FILE, PORT: String(port), BIND_ADDRESS: "127.0.0.1",
+    VERYFRONT_TRUST_FORWARDED_HEADERS: "1",
+  };
 }
 
 export function parseQaArgs(argv: readonly string[]): { reset: boolean; port: number } | { error: string } {
   let reset = false;
-  let port = 3000;
+  let port = QA_DEFAULT_PORT;
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--reset") reset = true;
     else if (argv[i] === "--port") {
@@ -112,6 +139,15 @@ if (import.meta.main) {
   const args = parseQaArgs(process.argv.slice(2));
   if ("error" in args) {
     console.error(args.error);
+    process.exit(2);
+  }
+  const problem = runtimeProblem(process.version, process.arch, process.platform === "darwin" && cpus().some((c) => c.model.startsWith("Apple")));
+  if (problem !== null) {
+    console.error(`qa: ${problem}`);
+    process.exit(2);
+  }
+  if (!(await portFree(args.port))) {
+    console.error(`qa: port ${args.port} is in use (lsof -nP -iTCP:${args.port} -sTCP:LISTEN); choose another with --port`);
     process.exit(2);
   }
   const dbPath = validateDatabasePath({ DATABASE_PATH: QA_DATABASE_PATH }, PROJECT_ROOT);

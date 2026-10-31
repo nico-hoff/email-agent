@@ -53,6 +53,7 @@ Nach https://veryfront.com/docs/code/guides/choose-a-primitive:
 | API-Routen scheitern in Produktion mit `WorkerEgressBlockedError` | `createHandler` führt Routen im Sandbox-Worker aus | `startServer` mit `requestInterceptor` statt `createHandler` |
 | UI ohne Styles | CSS-Scanner bricht bei > 100k Kandidaten ab, wenn Worktrees mit `node_modules` im Projekt liegen | Worktrees außerhalb des Repos bzw. sofort löschen; `lib/dev-hazards.ts` warnt |
 | `startServer` startet nicht | Bundler/ModuleLexer nicht registriert | `server.ts` registriert sie selbst (DEVIATIONS T2) |
+| Login/POST 403 hinter Tailscale Serve oder fly (https-Seite) | TLS endet am Proxy; Veryfront leitet den Browser-Ursprung aus der internen `http://`-URL ab und benennt das CSRF-Cookie für `http://<host>`, der Client sucht es unter https | `VERYFRONT_TRUST_FORWARDED_HEADERS=1` (liest `X-Forwarded-Proto`; nur wenn der Listener allein hinter dem Proxy erreichbar ist: Loopback + Tailscale Serve, oder fly-Proxy). Gesetzt in `fly.toml`, `fly.preview.toml`, `npm run qa:serve` (2026-10-31) |
 | HTTPS-Erkennung hinter fly falsch | Veryfront entfernt `x-forwarded-*` vor den Routen | `Secure`-Cookie im Passwort-Modus unbedingt |
 | POST 403 in Tests | eingebautes Double-Submit-CSRF; Cookie nur bei `Accept: text/html` | Client `csrfMutationHeaders` (`veryfront/index.client`); Tests senden `Accept: text/html` |
 | `agent.stream()` ist kein async iterable | API-Form | `onChunk`/`onFinish` + `toDataStreamResponse()` |
