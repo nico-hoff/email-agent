@@ -43,10 +43,10 @@ http://127.0.0.1:3000 → Welcome → „Login“ (Dev-Identität). Briefing zei
 Der synthetische Dev-Modus nimmt mit Absicht nur Loopback-Hosts an (Schutz gegen DNS-Rebinding) und ist über die ts.net-Domain nicht erreichbar. Für QA-Loops am Handy daher der QA-Server: der echte Server im Nutzer-Modus (`AUTH_MODE=users`) auf einer eigenen Datenbank `data/qa-synthetic.sqlite` mit nur synthetischen Mails (Themen-Fixture + Smoke-Set, Antworten simuliert, kein Jev-Aufruf), ohne Konten-Datei, also ohne IMAP-Worker.
 
 ```sh
-npm run qa:serve                 # legt Daten und den Nutzer qa@synthetic.invalid an, zeigt das Passwort einmal, startet auf 127.0.0.1:3100
+npm run qa:serve                 # legt Daten und den Nutzer qa@synthetic.invalid (Passwort qqqqqq) an, startet auf 127.0.0.1:3100
 tailscale serve --bg 3100        # einmalig: HTTPS im Tailnet (qa:serve blockiert das Terminal: zweites Fenster)
-# iPhone: https://<rechner>.<tailnet>.ts.net → Anmelden mit qa@synthetic.invalid
-npm run qa:serve -- --reset      # frische Daten, neues Passwort
+# iPhone: https://<rechner>.<tailnet>.ts.net → Anmelden mit qa@synthetic.invalid / qqqqqq
+npm run qa:serve -- --reset      # frische Daten
 tailscale serve --bg off         # wieder abschalten (bzw. tailscale serve reset)
 ```
 

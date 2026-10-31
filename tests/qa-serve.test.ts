@@ -6,7 +6,7 @@ import { after, describe, test } from "node:test";
 import { openDatabase } from "../lib/db.ts";
 import { verifyLogin } from "../lib/users.ts";
 import {
-  ensureQaUser, parseQaArgs, portFree, runtimeProblem, profileForTopic, QA_NO_ACCOUNTS_FILE, QA_USER_EMAIL, qaItems, qaServerEnv, seedQaDatabase,
+  ensureQaUser, parseQaArgs, QA_PASSWORD, portFree, runtimeProblem, profileForTopic, QA_NO_ACCOUNTS_FILE, QA_USER_EMAIL, qaItems, qaServerEnv, seedQaDatabase,
 } from "../scripts/qa-serve.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "qa-serve-"));
@@ -36,11 +36,11 @@ describe("qa-serve", () => {
       const first = seedQaDatabase(db);
       assert.equal(first.seeded, true);
       assert.equal(seedQaDatabase(db).seeded, false);
-      const pw = await ensureQaUser(db, "qa-test-password-123");
-      assert.equal(pw, "qa-test-password-123");
-      assert.equal(await ensureQaUser(db), null);
-      const u = await verifyLogin(db, QA_USER_EMAIL, "qa-test-password-123");
+      assert.deepEqual(await ensureQaUser(db), { created: true });
+      assert.deepEqual(await ensureQaUser(db), { created: false });
+      const u = await verifyLogin(db, QA_USER_EMAIL, QA_PASSWORD);
       assert.equal(u?.id, 1);
+      assert.equal(await verifyLogin(db, QA_USER_EMAIL, "wrong"), null);
       const { n } = db.prepare("SELECT COUNT(*) AS n FROM accounts WHERE user_id = 1").get() as { n: number };
       assert.ok(n > 0);
     } finally {

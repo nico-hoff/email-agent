@@ -7,8 +7,8 @@
 //   npm run qa:serve -- --port 3200       other port
 // Then (Nico, once): `tailscale serve --bg 3100` and open https://<machine>.<tailnet>.ts.net on the iPhone.
 //
-// The QA user is qa@synthetic.invalid. Its password is generated on first creation and printed ONCE to this terminal
-// (it guards only synthetic data); with --reset a new one is generated. Mail data is never printed.
+// The QA user is qa@synthetic.invalid with the fixed password "qqqqqq" (only synthetic data, loopback + own tailnet).
+// Mail data is never printed.
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, rmSync } from "node:fs";
@@ -23,6 +23,7 @@ import type { EvalCase } from "../lib/eval-sources.ts";
 import { QUESTIONS } from "../lib/jev-questions.ts";
 import type { NormalizedAnswer } from "../lib/jev-response.ts";
 import { importSyntheticCases, type SyntheticItem } from "../lib/synthetic-dev-db.ts";
+import { hashPassword } from "../lib/user-password.ts";
 import { createUser, findUserByEmail } from "../lib/users.ts";
 import { smokeItems } from "./e2e-smoke.ts";
 
@@ -105,11 +106,25 @@ export function seedQaDatabase(db: DatabaseSync, now: Date = new Date()): { seed
 }
 
 /** Claims the owner row as the QA user (fresh database) and returns the new password, or null when the user exists. */
-export async function ensureQaUser(db: DatabaseSync, password: string = randomBytes(12).toString("base64url")): Promise<string | null> {
-  if (findUserByEmail(db, QA_USER_EMAIL) !== null) return null;
-  const r = await createUser(db, { email: QA_USER_EMAIL, password, role: "admin" });
-  if (!r.ok) throw new Error(`qa user not created (${r.code})`);
-  return password;
+/**
+ * Fixed QA password (Nico's wish, 2026-10-31): it guards only the synthetic QA database, reachable on loopback and in
+ * the own tailnet. It deliberately bypasses the 12-character rule of real users, so it is set as a hash directly here
+ * and nowhere else; `createUser` and registration keep the rule.
+ */
+export const QA_PASSWORD = "qqqqqq";
+
+/** Ensures the QA user (claims the owner row on a fresh database) and (re)sets its password to QA_PASSWORD on every start. */
+export async function ensureQaUser(db: DatabaseSync, password: string = QA_PASSWORD): Promise<{ created: boolean }> {
+  let user = findUserByEmail(db, QA_USER_EMAIL);
+  let created = false;
+  if (user === null) {
+    const r = await createUser(db, { email: QA_USER_EMAIL, password: randomBytes(18).toString("base64url"), role: "admin" });
+    if (!r.ok) throw new Error(`qa user not created (${r.code})`);
+    user = r.user;
+    created = true;
+  }
+  db.prepare("UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?").run(await hashPassword(password), new Date().toISOString(), user.id);
+  return { created };
 }
 
 export function qaServerEnv(base: Record<string, string | undefined>, dbPath: string, port: number): Record<string, string | undefined> {
@@ -153,15 +168,15 @@ if (import.meta.main) {
   const dbPath = validateDatabasePath({ DATABASE_PATH: QA_DATABASE_PATH }, PROJECT_ROOT);
   if (args.reset) for (const suffix of ["", "-wal", "-shm"]) if (existsSync(dbPath + suffix)) rmSync(dbPath + suffix);
   const db = openDatabase(dbPath);
-  let password: string | null;
+  let created = false;
   try {
     const s = seedQaDatabase(db);
     console.log(s.seeded ? `qa: ${s.cases} synthetic mails seeded (answers simulated, no Jev call)` : `qa: database has ${s.cases} mails, kept`);
-    password = await ensureQaUser(db);
+    created = (await ensureQaUser(db)).created;
   } finally {
     db.close();
   }
-  console.log(`qa: user ${QA_USER_EMAIL}` + (password === null ? " exists (password unchanged; --reset for a new one)" : ` created, password: ${password}`));
+  console.log(`qa: user ${QA_USER_EMAIL} ${created ? "created" : "exists"}, password: ${QA_PASSWORD}`);
   console.log(`qa: starting the server in users mode on 127.0.0.1:${args.port}; for the iPhone: tailscale serve --bg ${args.port}`);
   const child = spawn(process.execPath, ["--env-file-if-exists=.env.local", "server.ts", "--development"], {
     cwd: PROJECT_ROOT, stdio: "inherit", env: qaServerEnv(process.env, dbPath, args.port),
