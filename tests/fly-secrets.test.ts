@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { appFromFlyToml, buildPlan, encodeForFly, EnvParseError, flySafe, main, namesFromSecretsList, parseEnv, resolveEnvFile, syncArgs } from "../scripts/fly-secrets.ts";
+import { appFromFlyToml, buildPlan, encodeForFly, EnvParseError, flySafe, main, namesFromSecretsList, parseEnv, pruneCandidates, resolveEnvFile, syncArgs, unsetArgs } from "../scripts/fly-secrets.ts";
 
 // Synthetic values only.
 const PW = "synthetic-test-passphrase-0123";
@@ -51,20 +51,26 @@ test("helpers: fly.toml app, secrets list names, env file resolution, args", () 
   assert.deepEqual(syncArgs("a", true), ["secrets", "import", "--app", "a", "--stage"]);
 });
 
-function harness(envText: string) {
+function harness(envText: string, o: { remote?: string; confirm?: boolean } = {}) {
   const out: string[] = [];
   const calls: { args: string[]; stdin?: string }[] = [];
+  const questions: string[] = [];
   const files: Record<string, string> = { ".env.local": envText, "fly.toml": "app = 'email-agent'\n" };
   return {
     out,
     calls,
+    questions,
     deps: {
+      confirm: (q: string) => {
+        questions.push(q);
+        return o.confirm ?? true;
+      },
       log: (s: string) => out.push(s),
       read: (p: string) => files[p],
       exists: (p: string) => p in files,
       run: (args: string[], stdin?: string) => {
         calls.push({ args, stdin });
-        return { status: 0, stdout: '[{"Name":"APP_PASSWORD"}]' };
+        return { status: 0, stdout: o.remote ?? '[{"Name":"APP_PASSWORD"}]' };
       },
     },
   };
@@ -96,6 +102,7 @@ test("main status: compares names with fly secrets list", () => {
   assert.deepEqual(h.calls[0].args, ["secrets", "list", "--app", "email-agent", "--json"]);
   assert.equal(h.calls[0].stdin, undefined);
   assert.ok(h.out.some((l) => l.includes("noch nicht auf fly: OPENROUTER_API_KEY")));
+  assert.equal(h.questions.length, 0);
 });
 
 test("main: --app overrides fly.toml, unknown command is refused", () => {
@@ -127,4 +134,73 @@ test("encodeForFly: tricky values arrive unchanged at flyctl", () => {
   assert.equal(flySafe('a"b#c'), false);
   const plan = buildPlan(parseEnv(`APP_PASSWORD='odd"quote#before-hash-xx'\nOPENROUTER_API_KEY=${KEY}\n`));
   assert.deepEqual(plan.invalid.map((i) => i.name), ["APP_PASSWORD"]);
+});
+
+const OK_ENV = `APP_PASSWORD=${PW}\nOPENROUTER_API_KEY=${KEY}\n`;
+const REMOTE = '[{"Name":"APP_PASSWORD"},{"Name":"OLD_TOKEN"},{"Name":"OPENAI_API_KEY"},{"Name":"ACCOUNTS_JSON"},{"Name":"KEEP_ME"}]';
+
+test("pruneCandidates and unsetArgs", () => {
+  assert.deepEqual(pruneCandidates(["A", "B", "ACCOUNTS_JSON", "C", "bad name"], ["A"], ["C"]), ["B"]);
+  assert.deepEqual(unsetArgs("app", ["X", "Y"], true), ["secrets", "unset", "--app", "app", "--stage", "X", "Y"]);
+});
+
+test("sync asks first; declined means fly is not touched", () => {
+  const h = harness(OK_ENV, { confirm: false });
+  assert.equal(main(["sync"], h.deps), 1);
+  assert.equal(h.calls.length, 0);
+  assert.equal(h.questions.length, 1);
+});
+
+test("--force skips the question but never the validation", () => {
+  const ok = harness(OK_ENV, { confirm: false });
+  assert.equal(main(["sync", "--force"], ok.deps), 0);
+  assert.equal(ok.questions.length, 0);
+  assert.equal(ok.calls.length, 1);
+  const bad = harness(`APP_PASSWORD=short\nOPENROUTER_API_KEY=${KEY}\n`);
+  assert.equal(main(["sync", "--force"], bad.deps), 1);
+  assert.equal(bad.calls.length, 0);
+});
+
+test("--prune: import staged, then one unset of everything not sent; ACCOUNTS_JSON and --keep survive", () => {
+  const h = harness(OK_ENV, { remote: REMOTE });
+  assert.equal(main(["sync", "--prune", "--keep", "KEEP_ME", "--force"], h.deps), 0);
+  assert.deepEqual(h.calls.map((c) => c.args), [
+    ["secrets", "list", "--app", "email-agent", "--json"],
+    ["secrets", "import", "--app", "email-agent", "--stage"],
+    ["secrets", "unset", "--app", "email-agent", "OLD_TOKEN", "OPENAI_API_KEY"],
+  ]);
+  assert.equal(h.calls[2].stdin, undefined);
+  assert.ok(!h.out.join("\n").includes(PW));
+});
+
+test("--prune --stage stages the unset too; nothing to remove means a plain import", () => {
+  const staged = harness(OK_ENV, { remote: REMOTE });
+  assert.equal(main(["sync", "--prune", "--stage", "--force"], staged.deps), 0);
+  assert.deepEqual(staged.calls[2].args, ["secrets", "unset", "--app", "email-agent", "--stage", "OLD_TOKEN", "OPENAI_API_KEY", "KEEP_ME"]);
+  const none = harness(OK_ENV, { remote: '[{"Name":"APP_PASSWORD"},{"Name":"OPENROUTER_API_KEY"}]' });
+  assert.equal(main(["sync", "--prune", "--force"], none.deps), 0);
+  assert.deepEqual(none.calls.map((c) => c.args[1]), ["list", "import"]);
+  assert.deepEqual(none.calls[1].args, ["secrets", "import", "--app", "email-agent"]);
+});
+
+test("--prune: failed list or import changes nothing further", () => {
+  const h = harness(OK_ENV);
+  h.deps.run = (args: string[], stdin?: string) => {
+    h.calls.push({ args, stdin });
+    return { status: 1, stdout: "" };
+  };
+  assert.equal(main(["sync", "--prune", "--force"], h.deps), 1);
+  assert.equal(h.calls.length, 1);
+  const imp = harness(OK_ENV, { remote: REMOTE });
+  const run = imp.deps.run;
+  imp.deps.run = (args: string[], stdin?: string) => (args[1] === "import" ? (imp.calls.push({ args, stdin }), { status: 1, stdout: "" }) : run(args, stdin));
+  assert.equal(main(["sync", "--prune", "--force"], imp.deps), 1);
+  assert.ok(!imp.calls.some((c) => c.args[1] === "unset"));
+});
+
+test("sync-only flags are refused elsewhere", () => {
+  const h = harness(OK_ENV);
+  assert.equal(main(["check", "--prune"], h.deps), 2);
+  assert.equal(main(["status", "--force"], h.deps), 2);
+  assert.equal(h.calls.length, 0);
 });

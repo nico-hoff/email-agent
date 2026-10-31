@@ -9,10 +9,15 @@
 // Aufruf:
 //   node scripts/fly-secrets.ts check [--env-file F] [--app A]      validate, show the plan (default; contacts nothing)
 //   node scripts/fly-secrets.ts status [--env-file F] [--app A]     like check, plus compare names with `fly secrets list`
-//   node scripts/fly-secrets.ts sync [--env-file F] [--app A] [--stage]   send to fly (`--stage`: no restart)
-// Makefile: make fly-secrets-check | fly-secrets-status | fly-secrets-sync | fly-secrets-stage
+//   node scripts/fly-secrets.ts sync [--env-file F] [--app A] [--stage] [--prune] [--keep A,B] [--force]
+//     --stage   set without restarting the Machine (takes effect on the next `fly deploy`)
+//     --prune   also unset secrets on fly that the env file does not send (fly then matches the file);
+//               PRUNE_KEEP and --keep names are never unset
+//     --force   no confirmation prompt (required without a terminal). Never skips the validation.
+// Makefile: make fly-secrets-check | fly-secrets-status | fly-secrets-sync | fly-secrets-stage | fly-secrets-prune
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readSync, writeSync } from "node:fs";
+import { isatty } from "node:tty";
 import { appPasswordStatus } from "../lib/auth.ts";
 
 export interface SecretSpec {
@@ -164,13 +169,14 @@ export interface FlyRunner {
   (args: string[], stdin?: string): { status: number | null; stdout: string };
 }
 
-/** Runs flyctl. stdout is only captured when no stdin is given (list); otherwise output goes to the terminal. */
+/** Runs flyctl. Only `secrets list` output is captured (parsed as JSON); everything else goes to the terminal. */
 export const runFly: FlyRunner = (args, stdin) => {
   const bin = process.env.FLY_BIN ?? "fly";
+  const capture = args[0] === "secrets" && args[1] === "list";
   const r = spawnSync(bin, args, {
     input: stdin,
     encoding: "utf8",
-    stdio: [stdin === undefined ? "inherit" : "pipe", stdin === undefined ? "pipe" : "inherit", "inherit"],
+    stdio: [stdin === undefined ? "inherit" : "pipe", capture ? "pipe" : "inherit", "inherit"],
   });
   if (r.error) return { status: 127, stdout: "" };
   return { status: r.status, stdout: r.stdout ?? "" };
@@ -178,6 +184,43 @@ export const runFly: FlyRunner = (args, stdin) => {
 
 export function syncArgs(app: string, stage: boolean): string[] {
   return ["secrets", "import", "--app", app, ...(stage ? ["--stage"] : [])];
+}
+
+export function unsetArgs(app: string, names: string[], stage: boolean): string[] {
+  return ["secrets", "unset", "--app", app, ...(stage ? ["--stage"] : []), ...names];
+}
+
+/** Secrets that --prune never removes: set on fly by other means (docs/fly-deploy.md, accounts file as a secret file). */
+export const PRUNE_KEEP: readonly string[] = ["ACCOUNTS_JSON"];
+
+/** Remote names that --prune removes: everything not sent now and not kept. */
+export function pruneCandidates(remote: string[], send: string[], keep: string[]): string[] {
+  return remote.filter((n) => !send.includes(n) && !keep.includes(n) && !PRUNE_KEEP.includes(n) && NAME.test(n));
+}
+
+/** Asks on the terminal. Without a terminal there is nobody to ask, so the answer is no (use --force). */
+export function confirmOnTty(question: string): boolean {
+  // isatty(0), not process.stdin: touching process.stdin turns the terminal non-blocking and breaks readSync.
+  if (!isatty(0)) return false;
+  writeSync(1, `${question} [y/N] `);
+  const buf = Buffer.alloc(64);
+  let line = "";
+  for (;;) {
+    let n: number;
+    try {
+      n = readSync(0, buf, 0, buf.length, null);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === "EAGAIN") {
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50); // no busy loop
+        continue;
+      }
+      return false;
+    }
+    if (n === 0) break;
+    line += buf.subarray(0, n).toString("utf8");
+    if (line.includes("\n")) break;
+  }
+  return /^\s*(y|yes|j|ja)\s*$/i.test(line.split("\n")[0]);
 }
 
 function printPlan(plan: Plan, file: string, app: string, log: (s: string) => void): void {
@@ -191,18 +234,37 @@ function printPlan(plan: Plan, file: string, app: string, log: (s: string) => vo
   if (plan.unknown.length) log(`  übersprungen (nicht im Katalog): ${plan.unknown.join(", ")}`);
 }
 
-export function main(argv: string[], deps: { run?: FlyRunner; log?: (s: string) => void; read?: (p: string) => string; exists?: (p: string) => boolean } = {}): number {
+export interface MainDeps {
+  run?: FlyRunner;
+  log?: (s: string) => void;
+  read?: (p: string) => string;
+  exists?: (p: string) => boolean;
+  confirm?: (question: string) => boolean;
+}
+
+const USAGE = "Aufruf: fly-secrets.ts check|status|sync [--env-file F] [--app A] [--stage] [--prune] [--keep A,B] [--force]";
+
+export function main(argv: string[], deps: MainDeps = {}): number {
   const run = deps.run ?? runFly;
   const log = deps.log ?? ((s: string) => console.log(s));
   const read = deps.read ?? ((p: string) => readFileSync(p, "utf8"));
   const exists = deps.exists ?? existsSync;
+  const confirm = deps.confirm ?? confirmOnTty;
   const [cmd = "check", ...rest] = argv;
   const opt = (flag: string) => {
     const i = rest.indexOf(flag);
     return i >= 0 ? rest[i + 1] : undefined;
   };
   if (!["check", "status", "sync"].includes(cmd)) {
-    log("Aufruf: fly-secrets.ts check|status|sync [--env-file F] [--app A] [--stage]");
+    log(USAGE);
+    return 2;
+  }
+  const stage = rest.includes("--stage");
+  const prune = rest.includes("--prune");
+  const force = rest.includes("--force");
+  const keep = (opt("--keep") ?? "").split(",").map((k) => k.trim()).filter(Boolean);
+  if (cmd !== "sync" && (stage || prune || force || keep.length)) {
+    log("--stage, --prune, --keep und --force gibt es nur bei sync.");
     return 2;
   }
   const file = resolveEnvFile(opt("--env-file"), exists);
@@ -227,39 +289,64 @@ export function main(argv: string[], deps: { run?: FlyRunner; log?: (s: string) 
     log("Abbruch: Pflicht-Secrets fehlen oder sind ungültig. Nichts gesendet.");
     return 1;
   }
-
-  if (cmd === "status") {
-    const r = run(["secrets", "list", "--app", app, "--json"]);
-    if (r.status !== 0) {
-      log("`fly secrets list` fehlgeschlagen (fly installiert? `fly auth login`?).");
-      return 1;
-    }
-    let remote: string[];
-    try {
-      remote = namesFromSecretsList(r.stdout);
-    } catch {
-      log("Antwort von `fly secrets list --json` nicht lesbar.");
-      return 1;
-    }
-    log(`  auf fly gesetzt: ${remote.length ? remote.join(", ") : "(keine)"}`);
-    const notYet = plan.send.filter((n) => !remote.includes(n));
-    if (notYet.length) log(`  noch nicht auf fly: ${notYet.join(", ")}`);
-    const extra = remote.filter((n) => !SECRETS.some((s) => s.name === n));
-    if (extra.length) log(`  nur auf fly (nicht im Katalog, bleibt unangetastet): ${extra.join(", ")}`);
-    log("  (Werte werden nicht verglichen: fly zeigt nur Digests.)");
-    return 0;
-  }
   if (cmd === "check") {
     log(`OK: ${plan.send.length} Secret(s) bereit. Senden mit: make fly-secrets-sync`);
     return 0;
   }
-  const stage = rest.includes("--stage");
-  const r = run(syncArgs(app, stage), plan.stdin);
-  if (r.status !== 0) {
-    log(r.status === 127 ? "fly nicht gefunden (FLY_BIN oder PATH)." : "`fly secrets import` fehlgeschlagen.");
+
+  let remote: string[] = [];
+  if (cmd === "status" || prune) {
+    const r = run(["secrets", "list", "--app", app, "--json"]);
+    if (r.status !== 0) {
+      log("`fly secrets list` fehlgeschlagen (fly installiert? `fly auth login`?). Nichts geändert.");
+      return 1;
+    }
+    try {
+      remote = namesFromSecretsList(r.stdout);
+    } catch {
+      log("Antwort von `fly secrets list --json` nicht lesbar. Nichts geändert.");
+      return 1;
+    }
+  }
+
+  if (cmd === "status") {
+    log(`  auf fly gesetzt: ${remote.length ? remote.join(", ") : "(keine)"}`);
+    const notYet = plan.send.filter((n) => !remote.includes(n));
+    if (notYet.length) log(`  noch nicht auf fly: ${notYet.join(", ")}`);
+    const extra = pruneCandidates(remote, plan.send, []);
+    if (extra.length) log(`  nur auf fly (würde --prune entfernen): ${extra.join(", ")}`);
+    log("  (Werte werden nicht verglichen: fly zeigt nur Digests.)");
+    return 0;
+  }
+
+  const remove = prune ? pruneCandidates(remote, plan.send, keep) : [];
+  if (prune) {
+    const kept = remote.filter((n) => !plan.send.includes(n) && !remove.includes(n));
+    log(`  entfernen (--prune): ${remove.length ? remove.join(", ") : "(nichts)"}`);
+    if (kept.length) log(`  behalten: ${kept.join(", ")}`);
+  }
+  const action = `${plan.send.length} setzen${remove.length ? `, ${remove.length} entfernen` : ""} auf ${app}${stage ? " (gestaged, ohne Neustart)" : " (Machine startet neu)"}`;
+  if (!force && !confirm(`${action}?`)) {
+    log("Abgebrochen, nichts geändert (ohne Terminal: --force bzw. FORCE=1).");
     return 1;
   }
-  log(`Gesendet: ${plan.send.join(", ")}${stage ? " (gestaged, wirkt beim nächsten `fly deploy`)" : ""}`);
+
+  // With removals, stage the import so the Machine restarts only once (on the unset).
+  const imp = run(syncArgs(app, stage || remove.length > 0), plan.stdin);
+  if (imp.status !== 0) {
+    log(imp.status === 127 ? "fly nicht gefunden (FLY_BIN oder PATH)." : "`fly secrets import` fehlgeschlagen. Nichts entfernt.");
+    return 1;
+  }
+  log(`Gesendet: ${plan.send.join(", ")}`);
+  if (remove.length) {
+    const un = run(unsetArgs(app, remove, stage));
+    if (un.status !== 0) {
+      log("`fly secrets unset` fehlgeschlagen. Gesendete Secrets sind gestaged und wirken beim nächsten `fly deploy`.");
+      return 1;
+    }
+    log(`Entfernt: ${remove.join(", ")}`);
+  }
+  if (stage) log("Gestaged: wirkt beim nächsten `fly deploy`.");
   return 0;
 }
 

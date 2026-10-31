@@ -5,11 +5,14 @@ NODE ?= node
 FLY ?= fly
 ENV_FILE ?=
 APP ?=
+FORCE ?=
+KEEP ?=
 
 SECRETS_ARGS = $(if $(ENV_FILE),--env-file $(ENV_FILE)) $(if $(APP),--app $(APP))
 FLY_APP_ARG = $(if $(APP),--app $(APP))
+CHANGE_ARGS = $(if $(FORCE),--force) $(if $(KEEP),--keep $(KEEP))
 
-.PHONY: help verify fly-secrets-check fly-secrets-status fly-secrets-sync fly-secrets-stage fly-deploy fly-status
+.PHONY: help verify fly-secrets-check fly-secrets-status fly-secrets-sync fly-secrets-stage fly-secrets-prune fly-deploy fly-status
 
 help: ## Diese Übersicht
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  make %-20s %s\n", $$1, $$2}'
@@ -27,11 +30,14 @@ fly-secrets-check: ## Env-Datei prüfen und Plan zeigen (nur Namen, kontaktiert 
 fly-secrets-status: ## wie check, plus Abgleich der Namen mit fly secrets list
 	FLY_BIN=$(FLY) $(NODE) scripts/fly-secrets.ts status $(SECRETS_ARGS)
 
-fly-secrets-sync: ## Secrets an fly senden (startet die Machine neu)
-	FLY_BIN=$(FLY) $(NODE) scripts/fly-secrets.ts sync $(SECRETS_ARGS)
+fly-secrets-sync: ## Secrets an fly senden, mit Rückfrage (startet die Machine neu; FORCE=1 ohne Rückfrage)
+	FLY_BIN=$(FLY) $(NODE) scripts/fly-secrets.ts sync $(SECRETS_ARGS) $(CHANGE_ARGS)
 
 fly-secrets-stage: ## Secrets senden ohne Neustart (wirken beim nächsten fly deploy)
-	FLY_BIN=$(FLY) $(NODE) scripts/fly-secrets.ts sync --stage $(SECRETS_ARGS)
+	FLY_BIN=$(FLY) $(NODE) scripts/fly-secrets.ts sync --stage $(SECRETS_ARGS) $(CHANGE_ARGS)
+
+fly-secrets-prune: ## wie sync, entfernt zusätzlich alles auf fly, was die Env-Datei nicht sendet (KEEP=A,B schützt)
+	FLY_BIN=$(FLY) $(NODE) scripts/fly-secrets.ts sync --prune $(SECRETS_ARGS) $(CHANGE_ARGS)
 
 fly-deploy: fly-secrets-check ## Pflicht-Secrets prüfen, dann fly deploy
 	$(FLY) deploy $(FLY_APP_ARG)
