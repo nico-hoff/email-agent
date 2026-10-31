@@ -24,8 +24,16 @@ Neue ADR: nächste freie Nummer, Vorlage unten, Eintrag in dieser Tabelle, im se
 | [0016](0016-auto-actions.md) | Auto-Aktionen: Trockenlauf-Standard, Not-Aus, Undo | angenommen |
 | [0017](0017-sender-rules-hitl.md) | Absender-Regeln und HITL nach drei Spam-Urteilen | angenommen |
 | [0018](0018-hosting.md) | Hosting: gehärtetes Docker, fly.io fra mit Volume | angenommen |
-| [0019](0019-agentic-workflow.md) | Orchestrator + Subagenten, Push-Gate | angenommen |
-| [0020](0020-single-user-future-accounts.md) | Single-User jetzt; Konten in der UI / Multi-User später | vorgeschlagen |
+| [0019](0019-agentic-workflow.md) | Orchestrator + Subagenten, Push-Gate | angenommen (Push-Ziel geändert durch 0021) |
+| [0020](0020-single-user-future-accounts.md) | Single-User jetzt; Konten in der UI / Multi-User später | ersetzt durch 0022/0023 |
+| [0021](0021-environments-deploy-gate.md) | Umgebungen (prod/dev/preview), Deploy-Gate, QA-Loop | angenommen |
+| [0022](0022-user-accounts-iam.md) | Nutzerkonten, mehrnutzerfähig, Einladung | angenommen |
+| [0023](0023-encrypted-mail-accounts.md) | Postfächer in der App, verschlüsselte Zugangsdaten | angenommen |
+| [0024](0024-secrets-per-environment.md) | Secrets pro Umgebung: GitHub Environments → fly | angenommen |
+| [0025](0025-mailbox-actions-user-settings.md) | Postfach-Aktionen in Profil-Einstellungen (gelesen, Quarantäne, Papierkorb, YOLO) | angenommen |
+| [0026](0026-topics-jev-choice.md) | Themen als Jev-Choice | angenommen (Probe offen) |
+| [0027](0027-web-push.md) | Web-Push für die PWA | angenommen |
+| [0028](0028-rnd-live-calls.md) | Live-Aufrufe für R&D mit synthetischen Inhalten | angenommen |
 
 ## Vorlage
 

@@ -8,7 +8,10 @@
 
 Verbindlich für jede Implementierungsarbeit in diesem Repo: `docs/IMPLEMENTATION_PLAN.md` (Abschnitt 3: Arbeitsregeln, harte Regeln H1–H10, STOP-Punkte), `docs/IMPLEMENTATION_PLAN_v4.md` (H11–H15), `docs/IMPLEMENTATION_PLAN_v5.md` (freigegebener Plan, H16–H22) und `docs/erd.md` (Schema). `.hermes/plans/*`, `HANDOVER.md` und ältere Handover sind überholt.
 
-Freigaben von Nico (Stand 2026-10-31): `main` darf nach grünem Push-Gate vorgespult werden. Nur Nico: Live-Aufrufe (Jev, Agenten, IMAP), Secrets (auch `fly secrets`), `auto_actions` auf `live`, Konten-Datei hochladen.
+Fahrplan: `docs/ROADMAP.md`. Freigaben von Nico (Stand 2026-10-31, ADR 0021/0025/0028):
+- `main` = prod (fly deployt jeden Push automatisch). Agenten pushen nur auf `dev` (nach grünem Push-Gate); `main` nur nach Nicos „go“ im QA-Loop.
+- Live-Aufrufe (Jev, Agenten-Modelle) für R&D erlaubt, **nur mit synthetischen Inhalten**; dev nutzt denselben OpenRouter-Schlüssel (Limit gesetzt).
+- Nur Nico: echte Postfächer (IMAP live), Secret-Werte (GitHub Environments, `fly secrets`), Auto-Aktionen scharf schalten (in der App), Prod-Deploy freigeben.
 
 ## Externe Dokumentation: Context7 zuerst
 

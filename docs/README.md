@@ -4,9 +4,10 @@
 
 1. `CLAUDE.md` und `AGENTS.md` — harte Regeln (Datenschutz, Secrets, Git, Context7, graphify).
 2. **`docs/HANDOVER_2026-10-31.md`** — aktueller Stand, was in Arbeit ist, nächste Schritte, Werkzeug-Notizen.
-3. **`docs/ARCHITECTURE.md`** — wie das System gebaut ist (Komponenten, Datenfluss, Laufzeitmodi, Sicherheit, Deployment).
-4. **`docs/adr/`** — warum es so gebaut ist (0001–0020).
-5. Bei Bedarf der passende Vertrag (unten) und `docs/erd.md` vor jeder Schemaänderung.
+3. **`docs/ROADMAP.md`** — Meilensteine R0–R10, go2market-Gate, Liste für Nico.
+4. **`docs/ARCHITECTURE.md`** — wie das System gebaut ist (Komponenten, Datenfluss, Laufzeitmodi, Sicherheit, Deployment).
+5. **`docs/adr/`** — warum es so gebaut ist (0001–0028).
+6. Bei Bedarf der passende Vertrag (unten) und `docs/erd.md` vor jeder Schemaänderung.
 
 Neuere Handover ersetzen ältere; immer das mit dem jüngsten Datum lesen.
 

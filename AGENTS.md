@@ -38,9 +38,9 @@ Integration tools such as `gmail__list_emails` use a provider account connected 
 
 Quelle der Wahrheit: `docs/IMPLEMENTATION_PLAN.md` (Arbeitsregeln in Abschnitt 3) und `docs/erd.md` (Schema). Kurzfassung der harten Regeln:
 
-- Keine Mailbox-Schreibaktionen (verschieben, löschen, Flags, Entwürfe, senden). IMAP nur schreibgeschützt.
+- IMAP-Lesepfad nur schreibgeschützt. Schreiben nur über den Schreibport (`lib/imap-write.ts`) und nur: `\Seen`, Verschieben in Quarantäne, Verschieben in den Papierkorb (ADR 0025), jeweils vom Nutzer in der App eingeschaltet. Nie senden, keine Entwürfe, keine anderen Flags, nie endgültig löschen.
 - Keine Mailinhalte persistieren (kein Body, Auszug, Rohquelle, Roh-Response) und nie in Logs, API, Dashboard oder Fixtures. Fixtures nur synthetisch.
 - Secrets (`.env`, `.env.local`, `.mcp.json`, Konten-Datei) nie lesen, ausgeben oder committen.
-- Jev nur über `@openrouter/sdk` System One (`typesafe/jev-1.13`), kein Chat-Agent. Keine erfundenen SDK-Felder: Context7, dann installierte Typen, dann echte synthetische Fixtures.
+- Jev nur über `@openrouter/sdk` System One (`typesafe/jev-1.13`), kein Chat-Agent. Live-Aufrufe für R&D nur mit synthetischen Inhalten (ADR 0028). Keine erfundenen SDK-Felder: Context7, dann installierte Typen, dann echte synthetische Fixtures.
 - Node 26.12.1 exakt, npm. Von Node direkt ausgeführter Code importiert mit `.ts`-Endung und nutzt nur löschbare TypeScript-Syntax.
-- Nie pushen, nie `git add -A`; nur die im Task genannten Dateien committen. Bei Unklarheit stoppen statt raten.
+- Pushen nur auf `dev` nach grünem Push-Gate; `main` (= Prod-Deploy) nur nach Nicos „go“ (ADR 0021). Nie `git add -A`; nur die im Task genannten Dateien committen. Bei Unklarheit stoppen statt raten.

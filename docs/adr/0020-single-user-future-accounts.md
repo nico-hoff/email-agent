@@ -1,6 +1,6 @@
 # 0020 Single-User jetzt; Konten in der UI / Multi-User später
 
-- Status: vorgeschlagen
+- Status: ersetzt durch 0022 und 0023
 - Datum: 2026-10-31
 - Bezug: Frage von Nico 2026-10-31, 0003, 0004, 0011
 
