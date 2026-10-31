@@ -6,7 +6,7 @@
 2. **`docs/HANDOVER_2026-10-31.md`** — aktueller Stand, was in Arbeit ist, nächste Schritte, Werkzeug-Notizen.
 3. **`docs/ROADMAP.md`** — Meilensteine R0–R10, go2market-Gate, Liste für Nico. Laufender Agenten-Auftrag: `docs/GOAL.md`.
 4. **`docs/ARCHITECTURE.md`** — wie das System gebaut ist (Komponenten, Datenfluss, Laufzeitmodi, Sicherheit, Deployment).
-5. **`docs/adr/`** — warum es so gebaut ist (0001–0028).
+5. **`docs/adr/`** — warum es so gebaut ist (0001–0031). Veryfront-Bausteine, Tipps und Fallstricke: **`docs/veryfront-guide.md`**.
 6. Bei Bedarf der passende Vertrag (unten) und `docs/erd.md` vor jeder Schemaänderung.
 
 Neuere Handover ersetzen ältere; immer das mit dem jüngsten Datum lesen.

@@ -34,6 +34,9 @@ Neue ADR: nächste freie Nummer, Vorlage unten, Eintrag in dieser Tabelle, im se
 | [0026](0026-topics-jev-choice.md) | Themen als Jev-Choice | angenommen (Probe offen) |
 | [0027](0027-web-push.md) | Web-Push für die PWA | angenommen |
 | [0028](0028-rnd-live-calls.md) | Live-Aufrufe für R&D mit synthetischen Inhalten | angenommen |
+| [0029](0029-veryfront-usage-tool-layer.md) | Veryfront bleibt; eigene Tool-Schicht mit Gate; Hooks für Audit/Tracing | angenommen |
+| [0030](0030-follow-ups-reminders.md) | Follow-ups und Erinnerungen (eigene Tabelle; SQLite-Workflow-Backend später) | angenommen (Stufe 1) |
+| [0031](0031-user-memory-preferences.md) | Nutzer-Gedächtnis: Präferenzen lernen (add/search), nicht Veryfront Knowledge | angenommen |
 
 ## Vorlage
 
