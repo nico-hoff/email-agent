@@ -123,7 +123,7 @@ Quelle der Wahrheit: `docs/erd.md` (ERD + DDL je Migration, Schema-Test vergleic
 ## 7. Deployment
 
 - **Docker** (`Dockerfile`, `compose.yaml`): `node:26.12.1-slim`, `USER node`, `read_only`, `tmpfs`, `cap_drop: [ALL]`, `no-new-privileges`, nur `127.0.0.1:3000` am Host, SQLite im Volume `/data`, Healthcheck `/api/health`. Prüfung: `npm run smoke:docker`.
-- **fly.io** (in Arbeit, siehe Handover): Frankfurt (`fra`), eine dauerhaft laufende kleinste Maschine (IMAP-IDLE braucht Dauerbetrieb), SQLite auf 1-GB-Volume, `internal_port = 3000`, `BIND_ADDRESS=0.0.0.0`, Pflicht `APP_PASSWORD`, Start-Schutz auf fly ohne Passwortmodus. PR #4 (fly-Bot) ist nicht mergefähig (Port 8080, öffentlich ohne Schutz, kein Volume).
+- **fly.io** (`fly.toml`, Anleitung `docs/fly-deploy.md`): Frankfurt (`fra`), eine dauerhaft laufende Maschine `shared-cpu-1x`/512 MB (IMAP-IDLE braucht Dauerbetrieb), SQLite auf 1-GB-Volume, `internal_port = 3000`, `BIND_ADDRESS=0.0.0.0`, Pflicht `APP_PASSWORD`, Start-Schutz `lib/fly-guard.ts`; Volume-Rechte über `scripts/docker-entrypoint.sh` (Target `fly`). PR #4 (fly-Vorlage) ist dadurch ersetzt.
 
 ## 8. Qualitätssicherung
 

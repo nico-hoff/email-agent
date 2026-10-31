@@ -35,6 +35,7 @@ Neuere Handover ersetzen ältere; immer das mit dem jüngsten Datum lesen.
 | Datei | Thema |
 |---|---|
 | `README.md` | Installation, Befehle, „Öffentlich hosten“ |
+| `docs/fly-deploy.md` | fly.io: Konfiguration, Schritte, Kosten, Backup, Not-Aus |
 | `docs/LOCAL_DEV_MAC.md` | lokal auf dem Mac, Live-Betrieb, Live-Proben |
 | `docs/accounts.example.json` | Beispiel Konten-Datei (echte nie lesen/committen) |
 

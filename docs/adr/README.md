@@ -23,7 +23,7 @@ Neue ADR: nächste freie Nummer, Vorlage unten, Eintrag in dieser Tabelle, im se
 | [0015](0015-ui-pwa.md) | UI: React ohne UI-Framework, PWA, SW cacht nur die Shell | angenommen |
 | [0016](0016-auto-actions.md) | Auto-Aktionen: Trockenlauf-Standard, Not-Aus, Undo | angenommen |
 | [0017](0017-sender-rules-hitl.md) | Absender-Regeln und HITL nach drei Spam-Urteilen | angenommen |
-| [0018](0018-hosting.md) | Hosting: gehärtetes Docker, fly.io fra mit Volume | angenommen (fly.toml in Arbeit) |
+| [0018](0018-hosting.md) | Hosting: gehärtetes Docker, fly.io fra mit Volume | angenommen |
 | [0019](0019-agentic-workflow.md) | Orchestrator + Subagenten, Push-Gate | angenommen |
 | [0020](0020-single-user-future-accounts.md) | Single-User jetzt; Konten in der UI / Multi-User später | vorgeschlagen |
 
