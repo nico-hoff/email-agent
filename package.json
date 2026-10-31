@@ -15,6 +15,7 @@
     "sample": "node --env-file=.env.local scripts/sample.ts",
     "eval:agents": "node --env-file=.env.local scripts/agent-eval-live.ts",
     "eval:jev": "node --env-file=.env.local scripts/eval-jev.ts --confirm-live",
+    "eval:compare-models": "node --env-file=.env.local scripts/model-compare.ts --confirm-live",
     "jev:probe:v2": "node --env-file=.env.local scripts/jev-v2-probe.ts",
     "jev:probe:topics": "node --env-file=.env.local scripts/jev-topic-probe.ts",
     "agent:probe": "node --env-file=.env.local scripts/agent-live-probe.ts",
