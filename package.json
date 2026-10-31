@@ -10,6 +10,8 @@
     "dev:live": "node --env-file-if-exists=.env.local server.ts --development",
     "dev:seed": "node scripts/seed-dev-db.ts",
     "qa:serve": "node scripts/qa-serve.ts",
+    "staging": "node --env-file-if-exists=.env.local scripts/staging-serve.ts",
+    "staging:user": "DATABASE_PATH=data/staging.sqlite node --env-file-if-exists=.env.local scripts/user-create.ts",
     "accounts:import": "node --env-file-if-exists=.env.local scripts/accounts-import.ts",
     "accounts:rekey": "node --env-file-if-exists=.env.local scripts/accounts-rekey.ts",
     "user:create": "node --env-file-if-exists=.env.local scripts/user-create.ts",

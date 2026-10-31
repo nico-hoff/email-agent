@@ -54,6 +54,19 @@ Das Skript bricht ab, wenn nicht Node 26.12.1 nativ (arm64) läuft (in Nicos SSH
 
 Briefing und Entwürfe rufen hier echte Modelle auf, aber nur mit den synthetischen Metadaten (ADR 0028). Weitere Testnutzer: auf `/profil` „Einladung erstellen“.
 
+### 2b. Staging mit echtem Postfach (ADR 0042)
+
+Eigene Datenbank `data/staging.sqlite`, echte Postfächer nur über die App, Worker und Jev live, Auto-Aktionen bleiben aus, bis du sie schaltest.
+
+```sh
+npm run staging:user -- --email <deine adresse>   # einmalig, fragt das Passwort (≥ 12 Zeichen)
+npm run staging                                    # 127.0.0.1:3200
+tailscale serve --bg --https=8443 3200             # einmalig, zweites Terminal
+# iPhone: https://<rechner>.<tailnet>.ts.net:8443 → anmelden → Profil → Konten → E-Mail, IMAP-Passwort, IMAP-Server → Verbindung testen
+```
+
+Voraussetzung: `ACCOUNTS_ENCRYPTION_KEY` in `.env.local` (sonst lassen sich keine Postfächer speichern; das Skript warnt). Abschalten: `tailscale serve --https=8443 off`.
+
 ## 3. Echtbetrieb (nur auf Nicos Auftrag)
 
 1. Konten-Datei prüfen (nur Feldnamen, keine Werte ausgeben): `label`, optional `color`, `spam_mailbox` exakt wie der Server-Ordner heißt (die Sample-Vorschau prüft Ordnernamen), `auto_actions` weglassen = `dry_run`.
