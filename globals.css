@@ -649,3 +649,30 @@ main { display: block; min-width: 0; }
   margin: 4px 0 8px; padding: 12px; border-radius: 10px; background: var(--surface); color: var(--text);
   font: 700 20px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0.04em; text-align: center; user-select: all; overflow-wrap: anywhere;
 }
+
+/* ---- R2: Konten verwalten (Profil) ---- */
+.acct-list { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 0; }
+.acct-row { display: grid; gap: 6px; padding: 12px 0; border-top: 1px solid var(--border); }
+.acct-row:first-child { border-top: 0; padding-top: 0; }
+.acct-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.acct-head .acct-dot { width: 12px; height: 12px; }
+.acct-name { font-weight: 650; overflow-wrap: anywhere; flex: 1 1 auto; min-width: 0; }
+.acct-row .hint { margin: 0; overflow-wrap: anywhere; }
+.acct-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px; }
+.acct-actions .btn:first-child { grid-column: 1 / -1; }
+.acct-form { display: grid; gap: 12px; margin-top: 8px; }
+.field { display: grid; gap: 4px; min-width: 0; }
+.field-label { font-size: 14px; font-weight: 600; color: var(--muted); }
+.field .hint { margin: 0; }
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
+.input {
+  box-sizing: border-box; width: 100%; min-height: 48px; padding: 0 14px; font: inherit; font-size: 16px; color: var(--text);
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+}
+.input:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.textarea { min-height: 84px; padding: 10px 14px; resize: vertical; }
+.swatches { display: flex; flex-wrap: wrap; gap: 10px; }
+.swatch { width: 36px; height: 36px; border-radius: 50%; border: 2px solid transparent; box-shadow: 0 0 0 1px var(--border); cursor: pointer; }
+.swatch[aria-pressed="true"] { border-color: var(--text); box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent); }
+.swatch:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+.hint-warn { color: var(--warn-fg); background: var(--warn-bg); padding: 8px 10px; border-radius: 10px; }

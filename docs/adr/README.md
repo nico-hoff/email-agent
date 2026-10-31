@@ -39,6 +39,7 @@ Neue ADR: nächste freie Nummer, Vorlage unten, Eintrag in dieser Tabelle, im se
 | [0031](0031-user-memory-preferences.md) | Nutzer-Gedächtnis: Präferenzen lernen (add/search), nicht Veryfront Knowledge | angenommen |
 | [0032](0032-question-set-v2-default.md) | Fragenset v2 ist Standard, Schwellen je Fragenset-Version | angenommen |
 | [0033](0033-tenant-key-user-id.md) | Mandantenschlüssel `user_id`, Sitzungen, Einladungen | angenommen |
+| [0035](0035-mail-accounts-implementation.md) | Postfächer in der App: Umsetzung (Schnitt, Krypto, Supervisor, Import, SSRF) | angenommen |
 | [0041](0041-classifier-model-per-user.md) | Klassifikationsmodell (System One) pro Nutzer wählbar, Schwellen je Modell, Premium vorbereitet | angenommen |
 
 ## Vorlage

@@ -1,23 +1,15 @@
 // Mode of the automatic "Spam gelesen" rule per account, for the list header ("Postfach nur lesend" or not).
-// Only the mode leaves this module: the accounts file is read at request time and its credentials are dropped at once.
-import { type AccountConfig, type AutoActionMode, autoActionMode, loadAccountsConfig } from "./accounts-config.ts";
-import { syntheticFromEnv } from "./auth-runtime.ts";
-import { PROJECT_ROOT } from "./constants.ts";
+// Read from the database (mail_accounts.spam_seen_mode, R2); only the mode leaves this module. An account without
+// credentials row (demo data) is absent from the map, which the API reports as dry_run.
+import type { DatabaseSync } from "node:sqlite";
+import type { AutoActionMode } from "./accounts-config.ts";
+import { readSpamSeenModes } from "./mail-accounts.ts";
 
-export function autoActionModesOf(accounts: Pick<AccountConfig, "id" | "enabled" | "auto_actions">[]): Map<string, AutoActionMode> {
-  return new Map(accounts.map((a) => [a.id, a.enabled ? autoActionMode(a, "spam_seen") : "off"] as const));
-}
-
-/**
- * Synthetic mode never has live accounts (empty map: the API then reports dry_run). An unusable accounts file also
- * yields an empty map, i.e. the conservative reading "nothing is written".
- */
-export function readAutoActionModes(env: Record<string, string | undefined> = process.env): Map<string, AutoActionMode> {
-  if (syntheticFromEnv(env, PROJECT_ROOT)) return new Map();
+export function readAutoActionModes(db: DatabaseSync, userId: number): Map<string, AutoActionMode> {
   try {
-    const cfg = loadAccountsConfig({ env, projectRoot: PROJECT_ROOT });
-    return cfg.status === "ok" ? autoActionModesOf(cfg.accounts) : new Map();
+    return readSpamSeenModes(db, userId);
   } catch {
+    // Unreadable = the conservative reading: nothing is written.
     return new Map();
   }
 }

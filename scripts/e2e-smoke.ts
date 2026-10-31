@@ -9,6 +9,7 @@ import { chmodSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createService } from "../server.ts";
+import { generateKey } from "../lib/account-secrets.ts";
 import { syncAccounts } from "../lib/accounts.ts";
 import { openDatabase } from "../lib/db.ts";
 import { userCreateMain } from "./user-create.ts";
@@ -211,10 +212,13 @@ export async function runSmoke(options: { log?: (line: string) => void } = {}): 
 
   // Hard guarantee for "offline": no model key can reach any route, no external DB path leaks in.
   const saved = new Map<string, string | undefined>();
-  for (const k of ["DATABASE_PATH", "OPENROUTER_API_KEY", "OPENAI_API_KEY", "OPENAI_BASE_URL", "ACCOUNTS_FILE"]) {
+  for (const k of ["DATABASE_PATH", "OPENROUTER_API_KEY", "OPENAI_API_KEY", "OPENAI_BASE_URL", "ACCOUNTS_FILE", "ACCOUNTS_ENCRYPTION_KEY", "ACCOUNTS_ENCRYPTION_KEY_OLD"]) {
     saved.set(k, process.env[k]);
     delete process.env[k];
   }
+  // Accounts can be created in synthetic mode (no workers, no network) once a key exists; a throwaway random one.
+  process.env.ACCOUNTS_ENCRYPTION_KEY = generateKey();
+  const SMOKE_ACCOUNT_SECRET = "smoke-synthetic-app-password";
   const root = seedRoot();
   let svc: Awaited<ReturnType<typeof createService>> | undefined;
   try {
@@ -281,6 +285,32 @@ export async function runSmoke(options: { log?: (line: string) => void } = {}): 
         headers: body === undefined ? headers : { ...headers, "content-type": "application/json" },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       });
+
+    // --- accounts (R2): create, list, test (synthetic: no network), disable ---------------------------------------
+    let newAccount = "";
+    await step("POST /api/accounts (google preset)", async () => {
+      const r = await post("/api/accounts", { type: "google", label: "Smoke", username: "smoke@gmail.invalid", password: SMOKE_ACCOUNT_SECRET });
+      newAccount = r.status === 201 ? json<{ account: { id: string } }>(r.text).account.id : "";
+      return { status: r.status, ok: r.status === 201 && /^a_[0-9a-f]{16}$/.test(newAccount) };
+    });
+    await step("GET /api/accounts lists it without a secret", async () => {
+      const r = await get("/api/accounts");
+      const b = r.status === 200 ? json<{ accounts: { id: string; secret_set: boolean; host: string }[]; encryption: { ready: boolean } }>(r.text) : null;
+      const mine = b?.accounts.find((a) => a.id === newAccount);
+      return { status: r.status, ok: mine?.secret_set === true && mine.host === "imap.gmail.com" && b?.encryption.ready === true && !r.text.includes(SMOKE_ACCOUNT_SECRET) };
+    });
+    await step("POST /api/accounts/:id/test answers synthetic_no_network", async () => {
+      const r = await post(`/api/accounts/${newAccount}/test`);
+      return { status: r.status, ok: r.status === 200 && json<{ code: string }>(r.text).code === "synthetic_no_network" };
+    });
+    await step("POST /api/accounts/:id/disable", async () => {
+      const r = await post(`/api/accounts/${newAccount}/disable`);
+      return { status: r.status, ok: r.status === 200 && json<{ account: { enabled: boolean } }>(r.text).account.enabled === false };
+    });
+    await step("POST /api/accounts/unknown/test is 404", async () => {
+      const r = await post("/api/accounts/a_0000000000000000/test");
+      return { status: r.status, ok: r.status === 404 };
+    });
 
     // --- lists ---------------------------------------------------------------------------------------------------
     const total = smokeItems().length;
@@ -404,7 +434,7 @@ export async function runSmoke(options: { log?: (line: string) => void } = {}): 
 
     // --- no mail content anywhere -----------------------------------------------------------------------------
     await step("marker test: no body marker in any response", async () => ({
-      status: seenTexts.length, ok: seenTexts.every((t) => !t.includes(BODY_MARKER)),
+      status: seenTexts.length, ok: seenTexts.every((t) => !t.includes(BODY_MARKER) && !t.includes(SMOKE_ACCOUNT_SECRET)),
     }));
   } catch {
     record("smoke setup", false, "error");

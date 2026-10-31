@@ -89,21 +89,21 @@ describe("validateDatabasePath / startup", () => {
   test("startup without accounts file: migrated, disabled", () => {
     const root = mkdtempSync(join(tmpdir(), "email-agent-accdb-root-"));
     const s = startup({ env: {}, projectRoot: root });
-    assert.equal(s.config.status, "disabled");
-    assert.equal(rows(s.db, "SELECT count(*) AS n FROM schema_migrations")[0].n, 6);
+    assert.equal(s.legacyImport.status, "no_file");
+    assert.equal(rows(s.db, "SELECT count(*) AS n FROM schema_migrations")[0].n, 7);
     s.db.close();
     rmSync(root, { recursive: true, force: true });
   });
 
-  test("startup with accounts file syncs accounts", () => {
+  test("startup with accounts file but without ACCOUNTS_ENCRYPTION_KEY imports nothing", () => {
     const root = mkdtempSync(join(tmpdir(), "email-agent-accdb-root-"));
     mkdirSync(join(root, "data"), { mode: 0o700 });
     const f = join(root, "data", "accounts.json");
     writeFileSync(f, JSON.stringify([acc("a")]));
     chmodSync(f, 0o600);
     const s = startup({ env: {}, projectRoot: root });
-    assert.equal(s.config.status, "ok");
-    assert.equal(rows(s.db, "SELECT id FROM accounts")[0].id, "a");
+    assert.equal(s.legacyImport.status, "no_key");
+    assert.equal(rows(s.db, "SELECT count(*) AS n FROM accounts")[0].n, 0);
     s.db.close();
     rmSync(root, { recursive: true, force: true });
   });

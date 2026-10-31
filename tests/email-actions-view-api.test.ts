@@ -2,7 +2,7 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { openDatabase } from "../lib/db.ts";
 import { syncAccounts } from "../lib/accounts.ts";
-import { autoActionModesOf } from "../lib/account-modes.ts";
+import { readAutoActionModes } from "../lib/account-modes.ts";
 import { getEmailDetail, listEmails, parseListQuery } from "../lib/email-api.ts";
 import { listActions, parseActionsQuery } from "../lib/actions-api.ts";
 
@@ -28,14 +28,22 @@ function setup() {
 }
 
 describe("account modes for the list header", () => {
-  test("autoActionModesOf: explicit mode, dry_run by default, off when the account is disabled", () => {
-    const m = autoActionModesOf([
-      { id: "a", enabled: true, auto_actions: { spam_seen: "live" } },
-      { id: "b", enabled: true },
-      { id: "c", enabled: false, auto_actions: { spam_seen: "live" } },
-      { id: "d", enabled: true, auto_actions: { spam_seen: "off" } },
+  test("readAutoActionModes: explicit mode, off when the account is disabled, absent without credentials row", () => {
+    const db = openDatabase(":memory:");
+    syncAccounts(db, [
+      { id: "a", label: "a", host: "h.example", port: 993, mailbox: "INBOX", enabled: true },
+      { id: "b", label: "b", host: "h.example", port: 993, mailbox: "INBOX", enabled: true },
+      { id: "c", label: "c", host: "h.example", port: 993, mailbox: "INBOX", enabled: true },
+      { id: "d", label: "d", host: "h.example", port: 993, mailbox: "INBOX", enabled: true },
     ] as never);
-    assert.deepEqual([...m], [["a", "live"], ["b", "dry_run"], ["c", "off"], ["d", "off"]]);
+    const ins = (id: string, mode: string) => db.prepare(
+      `INSERT INTO mail_accounts (account_id,user_id,type,tls,username,secret_ciphertext,secret_nonce,secret_tag,key_id,secret_set_at,spam_seen_mode,created_at,updated_at)
+       VALUES (?,1,'imap',1,'u',x'aa',x'000000000000000000000000',x'00000000000000000000000000000000','${"a".repeat(16)}','${T}',?,'${T}','${T}')`,
+    ).run(id, mode);
+    ins("a", "live"); ins("b", "dry_run"); ins("c", "live");
+    db.exec("UPDATE accounts SET enabled = 0 WHERE id = 'c'");
+    assert.deepEqual([...readAutoActionModes(db, 1)].sort(), [["a", "live"], ["b", "dry_run"], ["c", "off"]]);
+    assert.deepEqual([...readAutoActionModes(db, 2)], []);
   });
 
   test("GET /api/emails carries auto_actions per account id (modes only), dry_run when unknown", () => {

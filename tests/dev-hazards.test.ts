@@ -77,7 +77,7 @@ function harness(projectRoot: string) {
       projectRoot,
       log: (m: string) => logs.push(m),
       onSignal: () => undefined,
-      startup: () => ({ db: { close() {} }, config: { status: "disabled" } }) as never,
+      startup: () => ({ db: { close() {} }, legacyImport: { status: "no_file" } }) as never,
       startHttp: async () => ({
         port: 4321,
         url: "http://127.0.0.1:4321",

@@ -29,6 +29,7 @@ Neuere Handover ersetzen ältere; immer das mit dem jüngsten Datum lesen.
 | `docs/agent-contract.md` | Agenten, Briefing/SSE (§6), Evals (§7) |
 | `docs/imap-write-contract.md` | `\Seen`-Schreibport |
 | `docs/access-contract.md` | Zugang: synthetic, password, tailnet |
+| `docs/accounts-contract.md` | Postfächer in der App: Verschlüsselung, Supervisor, Import, API, Grenzen (R2) |
 | `docs/eval-datasets.md` | HF-Datensets, Splits, Kalibrierung |
 
 ## Betrieb

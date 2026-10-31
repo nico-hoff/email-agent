@@ -301,11 +301,14 @@ async function main(): Promise<void> {
   }
   const started = startup({ env: process.env, projectRoot: PROJECT_ROOT });
   try {
-    if (started.config.status !== "ok") {
-      console.error("no accounts configured");
+    const { loadKeyring } = await import("../lib/account-secrets.ts");
+    const { loadWorkerAccounts } = await import("../lib/mail-accounts.ts");
+    const keys = loadKeyring(process.env);
+    if (!keys.ok) {
+      console.error("ACCOUNTS_ENCRYPTION_KEY is not set or invalid");
       process.exit(2);
     }
-    const acc = started.config.accounts.find((a) => a.id === args.account);
+    const acc = loadWorkerAccounts(started.db, keys.keyring).accounts.find((a) => a.id === args.account);
     if (!acc) {
       console.error("unknown account id");
       process.exit(2);

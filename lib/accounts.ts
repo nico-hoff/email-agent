@@ -1,7 +1,9 @@
 import { lstatSync, mkdirSync } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import { type AccountConfig, type AccountsConfigResult, loadAccountsConfig } from "./accounts-config.ts";
+import type { AccountConfig } from "./accounts-config.ts";
+import { loadKeyring } from "./account-secrets.ts";
+import { importLegacyAccounts, type LegacyImportResult } from "./mail-accounts.ts";
 import { DEFAULT_DATABASE_PATH } from "./constants.ts";
 import { openDatabase } from "./db.ts";
 import { OWNER_USER_ID } from "./users.ts";
@@ -44,7 +46,7 @@ export function validateDatabasePath(
   return file;
 }
 
-/** Stores account metadata only (accounts from the accounts file belong to the owner, id 1; ADR 0033; label, tag color, folders; no credentials, no threshold). Accounts of that owner absent from the config are disabled, never deleted. */
+/** Test/seed helper (legacy, no credentials): stores account metadata only (accounts from the accounts file belong to the owner, id 1; ADR 0033; label, tag color, folders; no credentials, no threshold). Accounts of that owner absent from the config are disabled, never deleted. */
 export function syncAccounts(db: DatabaseSync, accounts: AccountConfig[], now: Date = new Date(), ownerUserId: number = OWNER_USER_ID): void {
   const ts = now.toISOString();
   const upsert = db.prepare(
@@ -85,17 +87,20 @@ export function syncAccounts(db: DatabaseSync, accounts: AccountConfig[], now: D
 
 export interface StartupResult {
   db: DatabaseSync;
-  config: AccountsConfigResult;
+  /** Outcome of the one-time import of the legacy accounts file (R2); `no_file` once it has been imported and is gone. */
+  legacyImport: LegacyImportResult;
 }
 
-/** Start sequence: validate DB path, migrate, then load and register accounts. */
+/**
+ * Start sequence: validate DB path, migrate, import the legacy accounts file once (needs ACCOUNTS_ENCRYPTION_KEY).
+ * After the import marker exists the file is never opened again; accounts live in the database (docs/accounts-contract.md).
+ */
 export function startup(opts: { env: Record<string, string | undefined>; projectRoot: string }): StartupResult {
   const dbPath = validateDatabasePath(opts.env, opts.projectRoot);
   const db = openDatabase(dbPath);
   try {
-    const config = loadAccountsConfig(opts);
-    syncAccounts(db, config.status === "ok" ? config.accounts : []);
-    return { db, config };
+    const legacyImport = importLegacyAccounts(db, { env: opts.env, projectRoot: opts.projectRoot, keys: loadKeyring(opts.env) });
+    return { db, legacyImport };
   } catch (err) {
     db.close();
     throw err;

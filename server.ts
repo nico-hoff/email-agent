@@ -10,7 +10,8 @@ import { createImapFlowPort } from "./lib/imap.ts";
 import { applyOpenRouterEnv } from "./lib/openrouter-env.ts";
 import { assertFlyAuthConfigured } from "./lib/fly-guard.ts";
 import { findStyleScanHazards } from "./lib/dev-hazards.ts";
-import { DEFAULT_SPAM_THRESHOLD } from "./lib/accounts-config.ts";
+import { type AccountConfig, DEFAULT_SPAM_THRESHOLD } from "./lib/accounts-config.ts";
+import { createAccountSupervisor } from "./lib/account-supervisor.ts";
 import { dataDirFromEnv, interceptRequest } from "./lib/auth-runtime.ts";
 import { appPasswordStatus, selectAuthMode } from "./lib/auth.ts";
 import { openDatabase } from "./lib/db.ts";
@@ -46,7 +47,7 @@ export interface CreateServiceOptions {
   log?: (message: string) => void;
   // Injectable factories for tests.
   startup?: typeof defaultStartup;
-  createWorkers?: (deps: { db: StartupResult["db"]; accounts: ImapWorkersDeps["accounts"] }) => ImapWorkers;
+  createWorkers?: (deps: { db: StartupResult["db"] }) => ImapWorkers;
   startHttp?: (o: { port: number; bindAddress: string; mode: "development" | "production" }) => Promise<HttpHandle>;
   /** Subscribes a shutdown handler; may return an unsubscribe function that stop() calls. */
   onSignal?: (signal: "SIGINT" | "SIGTERM", handler: () => void) => void | (() => void);
@@ -88,72 +89,111 @@ async function defaultStartHttp(o: { port: number; bindAddress: string; mode: "d
   return { port: server.port, url: server.url, stop: () => server.stop() };
 }
 
-/** Imap workers plus the Jev classification pipeline (onIngested -> submit). Without OPENROUTER_API_KEY only ingestion runs. */
-export function createWorkersWithPipeline(
-  deps: { db: StartupResult["db"]; accounts: ImapWorkersDeps["accounts"] },
-  o: {
-    env?: Record<string, string | undefined>;
-    log?: (message: string) => void;
-    createJev?: (apiKey: string) => JevClient;
-    createWorkers?: (d: ImapWorkersDeps) => ImapWorkers;
-    /** Global kill switch file for automatic mailbox actions (default: data/auto-actions.disabled next to the database). */
-    killSwitchFile?: string;
-    mailboxActions?: MailboxActions;
-  } = {},
-): ImapWorkers {
-  const make = o.createWorkers ?? ((d) => createImapWorkers(d));
+interface PipelineOptions {
+  env?: Record<string, string | undefined>;
+  log?: (message: string) => void;
+  createJev?: (apiKey: string) => JevClient;
+  createWorkers?: (d: ImapWorkersDeps) => ImapWorkers;
+  /** Global kill switch file for automatic mailbox actions (default: data/auto-actions.disabled next to the database). */
+  killSwitchFile?: string;
+  mailboxActions?: MailboxActions;
+}
+
+/**
+ * The classification pipeline and the mailbox-action rules around a LIVE account list. The list may change while the
+ * process runs (account supervisor): everything looks accounts up by id at the moment it needs them.
+ */
+function wirePipeline(deps: { db: StartupResult["db"]; accounts: ImapWorkersDeps["accounts"] }, o: PipelineOptions) {
   const log = o.log ?? (() => {});
   const env = o.env ?? process.env;
-  // M7a: rule "Spam gelesen". Per-account mode comes from the accounts file (default dry_run); the executor is the
+  const find = (id: string) => deps.accounts.find((a) => a.id === id);
+  // M7a: rule "Spam gelesen". Per-account mode comes from the database (mail_accounts.spam_seen_mode); the executor is the
   // only place that creates the IMAP write port. One bounded backfill at start covers already classified mails.
   const actions = o.mailboxActions ?? createMailboxActions({
     db: deps.db,
     accounts: deps.accounts,
     killSwitchFile: o.killSwitchFile ?? join(dataDirFromEnv(env, PROJECT_ROOT), KILL_SWITCH_FILE),
   });
-  const withBackfill = (inner: ImapWorkers): ImapWorkers => ({
-    start() {
-      inner.start();
-      void actions.backfill().catch(() => log("mailbox action backfill failed"));
-    },
-    stop: () => inner.stop(),
-  });
   const apiKey = env.OPENROUTER_API_KEY;
   if (!apiKey) {
     log("classification disabled: OPENROUTER_API_KEY not set");
-    return withBackfill(make({ db: deps.db, accounts: deps.accounts }));
+    return { actions, pipeline: undefined, onIngested: undefined };
   }
-  const byId = new Map(deps.accounts.map((a) => [a.id, a]));
   const pipeline = createClassificationPipeline({
     db: deps.db,
     jev: (o.createJev ?? ((key) => createJevClient({ apiKey: key })))(apiKey),
     portFactory: (accountId) => {
-      const a = byId.get(accountId);
+      const a = find(accountId);
       if (!a) throw new Error("unknown account");
       return createImapFlowPort({ host: a.host, port: a.port, tls: a.tls, user: a.user, password: a.password });
     },
-    accountContext: (id) => byId.get(id)?.context,
-    persistResponse: createPersistResponse((id) => byId.get(id)?.spam_threshold ?? DEFAULT_SPAM_THRESHOLD),
+    accountContext: (id) => find(id)?.context,
+    persistResponse: createPersistResponse((id) => find(id)?.spam_threshold ?? DEFAULT_SPAM_THRESHOLD),
     onClassified: ({ emailId }) => actions.onClassified(emailId),
   });
-  const workers = make({
+  const onIngested: ImapWorkersDeps["onIngested"] = (emailId, input) => {
+    const accountId = (deps.db.prepare("SELECT account_id FROM emails WHERE id = ?").get(emailId) as { account_id: string } | undefined)?.account_id;
+    if (!accountId) return;
+    return pipeline.submit({ emailId, accountId, input });
+  };
+  return { actions, pipeline, onIngested };
+}
+
+/** Imap workers for a fixed account list plus the Jev classification pipeline (onIngested -> submit). Without OPENROUTER_API_KEY only ingestion runs. */
+export function createWorkersWithPipeline(
+  deps: { db: StartupResult["db"]; accounts: ImapWorkersDeps["accounts"] },
+  o: PipelineOptions = {},
+): ImapWorkers {
+  const make = o.createWorkers ?? ((d) => createImapWorkers(d));
+  const log = o.log ?? (() => {});
+  const w = wirePipeline(deps, o);
+  const workers = make({ db: deps.db, accounts: deps.accounts, ...(w.onIngested ? { onIngested: w.onIngested } : {}) });
+  return {
+    start() {
+      workers.start();
+      void w.pipeline?.start().catch(() => log("pipeline start failed"));
+      void w.actions.backfill().catch(() => log("mailbox action backfill failed"));
+    },
+    async stop() {
+      w.pipeline?.stop();
+      await workers.stop();
+    },
+  };
+}
+
+/**
+ * Production workers (R2): accounts come from the database. The supervisor starts one IMAP worker per enabled account
+ * with a decryptable secret and follows changes made through the API (lib/account-supervisor.ts).
+ */
+export function createSupervisedWorkers(
+  deps: { db: StartupResult["db"] },
+  o: PipelineOptions & { intervalMs?: number } = {},
+): ImapWorkers {
+  const make = o.createWorkers ?? ((d) => createImapWorkers(d));
+  const log = o.log ?? (() => {});
+  const live: AccountConfig[] = [];
+  const w = wirePipeline({ db: deps.db, accounts: live }, o);
+  const supervisor = createAccountSupervisor({
     db: deps.db,
-    accounts: deps.accounts,
-    onIngested: (emailId, input) => {
-      const accountId = (deps.db.prepare("SELECT account_id FROM emails WHERE id = ?").get(emailId) as { account_id: string } | undefined)?.account_id;
-      if (!accountId) return;
-      return pipeline.submit({ emailId, accountId, input });
+    env: o.env ?? process.env,
+    accounts: live,
+    ...(o.intervalMs !== undefined ? { intervalMs: o.intervalMs } : {}),
+    log,
+    startWorker: (account) => {
+      const worker = make({ db: deps.db, accounts: [account], ...(w.onIngested ? { onIngested: w.onIngested } : {}) });
+      worker.start();
+      return worker;
     },
   });
   return {
     start() {
-      workers.start();
-      void pipeline.start().catch(() => log("pipeline start failed"));
-      void actions.backfill().catch(() => log("mailbox action backfill failed"));
+      supervisor.start();
+      void w.pipeline?.start().catch(() => log("pipeline start failed"));
+      void supervisor.reconcile().then(() => w.actions.backfill()).catch(() => log("mailbox action backfill failed"));
     },
     async stop() {
-      pipeline.stop();
-      await workers.stop();
+      w.pipeline?.stop();
+      await supervisor.stop();
     },
   };
 }
@@ -243,9 +283,12 @@ export async function createService(options: CreateServiceOptions = {}): Promise
     }
   }
 
-  if (started && started.config.status === "ok") {
+  if (started) {
+    if (started.legacyImport.status === "imported") log(`legacy accounts file imported: ${started.legacyImport.count} account(s), the file is not read again`);
+    if (started.legacyImport.status === "no_key") log("legacy accounts file found but ACCOUNTS_ENCRYPTION_KEY is not set: accounts are not imported and no worker starts");
     try {
-      workers = (options.createWorkers ?? ((d) => createWorkersWithPipeline(d, { env: options.env ?? process.env, log })))({ db: started.db, accounts: started.config.accounts });
+      // Workers always run in live mode: with zero accounts the supervisor just waits for accounts created in the app.
+      workers = (options.createWorkers ?? ((d) => createSupervisedWorkers(d, { env: options.env ?? process.env, log })))({ db: started.db });
       workers.start();
       workerStatus = "running";
     } catch {

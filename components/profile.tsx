@@ -2,6 +2,7 @@
 // Einstellungen, Themen). Stateless: the page passes state and callbacks. Renders no mail data; an invite code is shown
 // once, from state, and is never part of a list.
 import { UndoToast } from "./review.tsx";
+import { AccountsSection, type AccountsSectionProps } from "./accounts-manager.tsx";
 import { formatWhen, PROFILE_ERROR_TEXT, type CreatedInvite, type OpenInvite, type Profile, type ProfileReason } from "../lib/profile-client.ts";
 
 const noop = (): void => {};
@@ -23,6 +24,8 @@ export interface ProfileViewProps {
   onReload?: () => void;
   onNoticeClose?: () => void;
   timeZone?: string;
+  /** The accounts section (R2); absent = not shown (render tests of the other sections). */
+  accounts?: AccountsSectionProps;
 }
 
 export function reasonText(reason: ProfileReason): string {
@@ -111,7 +114,7 @@ export function ProfileView(p: ProfileViewProps): React.JSX.Element {
         </div>
         <div className="title">
           <h1>Profil</h1>
-          <p className="mode">Konto und Sitzungen</p>
+          <p className="mode">Konto, Postfächer und Sitzungen</p>
         </div>
       </header>
       {p.error !== null && (
@@ -125,6 +128,7 @@ export function ProfileView(p: ProfileViewProps): React.JSX.Element {
         {p.profile !== null && (
           <>
             <AccountSection profile={p.profile} />
+            {p.accounts !== undefined && <AccountsSection {...p.accounts} />}
             <SessionSection profile={p.profile} busy={p.busy} onLogout={p.onLogout} onLogoutAll={p.onLogoutAll} />
             {p.profile.managed && p.profile.role === "admin" && <InviteSection {...p} />}
           </>

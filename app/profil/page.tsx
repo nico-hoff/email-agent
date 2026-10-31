@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ProfileView, reasonText } from '../../components/profile.tsx'
+import { accountsErrorText, type AccountEditor } from '../../components/accounts-manager.tsx'
 import { mutationDeps } from '../../components/hooks.ts'
 import {
   fetchInvites,
@@ -13,6 +14,17 @@ import {
   type OpenInvite,
   type Profile,
 } from '../../lib/profile-client.ts'
+import {
+  emptyForm,
+  fetchAccounts,
+  formFromItem,
+  postAccountEnabled,
+  postCreateAccount,
+  postTestAccount,
+  postUpdateAccount,
+  type AccountForm,
+  type AccountsData,
+} from '../../lib/accounts-client.ts'
 
 // Shell only: account data, invitations and the one-time invite code arrive through client-side /api calls and live in
 // component state; nothing is written to browser storage.
@@ -25,6 +37,11 @@ export default function Profil(): React.JSX.Element {
   const [created, setCreated] = useState<CreatedInvite | null>(null)
   const [inviteRole, setInviteRole] = useState<'user' | 'admin'>('user')
   const [notice, setNotice] = useState<{ text: string; error?: boolean } | null>(null)
+  const [accounts, setAccounts] = useState<AccountsData | null>(null)
+  const [editor, setEditor] = useState<AccountEditor | null>(null)
+  const [formError, setFormError] = useState<string | null>(null)
+  const [testing, setTesting] = useState<string | null>(null)
+  const [testResults, setTestResults] = useState<Record<string, string>>({})
   const generation = useRef(0)
 
   const load = useCallback(async (): Promise<void> => {
@@ -34,8 +51,11 @@ export default function Profil(): React.JSX.Element {
       const p = await fetchProfile(fetch)
       const list = p.managed && p.role === 'admin' ? await fetchInvites(fetch) : []
       if (mine !== generation.current) return
+      const acc = await fetchAccounts(fetch).catch(() => null)
+      if (mine !== generation.current) return
       setProfile(p)
       setInvites(list)
+      setAccounts(acc)
       setError(null)
     } catch (e) {
       if (mine !== generation.current) return
@@ -84,6 +104,56 @@ export default function Profil(): React.JSX.Element {
     })
   }, [inviteRole])
 
+  const reloadAccounts = useCallback((): void => {
+    void fetchAccounts(fetch).then(setAccounts).catch(() => {})
+  }, [])
+
+  const saveAccount = useCallback((): void => {
+    if (!editor) return
+    setBusy(true)
+    setFormError(null)
+    const run = editor.id === null ? postCreateAccount(editor.form, mutationDeps) : postUpdateAccount(editor.id, editor.form, mutationDeps)
+    void run.then((res) => {
+      setBusy(false)
+      if (!res.ok) {
+        setFormError(accountsErrorText(res.reason))
+        return
+      }
+      setEditor(null)
+      setNotice({ text: editor.id === null ? 'Konto gespeichert.' : 'Änderungen gespeichert.' })
+      reloadAccounts()
+    })
+  }, [editor, reloadAccounts])
+
+  const testAccount = useCallback((id: string): void => {
+    setTesting(id)
+    void postTestAccount(id, mutationDeps).then((res) => {
+      setTesting(null)
+      if (!res.ok) {
+        setNotice({ text: accountsErrorText(res.reason), error: true })
+        return
+      }
+      setTestResults((r) => ({ ...r, [id]: res.code }))
+      reloadAccounts()
+    })
+  }, [reloadAccounts])
+
+  const toggleAccount = useCallback((id: string, enabled: boolean): void => {
+    setBusy(true)
+    void postAccountEnabled(id, enabled, mutationDeps).then((res) => {
+      setBusy(false)
+      if (!res.ok) {
+        setNotice({ text: accountsErrorText(res.reason), error: true })
+        return
+      }
+      reloadAccounts()
+    })
+  }, [reloadAccounts])
+
+  const patchForm = useCallback((patch: Partial<AccountForm>): void => {
+    setEditor((e) => (e ? { ...e, form: { ...e.form, ...patch } } : e))
+  }, [])
+
   return (
     <ProfileView
       profile={profile}
@@ -101,6 +171,29 @@ export default function Profil(): React.JSX.Element {
       onReload={() => void load()}
       onNoticeClose={() => setNotice(null)}
       timeZone={Intl.DateTimeFormat().resolvedOptions().timeZone}
+      accounts={{
+        data: accounts,
+        editor,
+        busy,
+        testing,
+        testResults,
+        formError,
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        onAdd: () => {
+          setFormError(null)
+          setEditor({ id: null, form: emptyForm('google') })
+        },
+        onEdit: (a) => {
+          setFormError(null)
+          setEditor({ id: a.id, form: formFromItem(a) })
+        },
+        onForm: patchForm,
+        onType: (t) => setEditor((e) => (e ? { ...e, form: { ...emptyForm(t), label: e.form.label, color: e.form.color, username: e.form.username, password: e.form.password, context: e.form.context } } : e)),
+        onSave: saveAccount,
+        onCancel: () => setEditor(null),
+        onTest: testAccount,
+        onEnabled: toggleAccount,
+      }}
     />
   )
 }

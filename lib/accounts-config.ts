@@ -61,8 +61,8 @@ function fieldPath(path: PropertyKey[]): string {
     .join("") || "(root)";
 }
 
-/** Loads and validates the accounts file. Messages name fields, never values. */
-export function loadAccountsConfig(opts: LoadOptions): AccountsConfigResult {
+/** Resolves and checks the location of the legacy accounts file (absolute, inside the repo only under data/). Reads nothing. */
+export function resolveAccountsFile(opts: LoadOptions): string {
   const configured = opts.env.ACCOUNTS_FILE;
   let file: string;
   if (configured === undefined || configured === "") {
@@ -78,6 +78,25 @@ export function loadAccountsConfig(opts: LoadOptions): AccountsConfigResult {
   if (insideRepo && !rel.startsWith(`data${sep}`)) {
     throw new AccountsConfigError("ACCOUNTS_FILE: inside the project it must live under data/");
   }
+  return file;
+}
+
+/** Does the legacy accounts file exist (any kind of entry)? Does not open or read it. */
+export function accountsFileExists(opts: LoadOptions): boolean {
+  try {
+    lstatSync(resolveAccountsFile(opts));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Loads and validates the LEGACY accounts file (R2: read once by the import, never by the running app).
+ * Messages name fields, never values.
+ */
+export function loadAccountsConfig(opts: LoadOptions): AccountsConfigResult {
+  const file = resolveAccountsFile(opts);
 
   let st;
   try {

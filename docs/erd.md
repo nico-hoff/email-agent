@@ -15,6 +15,7 @@ erDiagram
   users |o--o{ audit_log : "optional"
   accounts ||--o{ mailbox_state : "Checkpoint je Ordner"
   accounts ||--o| worker_status : "Betriebszustand"
+  accounts ||--o| mail_accounts : "Zugangsdaten verschlüsselt (007)"
   accounts ||--o{ emails : empfaengt
   emails ||--|{ email_locations : "liegt in Ordner"
   emails ||--o| email_status : "gelesen / erledigt"
@@ -65,6 +66,25 @@ erDiagram
     text spam_mailbox
     integer enabled
     text color
+  }
+  mail_accounts {
+    text account_id PK, FK
+    integer user_id FK
+    text type
+    integer tls
+    text username
+    blob secret_ciphertext
+    blob secret_nonce
+    blob secret_tag
+    text key_id
+    text secret_set_at
+    text last_test_at
+    text last_test_code
+    text context
+    real spam_threshold
+    text spam_seen_mode
+    text created_at
+    text updated_at
   }
   mailbox_state {
     text account_id PK, FK
@@ -215,7 +235,7 @@ Mermaid kann zusammengesetzte Eindeutigkeit nicht gruppieren. Maßgeblich sind d
 4. **Antworten normalisiert** in `classification_answers` statt fester Spalten. Ändert sich das Fragenset, ändert sich nur `question_set_version`, nicht das Schema. Abgeleitete Werte (z. B. `shadow_quarantine`) stehen dort mit `type = 'derived'`.
 5. **`audit_log` ist append-only**, per Trigger erzwungen. Es nimmt auch Mail-Lebenszyklusereignisse auf (`folder_changed`, `source_gone`, `uidvalidity_reset`); eine eigene Tabelle `email_events` gibt es nicht.
 6. **`worker_status` liegt in der DB.** Veryfront-Routen und CLI-Prozesse (`sample`, `eval`) teilen keinen Arbeitsspeicher mit `server.ts`. Routen lesen Betriebszustand deshalb nur aus SQLite.
-7. **Kein Schwellwert in der DB.** `spam_threshold` kommt aus der Konten-JSON; der je Lauf angewandte Wert steht in der abgeleiteten Antwort.
+7. **Schwellwert.** Bis 006 kam `spam_threshold` aus der Konten-JSON; seit 007 steht er in `mail_accounts.spam_threshold` (Entwurfsentscheidung 25). Der je Lauf angewandte Wert steht weiter in der abgeleiteten Antwort.
 8. **Zeitstempel** sind ISO-8601 UTC als TEXT (`2026-10-26T19:48:46.692Z`).
 9. **Keine Inhaltsspalten.** Kein Body, Auszug, Rohquelle, Header-Rohdaten, Anhang oder Roh-Response. Absender (nur Adresse, kleingeschrieben) und Betreff sind die einzigen Mailinhalte in der DB; sie dürfen nie in Logs.
 10. **Lese- und Erledigt-Status getrennt von der Mail (002).** `email_status` hat höchstens eine Zeile je Mail. `seen` kommt ausschließlich vom Provider (IMAP-Flag `\Seen`, nur gelesen, nie geschrieben); `done` setzt allein Nico in der App (nur App-DB). Eine fehlende Zeile bedeutet `seen = 0, done = 0`. Beide Werte sind unabhängig: Der Worker überschreibt nie `done`, die App nie `seen`. „Offen“ ist keine Spalte, sondern eine reine Funktion (Plan v5, 3.6).
@@ -236,6 +256,8 @@ Mermaid kann zusammengesetzte Eindeutigkeit nicht gruppieren. Maßgeblich sind d
 22. **`accounts.user_id` per ALTER mit Trigger.** SQLite kann bei eingeschalteten Fremdschlüsseln keine `NOT NULL`-FK-Spalte mit Default per `ADD COLUMN` anlegen (innerhalb der Migrations-Transaktion lässt sich `foreign_keys` nicht abschalten). Die Spalte ist deshalb nullable, die Migration setzt alle vorhandenen Zeilen auf Nutzer 1, und zwei `BEFORE`-Trigger (INSERT, UPDATE) verbieten NULL. `senders`, `sender_rules` und `user_state` werden als Blattmigrationen neu aufgebaut (keine Tabelle verweist auf sie) und tragen `user_id NOT NULL`.
 23. **Nutzer, Sitzungen, Einladungen (006).** `users`: E-Mail (klein geschrieben, eindeutig), scrypt-Hash im selbstbeschreibenden Format (Parameter, Salz, Hash), Rolle `admin|user`, Status `unclaimed|active|disabled` (aktiv oder gesperrt verlangt einen Hash). Die Migration legt Nutzer 1 an (`owner@unclaimed.invalid`, Admin, `unclaimed`); alle bisherigen Daten gehören ihm. Das erste `user:create` übernimmt (claimt) diese Zeile (E-Mail, Hash, `active`), statt eine neue einzufügen, damit die Daten bei Nico bleiben. `user_sessions.id` ist der SHA-256 (hex) des zufälligen Sitzungstokens; das Token selbst wird nie gespeichert. Sitzungen sind serverseitig widerrufbar (`revoked_at`). `invites.code_hash` ist der SHA-256 des Codes (der Code wird einmal angezeigt, nie gespeichert); eine Einladung ist einmalig (`used_at`/`used_by` gemeinsam gesetzt) und läuft ab.
 24. **Audit der Nutzerverwaltung.** `user_created`, `invite_created` und `invite_used` stehen mit `actor = 'system'` und `user_id` im `audit_log`; `details_json` enthält nur IDs und die Rolle, nie E-Mail-Adressen, Codes oder Tokens.
+25. **Postfächer in der DB (007, ADR 0023).** `accounts` bleibt Mandantenwurzel und Metadatentabelle (Label, Farbe, Host, Port, Ordner, `enabled`, `user_id`). `mail_accounts` ist 1:1 dazu (`account_id` ist PK, zusammengesetzter FK `(account_id, user_id) → accounts (id, user_id)`, damit Konto und Nutzer nicht auseinanderlaufen) und trägt Typ, TLS, Benutzername, das verschlüsselte Passwort (`secret_ciphertext`, `secret_nonce` 12 Byte, `secret_tag` 16 Byte als getrennte BLOBs, AAD `account_id|user_id`), `key_id`, den kurzen Kontext-Text des Nutzers, die Spam-Schwelle und `spam_seen_mode`. Konten ohne Zeile in `mail_accounts` (Demo-/Synthetikdaten, Konten vor dem Import) werden von Workern nie gestartet. Die Spam-Schwelle liegt damit in der DB (frühere Regel „kein `spam_threshold` im Schema“ entfällt; sie ist eine Einstellung, kein Mailinhalt); der Schema-Test prüft weiter, dass keine Inhaltsspalten existieren.
+26. **Neue Konten starten mit `spam_seen_mode = 'off'`** (ADR 0025). Importierte Konten behalten den Wert der Konten-Datei, fehlend gilt `dry_run` wie bisher. Konto-IDs erzeugt der Server (`a_` plus 16 Hexzeichen), sie sind nie frei wählbar. Der einmalige Import der Konten-Datei wird als `user_state (1, 'accounts_import')` vermerkt; danach wird die Datei nie wieder gelesen.
 
 ## Verbindungs-Pragmas (nicht Teil der Migration, bei jeder Verbindung setzen)
 
@@ -573,9 +595,37 @@ ALTER TABLE audit_log ADD COLUMN user_id INTEGER REFERENCES users (id);
 
 `audit_log.action` kennt zusätzlich `user_created`, `invite_created` und `invite_used`.
 
+## DDL (`db/migrations/007_mail_accounts.sql`)
+
+```sql
+CREATE TABLE mail_accounts (
+  account_id        TEXT PRIMARY KEY,
+  user_id           INTEGER NOT NULL,
+  type              TEXT NOT NULL CHECK (type IN ('imap', 'google')),
+  tls               INTEGER NOT NULL CHECK (tls IN (0, 1)),
+  username          TEXT NOT NULL CHECK (length(username) BETWEEN 1 AND 254),
+  secret_ciphertext BLOB NOT NULL CHECK (length(secret_ciphertext) BETWEEN 1 AND 2048),
+  secret_nonce      BLOB NOT NULL CHECK (length(secret_nonce) = 12),
+  secret_tag        BLOB NOT NULL CHECK (length(secret_tag) = 16),
+  key_id            TEXT NOT NULL CHECK (length(key_id) = 16 AND key_id NOT GLOB '*[^0-9a-f]*'),
+  secret_set_at     TEXT NOT NULL,
+  last_test_at      TEXT,
+  last_test_code    TEXT CHECK (last_test_code IS NULL OR (length(last_test_code) BETWEEN 1 AND 32 AND last_test_code NOT GLOB '*[^a-z_]*')),
+  context           TEXT NOT NULL DEFAULT '' CHECK (length(context) <= 2000),
+  spam_threshold    REAL NOT NULL DEFAULT 0.95 CHECK (spam_threshold BETWEEN 0 AND 1),
+  spam_seen_mode    TEXT NOT NULL DEFAULT 'off' CHECK (spam_seen_mode IN ('off', 'dry_run', 'live')),
+  created_at        TEXT NOT NULL,
+  updated_at        TEXT NOT NULL,
+  FOREIGN KEY (account_id, user_id) REFERENCES accounts (id, user_id)
+);
+CREATE INDEX mail_accounts_user ON mail_accounts (user_id);
+```
+
+`mail_accounts.type` ist `imap` oder `google` (Voreinstellung `imap.gmail.com:993`); die Spalten `secret_*` sind das AES-256-GCM-Ergebnis des Zugangspassworts (siehe `docs/accounts-contract.md`), `key_id` die ersten 16 Hexzeichen von SHA-256 des Schlüssels. `last_test_code` ist nur eine kurze Fehlerklasse (`ok`, `auth_failed`, …), nie eine Server-Antwort.
+
 ## Schema-Test (`tests/db.test.ts`)
 
 - Jeder Abschnitt „## DDL (`db/migrations/NNN_name.sql`)“ hat genau einen SQL-Codeblock, der nach Whitespace-Normalisierung identisch mit der benannten Migrationsdatei ist; jede Migrationsdatei hat einen solchen Abschnitt (der Pragma-Block ist bewusst als `text` ausgezeichnet und gehört nicht dazu).
-- Die Spaltenmenge jeder Tabelle (`PRAGMA table_info`) entspricht einer Allowlist im Test. Kein Spaltenname passt auf `/(^|_)(body|snippet|excerpt|raw|attachment|html|content|spam_threshold)($|_)/i`.
+- Die Spaltenmenge jeder Tabelle (`PRAGMA table_info`) entspricht einer Allowlist im Test. Kein Spaltenname passt auf `/(^|_)(body|snippet|excerpt|raw|attachment|html|content)($|_)/i`.
 - FK-Verstöße, zusammengesetzter FK (Location eines fremden Kontos), alle UNIQUE- und CHECK-Klauseln, `json_valid`-Checks und beide Append-only-Trigger werden mit je einem Verstoß-Test belegt.
 - Die drei Pragmas sind auf **jeder** geöffneten Verbindung aktiv.

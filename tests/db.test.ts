@@ -39,6 +39,10 @@ const norm = (s: string) => s.replace(/\s+/g, " ").trim();
 
 const ALLOWLIST: Record<string, string[]> = {
   accounts: ["id", "label", "host", "port", "mailbox", "spam_mailbox", "enabled", "color", "user_id"],
+  mail_accounts: [
+    "account_id", "user_id", "type", "tls", "username", "secret_ciphertext", "secret_nonce", "secret_tag", "key_id", "secret_set_at",
+    "last_test_at", "last_test_code", "context", "spam_threshold", "spam_seen_mode", "created_at", "updated_at",
+  ],
   email_status: ["email_id", "seen", "done", "updated_at"],
   mailbox_actions: [
     "id", "email_id", "location_id", "rule", "action", "mode", "status", "failure_code", "reason_json", "created_at", "done_at",
@@ -152,7 +156,7 @@ describe("DDL", () => {
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
       .all() as { name: string }[]).map((r) => r.name).sort();
     assert.deepEqual(tables, Object.keys(ALLOWLIST).sort());
-    const bad = /(^|_)(body|snippet|excerpt|raw|attachment|html|content|spam_threshold)($|_)/i;
+    const bad = /(^|_)(body|snippet|excerpt|raw|attachment|html|content)($|_)/i;
     for (const t of tables) {
       const cols = (db.prepare(`PRAGMA table_info(${t})`).all() as { name: string }[]).map((c) =>
         c.name
@@ -408,7 +412,7 @@ describe("002 email_status and accounts.color", () => {
     const db = openDatabase(path);
     opened.push(db);
     assert.equal((db.prepare("SELECT COUNT(*) AS n FROM emails").get() as { n: number }).n, 1);
-    assert.deepEqual((db.prepare("SELECT version FROM schema_migrations ORDER BY version").all() as { version: number }[]).map((r) => r.version), [1, 2, 3, 4, 5, 6]);
+    assert.deepEqual((db.prepare("SELECT version FROM schema_migrations ORDER BY version").all() as { version: number }[]).map((r) => r.version), [1, 2, 3, 4, 5, 6, 7]);
     db.exec(`INSERT INTO email_status (email_id,seen,updated_at) VALUES (1,1,'${T}')`);
   });
 });
@@ -681,7 +685,7 @@ describe("006 users, sessions, invites and the tenant key", () => {
   test("a database with data from 001 to 005 upgrades: everything belongs to user 1, nothing is lost, foreign keys hold", () => {
     const dir = join(tmp, "migs-001-005");
     mkdirSync(dir);
-    for (const f of readdirSync(MIGRATIONS_DIR).filter((f) => !f.startsWith("006_"))) writeFileSync(join(dir, f), readFileSync(join(MIGRATIONS_DIR, f), "utf8"));
+    for (const f of readdirSync(MIGRATIONS_DIR).filter((f) => !f.startsWith("006_") && !f.startsWith("007_"))) writeFileSync(join(dir, f), readFileSync(join(MIGRATIONS_DIR, f), "utf8"));
     const path = join(tmp, "upgrade6.db");
     const old = openDatabase(path, dir);
     seedLegacy(old);
@@ -711,6 +715,52 @@ describe("006 users, sessions, invites and the tenant key", () => {
   });
 });
 
+describe("007 mail_accounts", () => {
+  const ins = (id: string, o: Record<string, string> = {}) => {
+    const v = { type: "'imap'", tls: "1", username: "'u@x.test'", ct: "x'aa'", nonce: "x'" + "00".repeat(12) + "'", tag: "x'" + "11".repeat(16) + "'", key: `'${"a".repeat(16)}'`, user: "1", ...o };
+    return `INSERT INTO mail_accounts (account_id,user_id,type,tls,username,secret_ciphertext,secret_nonce,secret_tag,key_id,secret_set_at,created_at,updated_at)
+      VALUES ('${id}',${v.user},${v.type},${v.tls},${v.username},${v.ct},${v.nonce},${v.tag},${v.key},'${T}','${T}','${T}')`;
+  };
+  const withUser2 = (db: DatabaseSync) => db.exec(`INSERT INTO users (id,email,password_hash,role,status,created_at,updated_at) VALUES (2,'b@x.test','${"h".repeat(40)}','user','active','${T}','${T}')`);
+
+  test("defaults: spam_seen_mode off, threshold 0.95, empty context; one row per account", () => {
+    const db = fresh();
+    seed(db);
+    db.exec(ins("a1"));
+    assert.deepEqual({ ...db.prepare("SELECT spam_seen_mode, spam_threshold, context, last_test_at FROM mail_accounts").get() },
+      { spam_seen_mode: "off", spam_threshold: 0.95, context: "", last_test_at: null });
+    throwsSql(db, ins("a1"), /UNIQUE|PRIMARY KEY/);
+  });
+
+  test("composite FK: the account must exist and belong to the same user", () => {
+    const db = fresh();
+    seed(db);
+    withUser2(db);
+    throwsSql(db, ins("nope"), /FOREIGN KEY/);
+    throwsSql(db, ins("a1", { user: "2" }), /FOREIGN KEY/);
+  });
+
+  test("CHECK clauses: type, tls, key_id, nonce and tag sizes, test code, threshold, mode, context length", () => {
+    const db = fresh();
+    seed(db);
+    throwsSql(db, ins("a1", { type: "'pop3'" }), /CHECK/);
+    throwsSql(db, ins("a1", { tls: "2" }), /CHECK/);
+    throwsSql(db, ins("a1", { key: "'short'" }), /CHECK/);
+    throwsSql(db, ins("a1", { key: `'${"G".repeat(16)}'` }), /CHECK/);
+    throwsSql(db, ins("a1", { nonce: "x'00'" }), /CHECK/);
+    throwsSql(db, ins("a1", { tag: "x'00'" }), /CHECK/);
+    throwsSql(db, ins("a1", { ct: "x''" }), /CHECK/);
+    throwsSql(db, ins("a1", { username: "''" }), /CHECK/);
+    db.exec(ins("a1"));
+    throwsSql(db, "UPDATE mail_accounts SET last_test_code = 'Auth Failed'", /CHECK/);
+    throwsSql(db, "UPDATE mail_accounts SET last_test_code = ''", /CHECK/);
+    throwsSql(db, "UPDATE mail_accounts SET spam_threshold = 1.5", /CHECK/);
+    throwsSql(db, "UPDATE mail_accounts SET spam_seen_mode = 'always'", /CHECK/);
+    throwsSql(db, `UPDATE mail_accounts SET context = '${"x".repeat(2001)}'`, /CHECK/);
+    db.exec("UPDATE mail_accounts SET last_test_code = 'auth_failed', spam_seen_mode = 'live'");
+  });
+});
+
 describe("audit_log append-only triggers", () => {
   test("UPDATE and DELETE are aborted", () => {
     const db = fresh();
@@ -730,7 +780,7 @@ describe("migration runner", () => {
     const b = openDatabase(path);
     opened.push(b);
     const rows = b.prepare("SELECT version FROM schema_migrations").all() as { version: number }[];
-    assert.deepEqual(rows.map((r) => r.version), [1, 2, 3, 4, 5, 6]);
+    assert.deepEqual(rows.map((r) => r.version), [1, 2, 3, 4, 5, 6, 7]);
   });
 
   test("numeric (not lexical) order, applied once", () => {

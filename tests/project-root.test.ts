@@ -24,7 +24,7 @@ test("createService defaults projectRoot to PROJECT_ROOT, not process.cwd()", as
   try {
     const svc = await createService({
       port: 0, env: {}, onSignal: () => {}, log: () => {},
-      startup: (o) => { seen = o.projectRoot; return { db: openDatabase(":memory:"), config: { status: "disabled" } } as never; },
+      startup: (o) => { seen = o.projectRoot; return { db: openDatabase(":memory:"), legacyImport: { status: "no_file" } } as never; },
       startHttp: async () => ({ port: 1, url: "u", stop: async () => {} }),
     });
     await svc.stop();

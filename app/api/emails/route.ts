@@ -16,7 +16,7 @@ export function GET(request: Request): Response {
   let db;
   try {
     db = openDatabase(validateDatabasePath(process.env, PROJECT_ROOT));
-    return Response.json(listEmails(db, who.userId, parsed.query, { autoActionModes: readAutoActionModes() }), { headers: { "cache-control": "no-store" } });
+    return Response.json(listEmails(db, who.userId, parsed.query, { autoActionModes: readAutoActionModes(db, who.userId) }), { headers: { "cache-control": "no-store" } });
   } catch {
     return Response.json({ error: "emails_unavailable" }, { status: 500 });
   } finally {

@@ -40,6 +40,13 @@ import * as rulesRoute from "../app/api/senders/rules/route.ts";
 import * as deactivateRoute from "../app/api/senders/rules/[id]/deactivate/route.ts";
 import * as briefingRoute from "../app/api/briefing/route.ts";
 import * as profileRoute from "../app/api/profile/route.ts";
+import * as accountsRoute from "../app/api/accounts/route.ts";
+import * as accountRoute from "../app/api/accounts/[id]/route.ts";
+import * as accountDisableRoute from "../app/api/accounts/[id]/disable/route.ts";
+import * as accountEnableRoute from "../app/api/accounts/[id]/enable/route.ts";
+import * as accountTestRoute from "../app/api/accounts/[id]/test/route.ts";
+import { generateKey, loadKeyring } from "../lib/account-secrets.ts";
+import { loadWorkerAccounts } from "../lib/mail-accounts.ts";
 
 // The tool module needs the schema validator that the Veryfront runtime registers at bootstrap (see get-email-context.test.ts).
 const { ensureBuiltinSchemaValidator } = await import(
@@ -547,5 +554,73 @@ describe("API routes in users mode", () => {
     db.exec("UPDATE users SET status = 'active' WHERE id = 2");
     assert.equal((await emailsRoute.GET(get("/api/emails", b))).status, 200);
     assert.equal(snapshot(), before);
+  });
+});
+
+describe("mail accounts API (R2)", () => {
+  const ACC_PW = "synthetic-acc-password-";
+  const saved = process.env.ACCOUNTS_ENCRYPTION_KEY;
+  const newBody = (label: string, pw: string) => ({ type: "imap", label, username: `${label}@example.test`, password: pw, host: "imap.example.test", port: 993, tls: true });
+  const accState = () => JSON.stringify([db.prepare("SELECT * FROM accounts ORDER BY id").all(), db.prepare("SELECT account_id, user_id, type, username, key_id, secret_set_at, last_test_at, last_test_code, context, spam_seen_mode, updated_at, hex(secret_ciphertext) AS c, hex(secret_nonce) AS n, hex(secret_tag) AS t FROM mail_accounts ORDER BY account_id").all(), db.prepare("SELECT account_id, state FROM worker_status ORDER BY account_id").all()]);
+
+  it("each user creates, lists and changes only their own accounts; the other user's ids are 404 and change nothing", async () => {
+    process.env.ACCOUNTS_ENCRYPTION_KEY = generateKey();
+    try {
+      const a = await signIn("a@example.test");
+      const b = await signIn("b@example.test");
+      const ca = await accountsRoute.POST(post("/api/accounts", a, newBody("alpha", ACC_PW + "A")));
+      const cb = await accountsRoute.POST(post("/api/accounts", b, newBody("beta", ACC_PW + "B")));
+      assert.deepEqual([ca.status, cb.status], [201, 201]);
+      const idA = ((await ca.json()) as { account: { id: string } }).account.id;
+      const idB = ((await cb.json()) as { account: { id: string } }).account.id;
+      assert.equal((db.prepare("SELECT user_id FROM accounts WHERE id = ?").get(idA) as { user_id: number }).user_id, A);
+      assert.equal((db.prepare("SELECT user_id FROM mail_accounts WHERE account_id = ?").get(idB) as { user_id: number }).user_id, B);
+
+      const listA = await (await accountsRoute.GET(get("/api/accounts", a))).text();
+      const listB = await (await accountsRoute.GET(get("/api/accounts", b))).text();
+      const idsOf = (t: string) => (JSON.parse(t) as { accounts: { id: string }[] }).accounts.map((x) => x.id).sort();
+      assert.deepEqual(idsOf(listA), ["a-main", "a-side", idA].sort());
+      assert.deepEqual(idsOf(listB), ["b-main", "b-side", idB].sort());
+      assert.ok(!listA.includes(idB) && !listA.includes("beta") && !listA.includes("b-main"));
+      assert.ok(!listB.includes(idA) && !listB.includes("alpha") && !listB.includes("a-main"));
+      assert.ok(!listA.includes(ACC_PW) && !listB.includes(ACC_PW), "no secret in any list");
+      assert.equal((await accountsRoute.GET(get("/api/accounts", null))).status, 401);
+
+      const before = accState();
+      for (const [route, path, body] of [
+        [accountRoute, `/api/accounts/${idB}`, { label: "hijack", password: "hijacked-pass-1" }],
+        [accountDisableRoute, `/api/accounts/${idB}/disable`, undefined],
+        [accountEnableRoute, `/api/accounts/${idB}/enable`, undefined],
+        [accountTestRoute, `/api/accounts/${idB}/test`, undefined],
+      ] as const) {
+        const res = await route.POST(post(path, a, body), ctxParams(idB));
+        assert.equal(res.status, 404, path);
+        assert.deepEqual(await res.json(), { error: "not_found" }, path);
+      }
+      // an unknown id looks exactly the same
+      const unknown = await accountDisableRoute.POST(post("/api/accounts/a_0000000000000000/disable", a), ctxParams("a_0000000000000000"));
+      assert.deepEqual([unknown.status, await unknown.json()], [404, { error: "not_found" }]);
+      assert.equal(accState(), before, "no table changed");
+
+      assert.equal((await accountRoute.POST(post(`/api/accounts/${idA}`, a, { label: "alpha2" }), ctxParams(idA))).status, 200);
+      assert.equal((await accountDisableRoute.POST(post(`/api/accounts/${idA}/disable`, a), ctxParams(idA))).status, 200);
+      assert.equal((await accountEnableRoute.POST(post(`/api/accounts/${idA}/enable`, a), ctxParams(idA))).status, 200);
+      assert.equal((await accountRoute.POST(post(`/api/accounts/${idA}`, b, { label: "x" }), ctxParams(idA))).status, 404);
+      assert.equal((db.prepare("SELECT label FROM accounts WHERE id = ?").get(idB) as { label: string }).label, "beta");
+
+      // the worker side sees both users' accounts, each with its own secret
+      const ring = loadKeyring(process.env);
+      assert.ok(ring.ok);
+      const w = loadWorkerAccounts(db, ring.keyring).accounts.filter((x) => x.id === idA || x.id === idB);
+      assert.deepEqual(w.map((x) => x.password).sort(), [ACC_PW + "A", ACC_PW + "B"]);
+    } finally {
+      if (saved === undefined) delete process.env.ACCOUNTS_ENCRYPTION_KEY; else process.env.ACCOUNTS_ENCRYPTION_KEY = saved;
+    }
+  });
+
+  it("the account sync of the status route and the list header only see own accounts' worker rows", async () => {
+    const a = await signIn("a@example.test");
+    const st = (await (await statusRoute.GET(get("/api/status", a))).json()) as { workers: { account_id: string }[] };
+    assert.ok(st.workers.every((x) => !x.account_id.startsWith("b-")));
   });
 });
