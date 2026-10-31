@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { appFromFlyToml, buildPlan, encodeForFly, EnvParseError, flySafe, main, namesFromSecretsList, parseEnv, pruneCandidates, resolveEnvFile, syncArgs, unsetArgs } from "../scripts/fly-secrets.ts";
+import { appFromFlyToml, base64Bytes, buildPlan, envFromProcess, encodeForFly, EnvParseError, flySafe, main, namesFromSecretsList, parseEnv, pruneCandidates, resolveEnvFile, syncArgs, unsetArgs } from "../scripts/fly-secrets.ts";
 
 // Synthetic values only.
 const PW = "synthetic-test-passphrase-0123";
@@ -21,7 +21,7 @@ test("buildPlan: sends only catalog secrets, skips config and unknown names", ()
   const plan = buildPlan(parseEnv(`APP_PASSWORD=${PW}\nOPENROUTER_API_KEY=${KEY}\nBIND_ADDRESS=127.0.0.1\nDATABASE_PATH=data/x.sqlite\nIMAP_SOMETHING=zzz\n`));
   assert.equal(plan.ok, true);
   assert.deepEqual(plan.send, ["APP_PASSWORD", "OPENROUTER_API_KEY"]);
-  assert.deepEqual(plan.emptyOptional, ["OPENAI_API_KEY"]);
+  assert.deepEqual(plan.emptyOptional, ["OPENAI_API_KEY", "ACCOUNTS_ENCRYPTION_KEY", "VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY", "VAPID_SUBJECT"]);
   assert.deepEqual(plan.config, ["BIND_ADDRESS", "DATABASE_PATH"]);
   assert.deepEqual(plan.unknown, ["IMAP_SOMETHING"]);
   assert.equal(plan.stdin, `APP_PASSWORD="""${PW}"""\nOPENROUTER_API_KEY="""${KEY}"""\n`);
@@ -203,4 +203,104 @@ test("sync-only flags are refused elsewhere", () => {
   assert.equal(main(["check", "--prune"], h.deps), 2);
   assert.equal(main(["status", "--force"], h.deps), 2);
   assert.equal(h.calls.length, 0);
+});
+
+// New catalog entries (R4). Synthetic values only: random-looking but fixed.
+const ENC_KEY = Buffer.alloc(32, 7).toString("base64");
+const VAPID_PUB = Buffer.alloc(65, 4).toString("base64url");
+const VAPID_PRIV = Buffer.alloc(32, 5).toString("base64url");
+const PROD_ENV = `${OK_ENV}ACCOUNTS_ENCRYPTION_KEY=${ENC_KEY}\nVAPID_PUBLIC_KEY=${VAPID_PUB}\nVAPID_PRIVATE_KEY=${VAPID_PRIV}\nVAPID_SUBJECT=mailto:ops@example.test\n`;
+
+test("base64Bytes: counts decoded bytes, refuses malformed input", () => {
+  assert.equal(base64Bytes(ENC_KEY, false), 32);
+  assert.equal(base64Bytes(VAPID_PUB, true), 65);
+  assert.equal(base64Bytes("not base64!", false), null);
+  assert.equal(base64Bytes("-_-_", false), null);
+  assert.equal(base64Bytes("AAA", false), null); // bad padding
+});
+
+test("ACCOUNTS_ENCRYPTION_KEY: 32 bytes base64 or refused without echoing the value", () => {
+  const short = Buffer.alloc(16, 1).toString("base64");
+  const plan = buildPlan(parseEnv(`${OK_ENV}ACCOUNTS_ENCRYPTION_KEY=${short}\n`));
+  assert.equal(plan.ok, false);
+  assert.deepEqual(plan.invalid.map((i) => i.name), ["ACCOUNTS_ENCRYPTION_KEY"]);
+  assert.ok(!JSON.stringify(plan.invalid).includes(short));
+  assert.equal(buildPlan(parseEnv(`${OK_ENV}ACCOUNTS_ENCRYPTION_KEY=${ENC_KEY}\n`)).ok, true);
+});
+
+test("VAPID values are validated; subject must be mailto: or https://", () => {
+  const bad = buildPlan(parseEnv(`${PROD_ENV}VAPID_PRIVATE_KEY=short\n`));
+  assert.deepEqual(bad.invalid.map((i) => i.name), ["VAPID_PRIVATE_KEY"]);
+  const subj = buildPlan(parseEnv(`${OK_ENV}VAPID_SUBJECT=ops@example.test\n`));
+  assert.deepEqual(subj.invalid.map((i) => i.name), ["VAPID_SUBJECT"]);
+  assert.equal(buildPlan(parseEnv(`${OK_ENV}VAPID_SUBJECT=https://example.test/contact\n`)).ok, true);
+});
+
+test("profile prod: encryption key and VAPID keys are required, subject stays optional; default profile needs none", () => {
+  assert.equal(buildPlan(parseEnv(OK_ENV)).ok, true);
+  const prod = buildPlan(parseEnv(OK_ENV), undefined, "prod");
+  assert.equal(prod.ok, false);
+  assert.deepEqual(prod.missingRequired, ["ACCOUNTS_ENCRYPTION_KEY", "VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY"]);
+  assert.ok(prod.emptyOptional.includes("VAPID_SUBJECT"));
+  const full = buildPlan(parseEnv(PROD_ENV), undefined, "prod");
+  assert.equal(full.ok, true);
+  assert.equal(full.send.length, 6);
+});
+
+test("envFromProcess reads catalog names only", () => {
+  const m = envFromProcess({ APP_PASSWORD: PW, PATH: "/usr/bin", GITHUB_TOKEN: "zzz", VAPID_SUBJECT: undefined });
+  assert.deepEqual([...m], [["APP_PASSWORD", PW]]);
+});
+
+function fromEnvHarness(env: Record<string, string | undefined>) {
+  const h = harness("SHOULD_NOT_BE_READ=1\n");
+  const read = (p: string) => {
+    if (p !== "fly.toml") throw new Error("env file must not be read with --from-env");
+    return "app = 'email-agent'\n";
+  };
+  return { ...h, deps: { ...h.deps, env, read } };
+}
+
+test("--from-env sync: values from the environment go only to stdin, no env file is read", () => {
+  const h = fromEnvHarness({ APP_PASSWORD: PW, OPENROUTER_API_KEY: KEY, ACCOUNTS_ENCRYPTION_KEY: ENC_KEY, VAPID_PUBLIC_KEY: VAPID_PUB, VAPID_PRIVATE_KEY: VAPID_PRIV, VAPID_SUBJECT: "", OPENAI_API_KEY: "", GITHUB_TOKEN: "zzz" });
+  assert.equal(main(["sync", "--from-env", "--profile", "prod", "--force"], h.deps), 0);
+  assert.equal(h.questions.length, 0);
+  assert.equal(h.calls.length, 1);
+  assert.deepEqual(h.calls[0].args, ["secrets", "import", "--app", "email-agent"]);
+  const stdin = h.calls[0].stdin ?? "";
+  for (const v of [PW, KEY, ENC_KEY, VAPID_PUB, VAPID_PRIV]) assert.ok(stdin.includes(v));
+  assert.ok(!stdin.includes("zzz") && !stdin.includes("VAPID_SUBJECT"));
+  const visible = h.out.join("\n") + h.calls[0].args.join(" ");
+  for (const v of [PW, KEY, ENC_KEY, VAPID_PUB, VAPID_PRIV, "zzz"]) assert.ok(!visible.includes(v));
+  assert.ok(h.out.some((l) => l.includes("Prozess-Umgebung") && l.includes("Profil: prod")));
+});
+
+test("--from-env --stage: staged import; empty secrets of the environment count as missing", () => {
+  const ok = fromEnvHarness({ APP_PASSWORD: PW, OPENROUTER_API_KEY: KEY });
+  assert.equal(main(["sync", "--from-env", "--stage", "--force"], ok.deps), 0);
+  assert.deepEqual(ok.calls[0].args, ["secrets", "import", "--app", "email-agent", "--stage"]);
+  const missing = fromEnvHarness({ APP_PASSWORD: PW, OPENROUTER_API_KEY: "" });
+  assert.equal(main(["sync", "--from-env", "--force"], missing.deps), 1);
+  assert.equal(missing.calls.length, 0);
+  const prodMissing = fromEnvHarness({ APP_PASSWORD: PW, OPENROUTER_API_KEY: KEY });
+  assert.equal(main(["sync", "--from-env", "--profile", "prod", "--force"], prodMissing.deps), 1);
+  assert.equal(prodMissing.calls.length, 0);
+  assert.ok(prodMissing.out.some((l) => l.includes("FEHLT") && l.includes("ACCOUNTS_ENCRYPTION_KEY")));
+});
+
+test("--from-env without --force and without a terminal: asks, declined means fly is not touched", () => {
+  const h = fromEnvHarness({ APP_PASSWORD: PW, OPENROUTER_API_KEY: KEY });
+  h.deps.confirm = (q: string) => (h.questions.push(q), false);
+  assert.equal(main(["sync", "--from-env"], h.deps), 1);
+  assert.equal(h.calls.length, 0);
+  assert.equal(h.questions.length, 1);
+});
+
+test("--from-env: --app, conflicting and unknown options", () => {
+  const h = fromEnvHarness({ APP_PASSWORD: PW, OPENROUTER_API_KEY: KEY });
+  assert.equal(main(["sync", "--from-env", "--app", "email-agent-preview-x", "--stage", "--force"], h.deps), 0);
+  assert.deepEqual(h.calls[0].args, ["secrets", "import", "--app", "email-agent-preview-x", "--stage"]);
+  assert.equal(main(["sync", "--from-env", "--env-file", "x.env", "--force"], h.deps), 2);
+  assert.equal(main(["check", "--profile", "weird"], h.deps), 2);
+  assert.equal(h.calls.length, 1);
 });

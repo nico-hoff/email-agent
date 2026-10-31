@@ -1,0 +1,72 @@
+# Preview-App auf fly: kurzlebig, nur synthetische Daten, Passwort-Login (ADR 0024). Nur manuell.
+# deploy: legt `email-agent-preview-<suffix>` an (falls neu), setzt die Secrets des Environments `preview`, deployt den gewählten Stand.
+# destroy: löscht die App samt Maschine. Werte gehen nur per stdin an fly; im Log stehen nur Namen.
+name: Preview-App
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "deploy oder destroy"
+        type: choice
+        options: [deploy, destroy]
+        default: deploy
+      suffix:
+        description: "Namensende: email-agent-preview-<suffix> (a-z, 0-9, Bindestrich, 1 bis 20 Zeichen)"
+        type: string
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: preview-${{ inputs.suffix }}
+  cancel-in-progress: false
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    environment: preview
+    env:
+      SUFFIX: ${{ inputs.suffix }}
+      ACTION: ${{ inputs.action }}
+    steps:
+      - name: App-Namen prüfen
+        run: |
+          case "$SUFFIX" in
+            ""|-*|*-|*[!a-z0-9-]*) echo "Ungültiges Suffix (a-z, 0-9, Bindestrich, nicht am Rand)." >&2; exit 1 ;;
+          esac
+          [ "${#SUFFIX}" -le 20 ] || { echo "Suffix zu lang (maximal 20 Zeichen)." >&2; exit 1; }
+          echo "FLY_APP=email-agent-preview-$SUFFIX" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+      # Pinned to the commit of tag 1.6; flyctl version pinned as well.
+      - uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1 # 1.6
+        with:
+          version: 0.5.1
+      - name: App anlegen (nur deploy, falls neu)
+        if: inputs.action == 'deploy'
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          if ! fly status --app "$FLY_APP" >/dev/null 2>&1; then
+            fly apps create "$FLY_APP"
+          fi
+      - name: Secrets setzen (vorgemerkt, nur Namen im Log)
+        if: inputs.action == 'deploy'
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          APP_PASSWORD: ${{ secrets.APP_PASSWORD }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          FLY_BIN: fly
+        run: node scripts/fly-secrets.ts sync --from-env --app "$FLY_APP" --stage --force
+      - name: Deployen
+        if: inputs.action == 'deploy'
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: fly deploy --app "$FLY_APP" --config fly.preview.toml --remote-only --ha=false --yes
+      - name: App löschen
+        if: inputs.action == 'destroy'
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: fly apps destroy "$FLY_APP" --yes

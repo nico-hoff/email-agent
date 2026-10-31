@@ -84,6 +84,15 @@ Voraussetzung: `flyctl` installiert und per `fly auth login` angemeldet. Der App
 7. **Auf eine Maschine begrenzen:** `fly scale count 1`. Beim ersten Deploy kann fly sonst zwei Maschinen anlegen; ein Volume hängt an genau einer, und zwei Instanzen würden IMAP doppelt bedienen. Prüfen mit `fly status` und `fly volumes list`.
 8. **Prüfen:** `https://<app>.fly.dev/api/health` → `{"status":"ok"}`; Startseite öffnen, Passwort eingeben.
 
+## GitHub Environments und Workflows
+
+Entscheidung: ADR 0024. Anleitung mit allen Namen und Schritten: `docs/github-environments.md`.
+
+- **`prod`** (Required reviewer: Nico): Workflow `.github/workflows/secrets-to-fly.yml` (nur `workflow_dispatch`) ruft `node scripts/fly-secrets.ts sync --from-env --profile prod --force` auf (`--stage` bei Eingabe `stage = true`). Die Environment-Secrets kommen als Umgebungsvariablen in den Schritt, das Skript sendet sie nur über stdin an `fly secrets import`; im Log stehen Namen. `--profile prod` macht `ACCOUNTS_ENCRYPTION_KEY`, `VAPID_PUBLIC_KEY` und `VAPID_PRIVATE_KEY` zur Pflicht; `VAPID_SUBJECT` und `OPENAI_API_KEY` sind optional. Ohne `--profile` (lokal, Preview) sind die neuen Schlüssel optional, werden aber geprüft, wenn sie gesetzt sind.
+- **`preview`**: Workflow `.github/workflows/preview-app.yml` (`deploy` oder `destroy`) legt `email-agent-preview-<suffix>` aus `fly.preview.toml` an, setzt die Preview-Secrets (vorgemerkt) und deployt; `destroy` löscht die App. Die Preview hat kein Volume (die Datenbank liegt auf der Machine und wird bei jedem Start neu befüllt), keine Konten-Datei und damit keine IMAP-Worker. `PREVIEW_SEED_SYNTHETIC=1` (nur in `fly.preview.toml`) lässt `scripts/docker-entrypoint.sh` den synthetischen Mini-Satz einspielen (`scripts/seed-preview.ts`, dasselbe Set wie `npm run smoke:e2e`, kein Netz, kein Jev); das Skript verweigert jede App, die nicht mit `email-agent-preview-` beginnt.
+- Handarbeit bleibt möglich: `make fly-secrets-*` mit lokaler Env-Datei (ADR 0024, dev).
+- Aktionen: `actions/checkout@v7`, `actions/setup-node@v7` (wie in `ci.yml`), `superfly/flyctl-actions/setup-flyctl` auf den Commit des Tags `1.6` gepinnt, flyctl `0.5.1`. Die Eingabe `version` ist in der `action.yml` des Tags belegt. Der Befehl `fly secrets import` liest laut flyctl-Quelltext stdin; `fly deploy --ha=false --remote-only --yes --config` und `fly apps destroy --yes` sind in der flyctl-Doku (Context7 `/superfly/flyctl`) bzw. den Flag-Definitionen belegt.
+
 ## Kosten (nur belegte Preise)
 
 Quelle: https://docs.fly.io/about/pricing (abgerufen 2026-10-31, USD). Die Seite nennt keine Preise für `fra` bei 256/512 MB (nur: „Machine prices vary by region“); die genannten Zahlen gelten für die günstigsten Regionen `iad`/`ewr`. Für `fra` ist nur die 1-GB-Stufe belegt: `shared-cpu-1x` mit 1 GB kostet dort 7,73 USD im Monat gegenüber 6,70 USD in `iad`. Die Preisliste der Region `fra` vor dem Deploy prüfen.

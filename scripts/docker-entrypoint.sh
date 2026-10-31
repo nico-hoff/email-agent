@@ -18,7 +18,15 @@ if [ "$(id -u)" = "0" ]; then
     chmod 600 "$ACCOUNTS_FILE"
   fi
   export HOME=/home/node
+  # Opt-in (fly.preview.toml only): fill an empty preview database with the built-in synthetic set, as user node.
+  if [ "${PREVIEW_SEED_SYNTHETIC:-}" = "1" ]; then
+    setpriv --reuid=node --regid=node --init-groups -- node /app/scripts/seed-preview.ts
+  fi
   exec setpriv --reuid=node --regid=node --init-groups -- "$@"
+fi
+
+if [ "${PREVIEW_SEED_SYNTHETIC:-}" = "1" ]; then
+  node /app/scripts/seed-preview.ts
 fi
 
 exec "$@"

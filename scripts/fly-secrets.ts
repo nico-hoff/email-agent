@@ -9,7 +9,11 @@
 // Aufruf:
 //   node scripts/fly-secrets.ts check [--env-file F] [--app A]      validate, show the plan (default; contacts nothing)
 //   node scripts/fly-secrets.ts status [--env-file F] [--app A]     like check, plus compare names with `fly secrets list`
-//   node scripts/fly-secrets.ts sync [--env-file F] [--app A] [--stage] [--prune] [--keep A,B] [--force]
+//   node scripts/fly-secrets.ts sync [--env-file F | --from-env] [--app A] [--profile prod] [--stage] [--prune] [--keep A,B] [--force]
+//     --from-env  take the values from the process environment instead of a file (GitHub Actions: environment secrets
+//                 mapped into env). Only catalog names are read; nothing else of the environment is looked at.
+//     --profile prod  the production secrets (ACCOUNTS_ENCRYPTION_KEY, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY) are required;
+//                 default profile: they are optional (still validated when present), e.g. for preview apps
 //     --stage   set without restarting the Machine (takes effect on the next `fly deploy`)
 //     --prune   also unset secrets on fly that the env file does not send (fly then matches the file);
 //               PRUNE_KEEP and --keep names are never unset
@@ -23,6 +27,8 @@ import { appPasswordStatus } from "../lib/auth.ts";
 export interface SecretSpec {
   name: string;
   required: boolean;
+  /** Required with `--profile prod` (optional otherwise). */
+  prodRequired?: boolean;
   purpose: string;
   /** Returns an error code for an unusable value, or null. Never returns the value. */
   validate?: (value: string) => string | null;
@@ -37,7 +43,46 @@ export const SECRETS: readonly SecretSpec[] = [
   },
   { name: "OPENROUTER_API_KEY", required: true, purpose: "Jev und Agenten über OpenRouter" },
   { name: "OPENAI_API_KEY", required: false, purpose: "nur wenn die Agenten direkt zu OpenAI statt OpenRouter sollen" },
+  {
+    name: "ACCOUNTS_ENCRYPTION_KEY",
+    required: false,
+    prodRequired: true,
+    purpose: "Schlüssel für die verschlüsselten Postfach-Zugangsdaten (32 Byte, base64)",
+    validate: (v) => (base64Bytes(v, false) === 32 ? null : "kein base64 mit genau 32 Byte (openssl rand -base64 32)"),
+  },
+  {
+    name: "VAPID_PUBLIC_KEY",
+    required: false,
+    prodRequired: true,
+    purpose: "Web-Push (VAPID), öffentlicher Schlüssel (65 Byte, base64url)",
+    validate: (v) => (base64Bytes(v, true) === 65 ? null : "kein base64url mit genau 65 Byte"),
+  },
+  {
+    name: "VAPID_PRIVATE_KEY",
+    required: false,
+    prodRequired: true,
+    purpose: "Web-Push (VAPID), privater Schlüssel (32 Byte, base64url)",
+    validate: (v) => (base64Bytes(v, true) === 32 ? null : "kein base64url mit genau 32 Byte"),
+  },
+  {
+    name: "VAPID_SUBJECT",
+    required: false,
+    purpose: "Web-Push (VAPID), Kontakt als mailto: oder https:// (vorerst optional)",
+    validate: (v) => (/^(mailto:[^\s@]+@[^\s@]+|https:\/\/[^\s]+)$/.test(v) ? null : "weder mailto: noch https://"),
+  },
 ];
+
+/** Decoded byte length of a base64 (or base64url) string, or null when it is not valid. Never returns or logs the value. */
+export function base64Bytes(value: string, url: boolean): number | null {
+  const re = url ? /^[A-Za-z0-9_-]+={0,2}$/ : /^[A-Za-z0-9+/]+={0,2}$/;
+  if (!re.test(value)) return null;
+  if (!url && value.length % 4 !== 0) return null; // standard base64 is always padded (openssl rand -base64)
+  const std = url ? value.replace(/-/g, "+").replace(/_/g, "/") : value;
+  const bytes = Buffer.from(std, "base64");
+  // Reject strings that do not survive a round trip (wrong padding, stray bits).
+  if (bytes.toString("base64").replace(/=+$/, "") !== std.replace(/=+$/, "")) return null;
+  return bytes.length;
+}
 
 /** Plain configuration, set in fly.toml [env]. Never sent as secrets, so a local value cannot override fly.toml. */
 export const FLY_TOML_CONFIG: readonly string[] = ["BIND_ADDRESS", "DATABASE_PATH", "PORT", "ACCOUNTS_FILE", "NODE_ENV"];
@@ -92,7 +137,9 @@ export interface Plan {
   ok: boolean;
 }
 
-export function buildPlan(env: Map<string, string>, catalog: readonly SecretSpec[] = SECRETS): Plan {
+export type Profile = "default" | "prod";
+
+export function buildPlan(env: Map<string, string>, catalog: readonly SecretSpec[] = SECRETS, profile: Profile = "default"): Plan {
   const send: string[] = [];
   const missingRequired: string[] = [];
   const invalid: { name: string; reason: string }[] = [];
@@ -101,7 +148,7 @@ export function buildPlan(env: Map<string, string>, catalog: readonly SecretSpec
   for (const spec of catalog) {
     const value = env.get(spec.name) ?? "";
     if (value === "") {
-      (spec.required ? missingRequired : emptyOptional).push(spec.name);
+      (spec.required || (profile === "prod" && spec.prodRequired) ? missingRequired : emptyOptional).push(spec.name);
       continue;
     }
     if (PLACEHOLDER.test(value)) {
@@ -223,11 +270,11 @@ export function confirmOnTty(question: string): boolean {
   return /^\s*(y|yes|j|ja)\s*$/i.test(line.split("\n")[0]);
 }
 
-function printPlan(plan: Plan, file: string, app: string, log: (s: string) => void): void {
-  log(`Quelle: ${file}   App: ${app}`);
+function printPlan(plan: Plan, file: string, app: string, profile: Profile, log: (s: string) => void): void {
+  log(`Quelle: ${file}   App: ${app}   Profil: ${profile}`);
   for (const spec of SECRETS) {
     const tag = plan.send.includes(spec.name) ? "senden " : plan.missingRequired.includes(spec.name) ? "FEHLT  " : plan.invalid.some((i) => i.name === spec.name) ? "UNGÜLTIG" : "leer   ";
-    log(`  ${tag} ${spec.name}${spec.required ? " (Pflicht)" : ""}: ${spec.purpose}`);
+    log(`  ${tag} ${spec.name}${spec.required || (profile === "prod" && spec.prodRequired) ? " (Pflicht)" : ""}: ${spec.purpose}`);
   }
   for (const i of plan.invalid) log(`  ! ${i.name}: ${i.reason}`);
   if (plan.config.length) log(`  übersprungen (steht in fly.toml [env]): ${plan.config.join(", ")}`);
@@ -240,9 +287,21 @@ export interface MainDeps {
   read?: (p: string) => string;
   exists?: (p: string) => boolean;
   confirm?: (question: string) => boolean;
+  /** Process environment for --from-env (default: process.env). */
+  env?: Record<string, string | undefined>;
 }
 
-const USAGE = "Aufruf: fly-secrets.ts check|status|sync [--env-file F] [--app A] [--stage] [--prune] [--keep A,B] [--force]";
+const USAGE = "Aufruf: fly-secrets.ts check|status|sync [--env-file F | --from-env] [--app A] [--profile prod] [--stage] [--prune] [--keep A,B] [--force]";
+
+/** Catalog values from the process environment, as a map the planner understands. Only catalog names are read. */
+export function envFromProcess(source: Record<string, string | undefined>, catalog: readonly SecretSpec[] = SECRETS): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const spec of catalog) {
+    const v = source[spec.name];
+    if (v !== undefined) out.set(spec.name, v);
+  }
+  return out;
+}
 
 export function main(argv: string[], deps: MainDeps = {}): number {
   const run = deps.run ?? runFly;
@@ -267,7 +326,18 @@ export function main(argv: string[], deps: MainDeps = {}): number {
     log("--stage, --prune, --keep und --force gibt es nur bei sync.");
     return 2;
   }
-  const file = resolveEnvFile(opt("--env-file"), exists);
+  const fromEnv = rest.includes("--from-env");
+  const profileArg = opt("--profile");
+  if (profileArg !== undefined && profileArg !== "prod" && profileArg !== "default") {
+    log("--profile kennt nur prod oder default.");
+    return 2;
+  }
+  const profile: Profile = profileArg === "prod" ? "prod" : "default";
+  if (fromEnv && rest.includes("--env-file")) {
+    log("--from-env und --env-file schließen sich aus.");
+    return 2;
+  }
+  const file = fromEnv ? "Prozess-Umgebung (--from-env)" : resolveEnvFile(opt("--env-file"), exists);
   if (!file) {
     log("Keine Env-Datei gefunden (.env.local oder .env; Vorlage: .env.example).");
     return 1;
@@ -279,12 +349,12 @@ export function main(argv: string[], deps: MainDeps = {}): number {
   }
   let plan: Plan;
   try {
-    plan = buildPlan(parseEnv(read(file)));
+    plan = buildPlan(fromEnv ? envFromProcess(deps.env ?? process.env) : parseEnv(read(file)), SECRETS, profile);
   } catch (e) {
     log(e instanceof EnvParseError ? e.message : "env file unreadable");
     return 1;
   }
-  printPlan(plan, file, app, log);
+  printPlan(plan, file, app, profile, log);
   if (!plan.ok) {
     log("Abbruch: Pflicht-Secrets fehlen oder sind ungültig. Nichts gesendet.");
     return 1;
