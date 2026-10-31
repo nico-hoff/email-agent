@@ -42,3 +42,11 @@ test("createService starts on fly with a usable APP_PASSWORD", async () => {
   });
   await svc.stop();
 });
+
+test("on fly AUTH_MODE=users is accepted without APP_PASSWORD; any other value is not a mode", () => {
+  assert.doesNotThrow(() => assertFlyAuthConfigured({ FLY_APP_NAME: "email-agent", AUTH_MODE: "users" }));
+  assert.doesNotThrow(() => assertFlyAuthConfigured({ FLY_APP_NAME: "email-agent", AUTH_MODE: "users", APP_PASSWORD: "short" }));
+  for (const mode of [undefined, "", "password", "tailnet", "USERS"]) {
+    assert.throws(() => assertFlyAuthConfigured({ FLY_APP_NAME: "email-agent", AUTH_MODE: mode }), FlyAuthMissingError, String(mode));
+  }
+});

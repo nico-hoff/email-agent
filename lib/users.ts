@@ -1,4 +1,4 @@
-// Users, sessions and invitations (ADR 0022, 0029; docs/erd.md 006). Pure SQLite plus scrypt; no HTTP here.
+// Users, sessions and invitations (ADR 0022, 0033; docs/erd.md 006). Pure SQLite plus scrypt; no HTTP here.
 // Nothing returned from this module contains a password hash. Tokens and invite codes are stored only as SHA-256.
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";

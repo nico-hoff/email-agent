@@ -111,7 +111,7 @@ export function ProfileView(p: ProfileViewProps): React.JSX.Element {
         </div>
         <div className="title">
           <h1>Profil</h1>
-          <p className="mode">Konto, Sitzungen und Einladungen</p>
+          <p className="mode">Konto und Sitzungen</p>
         </div>
       </header>
       {p.error !== null && (

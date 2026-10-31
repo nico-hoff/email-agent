@@ -80,7 +80,7 @@ export function parseActionsQuery(url: URL): ParsedActionsQuery {
 
 export function listActions(db: DatabaseSync, userId: number, q: ActionsQuery): ActionsResult {
   // Undo log entries (rule "undo") are internal: the undone action already carries status "undone".
-  // Tenant scope: only actions on mails of this user's accounts (ADR 0029).
+  // Tenant scope: only actions on mails of this user's accounts (ADR 0033).
   const where: string[] = ["m.rule <> 'undo'", "a.user_id = ?"];
   const args: (string | number)[] = [userId];
   if (q.mode !== null) { where.push("m.mode = ?"); args.push(q.mode); }

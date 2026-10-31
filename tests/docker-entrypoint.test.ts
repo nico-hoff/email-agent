@@ -43,4 +43,5 @@ test("fly.toml: one machine, always on, Frankfurt, port 3000, volume, no duplica
   assert.match(t, /path = '\/api\/health'/);
   assert.equal((t.match(/memory/g) ?? []).length, 1);
   assert.doesNotMatch(t, /APP_PASSWORD|OPENROUTER_API_KEY|ACCOUNTS/);
+  assert.match(t, /^\s*AUTH_MODE = 'users'$/m, "fly runs in users mode (docs/access-contract.md)");
 });

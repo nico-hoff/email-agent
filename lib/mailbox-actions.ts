@@ -229,7 +229,7 @@ export function createMailboxActions(opts: MailboxActionsOptions): MailboxAction
   }
 
   async function undoNow(userId: number, emailId: number): Promise<UndoResult> {
-    // Tenant scope: a foreign mail is "not_found" (ADR 0029).
+    // Tenant scope: a foreign mail is "not_found" (ADR 0033).
     const mail = db.prepare("SELECT e.account_id FROM emails e JOIN accounts a ON a.id = e.account_id WHERE e.id = ? AND a.user_id = ?")
       .get(emailId, userId) as { account_id: string } | undefined;
     if (!mail) return { ok: false, code: "not_found" };

@@ -36,16 +36,17 @@ Ein persönlicher E-Mail-Agent für **einen Nutzer (Nico)** mit mehreren Postfä
 
 | Befehl | Modus | Datenbank | Worker | Login |
 |---|---|---|---|---|
-| `npm run dev` | Entwicklung, **synthetisch** (`--synthetic`) | `data/dev-synthetic.sqlite` (Hugging-Face-Mails) | aus | feste Dev-Identität, nur Loopback |
-| `npm run dev:live` | Entwicklung, echt | `DATABASE_PATH` (Standard `data/email-agent.sqlite`) | an, wenn Konten-Datei existiert | Tailnet oder Passwort |
-| `npm start` / Docker | Produktion | wie oben | wie oben | Tailnet oder Passwort |
+| `npm run dev` | Entwicklung, **synthetisch** (`--synthetic`) | `data/dev-synthetic.sqlite` (Hugging-Face-Mails) | aus | feste Dev-Identität (= Testnutzer `dev@synthetic.invalid`, Nutzer 1), nur Loopback |
+| `npm run dev:live` | Entwicklung, echt | `DATABASE_PATH` (Standard `data/email-agent.sqlite`) | an, wenn Konten-Datei existiert | Nutzerkonten (`AUTH_MODE=users`), Passwort oder Tailnet |
+| `npm start` / Docker | Produktion | wie oben | wie oben | Nutzerkonten (`AUTH_MODE=users`), Passwort oder Tailnet |
 
-Auth-Modus (`selectAuthMode`, `lib/auth.ts`): `--synthetic` → `synthetic`; sonst `APP_PASSWORD` gesetzt → `password` (Tailscale-Header wird ignoriert, < 16 Zeichen → niemand kommt rein); sonst `tailnet` (Header `Tailscale-User-Login` + `auth-allowlist.json`).
+Auth-Modus (`selectAuthMode`, `lib/auth.ts`): `--synthetic` → `synthetic`; `AUTH_MODE=users` → `users` (Nutzerkonten in der DB, E-Mail + Passwort, Sitzungen serverseitig widerrufbar, Registrierung nur per Einladung; ADR 0022/0033); sonst `APP_PASSWORD` gesetzt → `password` (Tailscale-Header wird ignoriert, < 16 Zeichen → niemand kommt rein); sonst `tailnet` (Header `Tailscale-User-Login` + `auth-allowlist.json`). Passwort, Tailnet und synthetisch sind Übergangsmodi und bilden für den Daten-Scope auf Nutzer 1 (den Besitzer) ab.
 
 ## 4. Komponenten
 
 ### 4.1 Einstieg und Lebenszyklus
 - `server.ts`: `createService` (Startup, Bind-Adresse, Port-Auswahl, Worker, Signal-Handler, `formatListening`), `--synthetic`, Warnung bei Agent-Worktrees (`lib/dev-hazards.ts`), OpenRouter-Env (`lib/openrouter-env.ts`), Auth-Guard als `requestInterceptor`.
+- `lib/users.ts` (Nutzer, Sitzungen, Einladungen, Dev-Testnutzer), `lib/user-password.ts` (scrypt-Format), `lib/tenant.ts` (Besitz-Helfer, Nutzerkontext für das Agenten-Tool), `lib/auth.ts`/`lib/auth-runtime.ts` (Cookie `v2`, Login/Registrierung/Abmelden, Guard), `lib/profile-api.ts` (Profil, Einladungen), `scripts/user-create.ts`, `scripts/user-invite.ts` (CLIs).
 - `lib/accounts-config.ts` / `lib/accounts.ts`: Konten-Datei (zod, Modus 0600, absoluter Pfad oder unter `data/`), Startup, DB-Pfadprüfung (Elternordner 0700, eigener Besitzer).
 
 ### 4.2 IMAP (nur lesend)
@@ -76,13 +77,16 @@ Auth-Modus (`selectAuthMode`, `lib/auth.ts`): `--synthetic` → `synthetic`; son
 - `lib/agent-eligibility.ts` (Sperre, H11), `lib/agent-input.ts` (Eingabe-Allowlist, gezäunter Auszug), `lib/draft-reply.ts`/`lib/draft-route.ts` (Entwurf, nie gespeichert), `lib/briefing-context.ts`/`lib/briefing.ts` (nur Metadaten offener Mails, SSE-Stream, Fallback ohne KI), `tools/get-email-context.ts` (Lese-Tool, MCP aus).
 
 ### 4.7 Web-App
-- Seiten: `app/welcome` (Login), `app/page.tsx` (Wichtig/Offen/Alle, Briefing, HITL-Karten), `app/emails/[id]` (Detail, Entwurf, Feedback), `app/aussortiert`, `app/absender`. Komponenten in `components/`, Client-Logik in `lib/*-client.ts`, `lib/review-ui.ts`, `lib/sse.ts`. Eigenes CSS mit Tokens, Dark Mode, Safe Areas (`globals.css`). PWA: `public/manifest.webmanifest`, `public/sw.js` (cacht nur `/` und statische Dateien, nie `/api/`).
+- Seiten: `app/welcome` (Login), `app/page.tsx` (Wichtig/Offen/Alle, Briefing, HITL-Karten), `app/emails/[id]` (Detail, Entwurf, Feedback), `app/aussortiert`, `app/absender`, `app/profil` (Konto, Sitzungen, Einladungen als Abschnitte). Komponenten in `components/`, Client-Logik in `lib/*-client.ts`, `lib/review-ui.ts`, `lib/sse.ts`. Eigenes CSS mit Tokens, Dark Mode, Safe Areas (`globals.css`). PWA: `public/manifest.webmanifest`, `public/sw.js` (cacht nur `/` und statische Dateien, nie `/api/`).
 - API (alle außer Health und Auth hinter Session; POST mit Veryfront-Double-Submit **und** `x-app-csrf` + Rate-Limit):
 
 | Route | Zweck |
 |---|---|
 | `GET /api/health` | Liveness (offen) |
-| `GET /api/auth/session`, `POST /api/auth/login|logout`, `*/api/auth/deny` | Login, Modus, Sperr-Route |
+| `GET /api/auth/session`, `POST /api/auth/login|logout|register`, `*/api/auth/deny` | Login, Modus, Registrierung (nur Users-Modus, nur mit Einladungscode), Sperr-Route |
+| `GET /api/profile` | E-Mail, Rolle, aktive Sitzungen (Users-Modus) |
+| `GET|POST /api/invites` | Offene Einladungen (ohne Code) / Einladung erstellen (Code einmalig), nur Admin |
+| `POST /api/sessions/revoke-all` | Auf allen Geräten abmelden |
 | `GET /api/status` | Worker-Status, Zähler |
 | `GET /api/emails?view=important|open|noise|all&account&cursor&limit` | Liste (Dringlichkeit → Wichtigkeit → Zeit) |
 | `GET /api/emails/:id` | Detail inkl. Ordnerverlauf, Aktion |
@@ -94,18 +98,20 @@ Auth-Modus (`selectAuthMode`, `lib/auth.ts`): `--synthetic` → `synthetic`; son
 
 ## 5. Datenmodell
 
-Quelle der Wahrheit: `docs/erd.md` (ERD + DDL je Migration, Schema-Test vergleicht wörtlich). Migrationen `db/migrations/001`–`005`:
+Quelle der Wahrheit: `docs/erd.md` (ERD + DDL je Migration, Schema-Test vergleicht wörtlich). Migrationen `db/migrations/001`–`006`. **Mandantenregel (ADR 0033):** `accounts`, `senders`, `sender_rules`, `user_state` tragen `user_id`; alle anderen Tabellen gehören einem Nutzer über die FK-Kette zu `accounts`, und jede Abfrage joint bis `accounts.user_id` und filtert danach (fremde ID = 404). `tests/tenant-isolation.test.ts` prüft jede Datenfunktion und Route mit zwei Nutzern.
+
 
 | Tabelle | Inhalt |
 |---|---|
-| `accounts` | Konto-ID, Label, Farbe, Host/Port/Ordner (keine Zugangsdaten) |
+| `users`, `user_sessions`, `invites` | Nutzer (scrypt-Hash, Rolle, Status), Sitzungen (SHA-256 des Tokens, widerrufbar), Einladungen (nur Hash des Codes) |
+| `accounts` | Konto-ID, `user_id`, Label, Farbe, Host/Port/Ordner (keine Zugangsdaten) |
 | `mailbox_state`, `worker_status` | UID-Checkpoint je Ordner, Worker-Zustand |
 | `emails`, `email_locations` | Metadaten (Absender, Betreff, Zeit), Ort je Ordner/UIDVALIDITY |
 | `classifications`, `classification_answers` | Jev-Lauf je Mail/Fragenset/Modell, normalisierte Antworten |
 | `email_status` | `seen` (Provider), `done` (Nico) |
 | `mailbox_actions` | geplante/ausgeführte Postfach-Aktionen (CHECKs enthalten schon M7-Werte) |
 | `feedback`, `senders`, `sender_rules` | Feedback, Absender-Statistik, Black/Whitelist |
-| `user_state` | z. B. `last_opened_at` |
+| `user_state` | z. B. `last_opened_at` (je Nutzer) |
 | `audit_log` | append-only (Trigger), nur IDs/Codes/Zähler |
 
 **Nie gespeichert:** Body, Auszug, Rohquelle, Roh-Response, Entwürfe, Briefing-Texte (H3, D17, D28). Spaltennamen werden per Test gegen `body|snippet|excerpt|raw|…` geprüft.
@@ -115,6 +121,7 @@ Quelle der Wahrheit: `docs/erd.md` (ERD + DDL je Migration, Schema-Test vergleic
 - **Postfach**: Lesepfad strukturell readonly; Schreibpfad nur `\Seen`, nur über `lib/imap-write.ts`, nur im Modus `live`, Schutzregeln zuerst, Undo, Not-Aus, Tageslimit.
 - **Inhalte**: nie persistiert/geloggt; Logs nur IDs/Codes/Zähler (H4); synthetische Fixtures (H3).
 - **Zugang**: Guard als `requestInterceptor` vor allen Routen, fail-closed auf `/api/auth/deny` (303 Seiten, 401 API, 403 fremder Tailnet-Login). Kein `middleware.ts` (Veryfront schreibt es neben die Quelle → bricht read-only Container; Test verhindert die Datei). Details: `docs/access-contract.md`.
+- **Nutzerkonten (`AUTH_MODE=users`)**: Login E-Mail + Passwort (scrypt, Mindestlänge 12), Cookie `v2.<iat>.<user_id>.<token>.<mac>` (HttpOnly, SameSite=Strict, immer Secure außer Loopback); der Guard prüft MAC **und** die Sitzungszeile in der DB (Abmelden/Sperren wirkt sofort). Limits je E-Mail (Hash) und global, einheitliche 401. Registrierung nur mit Einladungscode (atomar verbraucht). Details: `docs/access-contract.md`.
 - **Lokal/Tailnet**: App bindet an `127.0.0.1`; `tailscale serve --bg 3000` setzt die Identität und entfernt gefälschte Header. **Öffentlich (fly.io)**: nur mit `APP_PASSWORD` (Header ignoriert, scrypt + `timingSafeEqual`, globaler Limiter 10/15 min, Cookie immer `Secure`).
 - **CSRF**: Veryfront-Double-Submit (`__Host-vf_csrf` + `x-csrf-token`) **plus** App-Token `x-app-csrf` (HMAC an Identität), Same-Origin.
 - **Agenten**: Sperre im Code vor jedem Aufruf (H11), nur Metadaten fürs Briefing (H20), gezäunte nicht vertrauenswürdige Texte, keine Schreib-Tools, Text wird in der UI nie als HTML gerendert.
@@ -123,7 +130,7 @@ Quelle der Wahrheit: `docs/erd.md` (ERD + DDL je Migration, Schema-Test vergleic
 ## 7. Deployment
 
 - **Docker** (`Dockerfile`, `compose.yaml`): `node:26.12.1-slim`, `USER node`, `read_only`, `tmpfs`, `cap_drop: [ALL]`, `no-new-privileges`, nur `127.0.0.1:3000` am Host, SQLite im Volume `/data`, Healthcheck `/api/health`. Prüfung: `npm run smoke:docker`.
-- **fly.io** (`fly.toml`, Anleitung `docs/fly-deploy.md`): Frankfurt (`fra`), eine dauerhaft laufende Maschine `shared-cpu-1x`/512 MB (IMAP-IDLE braucht Dauerbetrieb), SQLite auf 1-GB-Volume, `internal_port = 3000`, `BIND_ADDRESS=0.0.0.0`, Pflicht `APP_PASSWORD`, Start-Schutz `lib/fly-guard.ts`; Volume-Rechte über `scripts/docker-entrypoint.sh` (Target `fly`). PR #4 (fly-Vorlage) ist dadurch ersetzt.
+- **fly.io** (`fly.toml`, Anleitung `docs/fly-deploy.md`): Frankfurt (`fra`), eine dauerhaft laufende Maschine `shared-cpu-1x`/512 MB (IMAP-IDLE braucht Dauerbetrieb), SQLite auf 1-GB-Volume, `internal_port = 3000`, `BIND_ADDRESS=0.0.0.0`, `AUTH_MODE=users` (oder bis zur Umstellung `APP_PASSWORD`), Start-Schutz `lib/fly-guard.ts`; Volume-Rechte über `scripts/docker-entrypoint.sh` (Target `fly`). PR #4 (fly-Vorlage) ist dadurch ersetzt.
 
 ## 8. Qualitätssicherung
 
@@ -133,7 +140,7 @@ Quelle der Wahrheit: `docs/erd.md` (ERD + DDL je Migration, Schema-Test vergleic
 | Unit-/Integrationstests (`node:test`, offline) | `npm test -- --test-reporter=spec tests/*.test.ts` | lokal, CI |
 | Build | `npm run build` | lokal, CI |
 | Offline-Eval-Gate (Jev, Entwürfe, Briefing) | `npm run eval` | lokal, CI |
-| End-to-End-Smoke (synthetisch, 27 Schritte) | `npm run smoke:e2e` | lokal, CI |
+| End-to-End-Smoke (synthetisch plus Users-Modus, 40 Schritte) | `npm run smoke:e2e` | lokal, CI |
 | Docker-Smoke (gehärtet) | `npm run smoke:docker` | lokal (Sandbox: Dockerfile-Kopie mit Proxy-CA) |
 | Live-Evals/Proben | `eval:jev`, `eval:agents`, `jev:probe:v2`, `agent:probe`, `briefing:probe` | nur Nico, manuell |
 

@@ -1,4 +1,4 @@
-// Tenant scope (ADR 0029). Every table owned by a user reaches `accounts.user_id` through its FK chain; every query of
+// Tenant scope (ADR 0033). Every table owned by a user reaches `accounts.user_id` through its FK chain; every query of
 // the app side filters by it. These helpers are the only place that spells the ownership joins out for ids from outside.
 // A foreign id must look exactly like a missing one (404), so callers treat `false`/`null` as "not found".
 import { AsyncLocalStorage } from "node:async_hooks";

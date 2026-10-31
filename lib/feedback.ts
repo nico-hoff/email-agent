@@ -41,7 +41,7 @@ export function recordFeedback(
   i: { emailId: number; kind: FeedbackKind; value?: unknown; ts: string },
 ): RecordResult {
   if (!FEEDBACK_KINDS.includes(i.kind)) return { ok: false, code: "invalid_kind" };
-  // Tenant scope: a mail of another user is "not_found" and nothing is written (ADR 0029).
+  // Tenant scope: a mail of another user is "not_found" and nothing is written (ADR 0033).
   const mail = db.prepare("SELECT e.account_id, e.sender FROM emails e JOIN accounts a ON a.id = e.account_id WHERE e.id = ? AND a.user_id = ?").get(i.emailId, userId) as
     | { account_id: string; sender: string }
     | undefined;

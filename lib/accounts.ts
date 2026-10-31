@@ -44,7 +44,7 @@ export function validateDatabasePath(
   return file;
 }
 
-/** Stores account metadata only (accounts from the accounts file belong to the owner, id 1; ADR 0029; label, tag color, folders; no credentials, no threshold). Accounts of that owner absent from the config are disabled, never deleted. */
+/** Stores account metadata only (accounts from the accounts file belong to the owner, id 1; ADR 0033; label, tag color, folders; no credentials, no threshold). Accounts of that owner absent from the config are disabled, never deleted. */
 export function syncAccounts(db: DatabaseSync, accounts: AccountConfig[], now: Date = new Date(), ownerUserId: number = OWNER_USER_ID): void {
   const ts = now.toISOString();
   const upsert = db.prepare(

@@ -63,6 +63,21 @@ describe("synthetic mode of createService", () => {
     await svc.stop();
   });
 
+  it("claims the owner row as the dev test user, so the dev identity maps to a real account", async () => {
+    const r = root();
+    const svc = await createService({ synthetic: true, projectRoot: r, startHttp: fakeHttp, onSignal: () => {}, log: () => {} });
+    const db = openSyntheticDevDatabase(r);
+    assert.deepEqual({ ...db.prepare("SELECT id, email, role, status FROM users").get() }, { id: 1, email: "dev@synthetic.invalid", role: "admin", status: "active" });
+    db.close();
+    await svc.stop();
+    // a second start leaves it alone
+    const again = await createService({ synthetic: true, projectRoot: r, startHttp: fakeHttp, onSignal: () => {}, log: () => {} });
+    const db2 = openSyntheticDevDatabase(r);
+    assert.equal((db2.prepare("SELECT COUNT(*) AS n FROM users").get() as { n: number }).n, 1);
+    db2.close();
+    await again.stop();
+  });
+
   it("does not log the hint when the dev database exists", async () => {
     const r = root();
     openSyntheticDevDatabase(r).close();

@@ -22,7 +22,7 @@ export type AgentInputResult =
 
 export interface AgentInputDeps {
   db: DatabaseSync;
-  /** Whose mail may be read (ADR 0029): a mail of another user is "email_not_found". */
+  /** Whose mail may be read (ADR 0033): a mail of another user is "email_not_found". */
   userId: number;
   /** Read-only IMAP port per account; only called for eligible mails. */
   portFactory: (accountId: string) => ImapPort;

@@ -1,13 +1,18 @@
 // End-to-end smoke (Plan v5 T44): starts the real service in synthetic mode on a free port with a TEMP copy of the dev
 // database, filled from a tiny built-in synthetic set (no Hugging Face download, no Jev call, no model call, no IMAP),
 // and walks through the flows with real HTTP requests: auth, lists, detail, done/undone, feedback, sender HITL and
-// rules, dry-run actions, undo, briefing (fallback), draft (409 in synthetic) and the CSRF negatives.
+// rules, dry-run actions, undo, briefing (fallback), draft (409 in synthetic) and the CSRF negatives. A second part runs the
+// users mode (invitation, registration, two users, isolation, logout) on a temp database.
 // Output: one line per step, `ok|FAIL <step> <status>`. Never prints mail data, headers, tokens or response bodies.
 // Aufruf: npm run smoke:e2e   (Exitcode 1 bei Fehler)
 import { chmodSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createService } from "../server.ts";
+import { syncAccounts } from "../lib/accounts.ts";
+import { openDatabase } from "../lib/db.ts";
+import { userCreateMain } from "./user-create.ts";
+import { userInviteMain } from "./user-invite.ts";
 import { QUESTIONS } from "../lib/jev-questions.ts";
 import type { NormalizedAnswer } from "../lib/jev-response.ts";
 import { QUESTION_SET_VERSION } from "../lib/constants.ts";
@@ -101,6 +106,97 @@ function seedRoot(): string {
 interface ListBody {
   emails: { id: number; urgency: number | null; open: boolean; done: boolean; category: string | null; route: string | null }[];
   counts: Record<string, number>;
+}
+
+const SMOKE_PASSWORD = "smoke-users-0a1b2c3d-first";
+const SMOKE_PASSWORD_2 = "smoke-users-4e5f6a7b-second";
+
+/**
+ * Users mode (R1, ADR 0022/0033) on a temp database: operator creates the first admin and an invitation, the admin signs in,
+ * a second user registers with the code, sees nothing of the first, and logging out revokes the server-side session.
+ */
+async function usersPart(record: (name: string, ok: boolean, status: number | string) => boolean): Promise<void> {
+  const root = mkdtempSync(join(tmpdir(), "e2e-users-"));
+  chmodSync(root, 0o700);
+  const file = join(root, "email-agent.sqlite");
+  process.env.DATABASE_PATH = file;
+  process.env.AUTH_MODE = "users";
+  delete process.env.APP_PASSWORD;
+  const savedBind = process.env.BIND_ADDRESS;
+  delete process.env.BIND_ADDRESS;
+  let svc: Awaited<ReturnType<typeof createService>> | undefined;
+  try {
+    const quiet = { out: () => {}, err: () => {} };
+    const lines: string[] = [];
+    const seeded = openDatabase(file);
+    syncAccounts(seeded, [{ id: "smoke", label: "Smoke", host: "imap.synthetic.invalid", port: 993, mailbox: "INBOX", enabled: true }] as never);
+    seeded.prepare("INSERT INTO emails (id, account_id, message_id, sender, subject, received_at, first_seen_at) VALUES (1,'smoke','<1@x>','s@spam.example.test','synthetic subject','2026-10-27T10:00:00.000Z','2026-10-27T10:00:00.000Z')").run();
+    seeded.close();
+    const created = await userCreateMain(["--email", "admin@smoke.invalid", "--password-stdin"], { env: { DATABASE_PATH: file }, readStdin: async () => SMOKE_PASSWORD, ...quiet });
+    const invited = await userInviteMain([], { env: { DATABASE_PATH: file }, out: (l) => lines.push(l), err: () => {} });
+    const code = /: ([A-Z2-9-]{24})$/.exec(lines[0] ?? "")?.[1] ?? "";
+    record("users: user:create and user:invite", created === 0 && invited === 0 && code !== "", `${created}/${invited}`);
+    svc = await createService({ mode: "production", port: 0, bindAddress: "127.0.0.1", workers: false, onSignal: () => {}, log: () => {} });
+    const base = `http://127.0.0.1:${svc.port}`;
+    const jar = (): { vf: string; session: string } => ({ vf: "", session: "" });
+    const open = async (j: { vf: string }) => {
+      j.vf = /__Host-vf_csrf=([^;]+)/.exec((await fetch(`${base}/welcome`, { headers: { accept: "text/html" } })).headers.get("set-cookie") ?? "")?.[1] ?? "";
+    };
+    const call = async (j: { vf: string; session: string }, path: string, body?: unknown, post = false): Promise<Response> => {
+      const cookie = [`__Host-vf_csrf=${j.vf}`, j.session].filter(Boolean).join("; ");
+      if (!post) return fetch(`${base}${path}`, { redirect: "manual", headers: { cookie } });
+      const token = ((await (await fetch(`${base}/api/auth/session`, { headers: { cookie } })).json()) as { csrfToken: string }).csrfToken;
+      return fetch(`${base}${path}`, {
+        method: "POST", redirect: "manual", body: body === undefined ? undefined : JSON.stringify(body),
+        headers: { cookie, origin: base, "sec-fetch-site": "same-origin", "x-csrf-token": j.vf, "x-app-csrf": token, "content-type": "application/json" },
+      });
+    };
+    const admin = jar();
+    await open(admin);
+    record("users: anon /api/emails", (await call(admin, "/api/emails")).status === 401, 401);
+    const bad = await call(admin, "/api/auth/login", { email: "admin@smoke.invalid", password: "wrong-password-xx" }, true);
+    record("users: login wrong password", bad.status === 401, bad.status);
+    const login = await call(admin, "/api/auth/login", { email: "admin@smoke.invalid", password: SMOKE_PASSWORD }, true);
+    admin.session = (login.headers.get("set-cookie") ?? "").split(";")[0];
+    record("users: login", login.status === 200 && admin.session.startsWith("ea_session=v2."), login.status);
+    const mine = (await (await call(admin, "/api/emails")).json()) as { emails: unknown[] };
+    record("users: admin sees the seeded mail", mine.emails.length === 1, mine.emails.length);
+    const friend = jar();
+    await open(friend);
+    const reg = await call(friend, "/api/auth/register", { code, email: "friend@smoke.invalid", password: SMOKE_PASSWORD_2 }, true);
+    friend.session = (reg.headers.get("set-cookie") ?? "").split(";")[0];
+    record("users: register with invitation", reg.status === 200, reg.status);
+    const theirs = (await (await call(friend, "/api/emails")).json()) as { emails: unknown[] };
+    record("users: second user sees nothing of the first", theirs.emails.length === 0, theirs.emails.length);
+    const peek = await call(friend, "/api/emails/1");
+    record("users: foreign mail id is 404", peek.status === 404, peek.status);
+    const poke = await call(friend, "/api/emails/1/done", undefined, true);
+    record("users: foreign done is 404", poke.status === 404, poke.status);
+    const again = jar();
+    await open(again);
+    const reuse = await call(again, "/api/auth/register", { code, email: "third@smoke.invalid", password: SMOKE_PASSWORD_2 }, true);
+    record("users: used invitation is refused", reuse.status === 400, reuse.status);
+    const copied = friend.session;
+    const out = await call(friend, "/api/auth/logout", undefined, true);
+    record("users: logout", out.status === 200, out.status);
+    const replay = jar();
+    await open(replay);
+    replay.session = copied;
+    record("users: logged-out cookie is revoked", (await call(replay, "/api/emails")).status === 401, 401);
+    const noCsrf = await fetch(`${base}/api/auth/login`, { method: "POST", headers: { "content-type": "application/json", origin: base }, body: JSON.stringify({ email: "admin@smoke.invalid", password: SMOKE_PASSWORD }) });
+    record("users: login without CSRF", noCsrf.status === 403, noCsrf.status);
+  } catch {
+    record("users: setup", false, "error");
+  } finally {
+    try {
+      await svc?.stop();
+    } catch {
+      record("users: server stop", false, "error");
+    }
+    rmSync(root, { recursive: true, force: true });
+    delete process.env.AUTH_MODE;
+    if (savedBind !== undefined) process.env.BIND_ADDRESS = savedBind;
+  }
 }
 
 export async function runSmoke(options: { log?: (line: string) => void } = {}): Promise<SmokeResult> {
@@ -319,6 +415,7 @@ export async function runSmoke(options: { log?: (line: string) => void } = {}): 
       record("server stop", false, "error");
     }
     rmSync(root, { recursive: true, force: true });
+    if (svc !== undefined) await usersPart(record);
     for (const [k, v] of saved) if (v === undefined) delete process.env[k]; else process.env[k] = v;
   }
   if (steps.length > 0 && steps.every((s) => s.ok)) record("server stopped", true, "clean");

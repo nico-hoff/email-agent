@@ -71,12 +71,12 @@ for _ in $(seq 1 30); do
 done
 if [ "$STATUS" = "healthy" ]; then echo "ok healthcheck healthy"; else echo "FAIL healthcheck ${STATUS:-unknown}"; FAILED=1; fi
 
-# Only a count leaves the container: how many of the migrations 1..5 are recorded in schema_migrations.
+# Only a count leaves the container: how many of the migrations 1..6 are recorded in schema_migrations.
 MIG="$(docker exec "$NAME" node -e "
 const { DatabaseSync } = require('node:sqlite');
 const db = new DatabaseSync('/data/email-agent.sqlite', { readOnly: true });
-console.log(String(db.prepare('SELECT COUNT(*) AS n FROM schema_migrations WHERE version BETWEEN 1 AND 5').get().n));
+console.log(String(db.prepare('SELECT COUNT(*) AS n FROM schema_migrations WHERE version BETWEEN 1 AND 6').get().n));
 " 2>/dev/null)"
-if [ "$MIG" = "5" ]; then echo "ok migrations 1-5 applied"; else echo "FAIL migrations 1-5 applied (${MIG:-database not readable})"; FAILED=1; fi
+if [ "$MIG" = "6" ]; then echo "ok migrations 1-6 applied"; else echo "FAIL migrations 1-6 applied (${MIG:-database not readable})"; FAILED=1; fi
 
 exit "$FAILED"

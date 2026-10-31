@@ -371,7 +371,7 @@ function inView(view: View, d: Derived): boolean {
 
 export function listEmails(db: DatabaseSync, userId: number, q: ListQuery, deps: ApiDeps = {}): ListResult {
   const readNoul = deps.readNoul ?? interpretNoul;
-  // Tenant scope: only mails of this user's accounts (ADR 0029).
+  // Tenant scope: only mails of this user's accounts (ADR 0033).
   const where: string[] = ["a.user_id = ?"];
   const params: (string | number)[] = [userId];
   if (q.account !== null) {

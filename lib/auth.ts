@@ -154,7 +154,7 @@ export function userIdentity(userId: number): string {
 }
 
 /**
- * Pure mode choice. Synthetic dev mode wins; then the explicit AUTH_MODE=users (ADR 0022/0029); otherwise a set
+ * Pure mode choice. Synthetic dev mode wins; then the explicit AUTH_MODE=users (ADR 0022/0033); otherwise a set
  * APP_PASSWORD (even an empty or too short one, which then fails closed) selects the password mode, and the Tailscale
  * header is not read at all. Unset = tailnet mode. Password and tailnet stay as transitional modes mapped to the owner.
  */

@@ -216,7 +216,8 @@ export function defaultMutationLimiter(): RateLimiter {
 export const DENY_PATH = "/api/auth/deny";
 const PUBLIC_EXACT = new Set(["/api/health", "/welcome", "/api/auth/session", "/api/auth/login", "/api/auth/logout", "/api/auth/register", DENY_PATH]);
 // Framework-served client modules, styles and HMR: code only, never mail data.
-const PUBLIC_PREFIXES = ["/_vf_modules/", "/_vf_styles/", "/_veryfront/"];
+// /_vf/css/ is the production stylesheet link (content-hashed CSS): without it the signed-out welcome page is unstyled.
+const PUBLIC_PREFIXES = ["/_vf_modules/", "/_vf_styles/", "/_veryfront/", "/_vf/css/"];
 const publicFiles = new Set<string>();
 try {
   for (const e of readdirSync(join(PROJECT_ROOT, "public"), { withFileTypes: true })) if (e.isFile()) publicFiles.add(`/${e.name}`);
@@ -243,6 +244,17 @@ function withUsersDb<T>(ctx: AuthContext, fn: (db: DatabaseSync) => T): T {
   const db = ctx.openDb();
   try {
     return fn(db);
+  } finally {
+    db.close();
+  }
+}
+
+/** Like withUsersDb for an async callback: the connection stays open until the promise settles. */
+async function withUsersDbAsync<T>(ctx: AuthContext, fn: (db: DatabaseSync) => Promise<T>): Promise<T> {
+  if (!ctx.openDb) throw new Error("no database for users mode");
+  const db = ctx.openDb();
+  try {
+    return await fn(db);
   } finally {
     db.close();
   }
@@ -523,7 +535,7 @@ export async function handleUsersLogin(request: Request, ctx: AuthContext, limit
   }
   let user: User | null = null;
   try {
-    user = await withUsersDb(ctx, (db) => verifyLogin(db, email, field(body, "password")));
+    user = await withUsersDbAsync(ctx, (db) => verifyLogin(db, email, field(body, "password")));
   } catch {
     user = null;
   }
@@ -557,7 +569,7 @@ export async function handleRegister(request: Request, ctx: AuthContext, limits:
   if (!slot.allowed) return json({ error: "rate_limited" }, 429, retryAfter(slot.retryAfterMs));
   let result;
   try {
-    result = await withUsersDb(ctx, (db) =>
+    result = await withUsersDbAsync(ctx, (db) =>
       registerWithInvite(db, { code: field(body, "code"), email: field(body, "email"), password: field(body, "password"), now: new Date(ctx.now()) }));
   } catch {
     return json({ error: "register_unavailable" }, 500);

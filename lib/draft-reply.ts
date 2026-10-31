@@ -59,7 +59,7 @@ export async function draftReply(deps: DraftReplyDeps, emailId: number, abortSig
   const started = clock();
   let response: Awaited<ReturnType<DraftAgent["generate"]>>;
   try {
-    // The tool get-email-context reads the user from this async context, never from the model's arguments (ADR 0029).
+    // The tool get-email-context reads the user from this async context, never from the model's arguments (ADR 0033).
     response = await runAsUser(deps.userId, () => deps.agent.generate({ input, ...(abortSignal ? { abortSignal } : {}) }));
   } catch {
     // No error details: provider messages could echo prompt content (H3/H4).

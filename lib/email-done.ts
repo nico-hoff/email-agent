@@ -26,7 +26,7 @@ export function handleSetDone(request: Request, rawId: unknown, done: boolean, d
   let db: DatabaseSync | undefined;
   try {
     db = deps.openDb();
-    // Tenant scope: a mail of another user is "not found" and is never touched (ADR 0029).
+    // Tenant scope: a mail of another user is "not found" and is never touched (ADR 0033).
     const mail = db.prepare("SELECT e.account_id FROM emails e JOIN accounts a ON a.id = e.account_id WHERE e.id = ? AND a.user_id = ?")
       .get(id, gate.userId) as { account_id: string } | undefined;
     if (!mail) return json({ error: "not_found" }, 404);

@@ -1,18 +1,34 @@
 # Zugangsvertrag (D16, O2a, T31/T32)
 
-Stand: 2026-10-27. Quellen: Tailscale-Doku über Context7 (`/websites/tailscale`) und https://tailscale.com/kb/1312/serve (Seite "Tailscale Serve", Abschnitt Identity headers), CLI-Referenz https://tailscale.com/docs/reference/tailscale-cli/serve. Eine Probe im echten Tailnet (T31) steht noch aus (Nico).
+Stand: 2026-10-31 (Nutzerkonten R1, ADR 0022/0033; Rest 2026-10-27). Quellen: Tailscale-Doku über Context7 (`/websites/tailscale`) und https://tailscale.com/kb/1312/serve (Seite "Tailscale Serve", Abschnitt Identity headers), CLI-Referenz https://tailscale.com/docs/reference/tailscale-cli/serve. Eine Probe im echten Tailnet (T31) steht noch aus (Nico).
 
-## Drei Modi (seit 2026-10-31)
+## Vier Modi (Nutzerkonten seit R1)
 
-Die Wahl ist rein (`selectAuthMode` in `lib/auth.ts`) und fällt je Prozess:
+Die Wahl ist rein (`selectAuthMode` in `lib/auth.ts`) und fällt je Prozess. **Reihenfolge:** `--synthetic` → `AUTH_MODE=users` → `APP_PASSWORD` gesetzt → Tailnet. Passwort und Tailnet bleiben als Übergangsmodi unverändert und bilden für den Daten-Scope auf den Besitzer (Nutzer 1) ab.
 
 | Modus | Wann | Identität | Header `Tailscale-User-Login` |
 | --- | --- | --- | --- |
-| `synthetic` | `server.ts --synthetic` (`npm run dev`) | fest `dev@synthetic.invalid`, nur Loopback-Hosts | wie unten |
+| `synthetic` | `server.ts --synthetic` (`npm run dev`) | fest `dev@synthetic.invalid` (= Testnutzer, Nutzer 1 der Dev-DB), nur Loopback-Hosts | wie unten |
+| `users` | Env `AUTH_MODE=users` (nicht synthetisch) | E-Mail + Passwort, Sitzung `user:<id>` | **wird nie gelesen**; `APP_PASSWORD` wird ignoriert |
 | `password` | Env `APP_PASSWORD` gesetzt (auch leer oder kurz) | fest `password-user` | **wird nie gelesen**, auch nicht bei Anwesenheit |
 | `tailnet` | sonst | Login aus dem Header, gegen die Allowlist | Beweis laut Abschnitt unten |
 
 Der Tailnet-Header ist nur hinter Tailscale Serve glaubwürdig. Auf einem öffentlichen Host (fly.io) kann ihn jeder senden; der Passwort-Modus ignoriert ihn deshalb vollständig, und die Allowlist-Datei ist dort nicht nötig. Ein Session-Cookie gilt nur im Modus, in dem es ausgestellt wurde: im Passwort-Modus zählt allein die Identität `password-user` (ein Cookie mit einem Tailnet-Login ist wertlos, auch mit gültiger Signatur), im Tailnet-Modus muss der Login auf der Allowlist stehen.
+
+### Users-Modus (`AUTH_MODE=users`, ADR 0022/0033)
+
+- **Login** `POST /api/auth/login` mit JSON `{"email","password"}`. Reihenfolge: nicht konfiguriert (`503`, kein Datenbankzugang), CSRF (`403`, kostet keinen Versuch; die CSRF-Identität vor dem Login ist die Konstante `users-pre-login`), Limits (`429`, `retry-after`: höchstens 10 Fehlversuche je 15 Minuten je E-Mail-Adresse (Schlüssel = SHA-256 der Adresse) und 60 insgesamt), Prüfung, dann `200` mit Cookie oder feste Pause von 500 ms und **eine einheitliche** `401 {"error":"invalid_credentials"}` (falsches Passwort, unbekannte Adresse, gesperrter oder unbeanspruchter Nutzer, kaputter Body sind nicht zu unterscheiden; unbekannte Adressen kosten denselben scrypt-Lauf über einen Dummy-Hash). Ein erfolgreicher Login gibt nur seine eigenen Plätze zurück.
+- **Passwörter**: scrypt (N=2^15, r=8, p=1), Format `scrypt$N$r$p$salt$hash`, Mindestlänge 12, höchstens 1024 Zeichen, Vergleich mit `timingSafeEqual`. Nur der Hash liegt in `users.password_hash`; er verlässt `lib/users.ts` nie.
+- **Sitzung**: Cookie `ea_session=v2.<iat36>.<user_id>.<token>.<mac>` (HMAC über `v2|iat|user_id|token`, Schlüssel aus `auth-secret`), `HttpOnly`, `SameSite=Strict`, **immer `Secure`** (gleiche Loopback-Ausnahme wie im Passwort-Modus, `BIND_ADDRESS=0.0.0.0` schaltet sie ab), 30 Tage. Das Token (32 Zufallsbytes) steht nur im Cookie; die Tabelle `user_sessions` speichert `SHA-256(token)` als Primärschlüssel. Der Guard prüft zuerst das MAC (billig, ohne DB), dann die Zeile: vorhanden, nicht widerrufen, nicht abgelaufen, Nutzer `active`, Nutzer-ID im Cookie = Nutzer der Zeile. Jeder Fehler (auch eine nicht erreichbare DB) lehnt ab (fail-closed). `last_used_at` wird höchstens alle 5 Minuten geschrieben.
+- **Sitzungs-Store im Interceptor**: Der `requestInterceptor` läuft in `server.ts`, die Routen in getrennten Modulen; der `AuthContext` öffnet deshalb wie die Routen die Datenbank (`validateDatabasePath(process.env, PROJECT_ROOT)` + `openDatabase`) je Prüfung und schließt sie wieder.
+- **Abmelden** `POST /api/auth/logout` (Session + CSRF `user:<id>`): widerruft die Zeile, löscht das Cookie. **Auf allen Geräten abmelden** `POST /api/sessions/revoke-all`: widerruft alle Zeilen des Nutzers. Ein Nutzer auf `disabled` verliert alle Sitzungen sofort.
+- **CSRF nach dem Login**: Identität `user:<id>`; `GET /api/auth/session` liefert angemeldeten Nutzern das daran gebundene Token (die Clients bleiben unverändert), allen anderen das Pre-Login-Token. Doppelter Schutz (Veryfront-Double-Submit plus `x-app-csrf`) und Same-Origin wie bisher.
+- **Registrierung** `POST /api/auth/register` mit `{"code","email","password"}`, nur mit Einladungscode (offene Registrierung gibt es nicht). Reihenfolge: CSRF (`403`), globales Limit (10 je Stunde, `429`), dann in **einer** `BEGIN IMMEDIATE`-Transaktion: Einladung prüfen (unbenutzt, nicht abgelaufen), Nutzer mit der Rolle der Einladung anlegen, Einladung auf benutzt setzen. Antworten: `400 invalid_invite` (falsch, benutzt, abgelaufen: nicht unterscheidbar), `400 invalid_email`, `400 weak_password`, `409 email_taken` (nur wer einen gültigen Code hat, erfährt das; die Einladung bleibt dann unbenutzt). Jeder Fehler wartet 500 ms. Bei Erfolg beginnt sofort eine Sitzung.
+- **Einladungen**: Admin per `POST /api/invites` (`{role?, days?}`, 1 bis 30 Tage, Standard 7) oder `npm run user:invite`; der Code (`XXXX-XXXX-XXXX-XXXX-XXXX`, 100 Bit) steht nur in dieser Antwort bzw. der CLI-Ausgabe, gespeichert wird `SHA-256(code)`. `GET /api/invites` listet offene Einladungen ohne Code (nur Admin).
+- **Daten-Scope**: Jede Datenroute und -funktion bekommt die Nutzer-ID aus der Sitzung (`requireUser`/`guardMutation`), nie aus einem Parameter. Fremde IDs sind 404. Siehe ADR 0033.
+- **Bootstrap**: Der erste Admin entsteht per CLI und übernimmt Nutzer 1 (und damit alle vorhandenen Daten): `npm run user:create -- --email … [--role admin|user]` (Passwort per Terminal ohne Echo oder `--password-stdin`, nie als Argument). Auf fly: Admin **vor** dem ersten Aufruf der App anlegen, `AUTH_MODE = "users"` steht in `fly.toml` (`lib/fly-guard.ts` akzeptiert dann den Start ohne `APP_PASSWORD`). Der `APP_PASSWORD`-Secret kann bestehen bleiben, wird aber ignoriert.
+- **Synthetischer Dev-Testnutzer**: Beim Start von `npm run dev` beansprucht `ensureDevUser` Nutzer 1 der Dev-DB als `dev@synthetic.invalid` mit dem **öffentlichen, nur dafür gedachten** Passwort `dev-synthetic-password` (`lib/users.ts`, nur synthetische Daten). Der Dev-Login (Knopf, feste Identität) bleibt der Weg im synthetischen Modus; das Passwort ist nur für Tests des Users-Modus gegen die Dev-DB gedacht.
+- **Grenzen**: kein Passwort-Reset, keine E-Mail-Bestätigung, keine Zwei-Faktor-Anmeldung, kein UI zum Sperren von Nutzern (nur Datenbank), Limits im Speicher je Prozess.
 
 ### Passwort-Modus
 
