@@ -3,7 +3,7 @@
 ## Lesereihenfolge für eine neue Session
 
 1. `CLAUDE.md` und `AGENTS.md` — harte Regeln (Datenschutz, Secrets, Git, Context7, graphify).
-2. **`docs/HANDOVER_2026-10-31.md`** — aktueller Stand, was in Arbeit ist, nächste Schritte, Werkzeug-Notizen.
+2. **`docs/HANDOVER_2026-11-01.md`** — aktueller Stand, was in Arbeit ist, nächste Schritte, Werkzeug-Notizen.
 3. **`docs/ROADMAP.md`** — Meilensteine R0–R10, go2market-Gate, Liste für Nico. Laufender Agenten-Auftrag: `docs/GOAL.md`.
 4. **`docs/ARCHITECTURE.md`** — wie das System gebaut ist (Komponenten, Datenfluss, Laufzeitmodi, Sicherheit, Deployment).
 5. **`docs/adr/`** — warum es so gebaut ist (0001–0031). Veryfront-Bausteine, Tipps und Fallstricke: **`docs/veryfront-guide.md`**.
@@ -46,4 +46,4 @@ Neuere Handover ersetzen ältere; immer das mit dem jüngsten Datum lesen.
 
 ## Historie (nicht mehr maßgeblich)
 
-`docs/HANDOVER_2026-10-30.md`, `docs/HANDOVER_2026-10-27.md`, `HANDOVER.md` (Wurzel), `.hermes/plans/*`, `docs/ITERATION_2_NOTES.md`, `docs/KICKOFF_PROMPT.md`, `docs/E-Mail-Agent – Blueprint (…).md`.
+`docs/HANDOVER_2026-10-31.md`, `docs/HANDOVER_2026-10-30.md`, `docs/HANDOVER_2026-10-27.md`, `HANDOVER.md` (Wurzel), `.hermes/plans/*`, `docs/ITERATION_2_NOTES.md`, `docs/KICKOFF_PROMPT.md`, `docs/E-Mail-Agent – Blueprint (…).md`.

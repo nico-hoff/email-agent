@@ -47,4 +47,8 @@
 
 ## Meilensteine mit offenem Rest
 
-Wird beim Abschluss jedes Meilensteins ergänzt (siehe Handover).
+| Meilenstein | Stand | Grund | Schritt |
+|---|---|---|---|
+| R6 Web-Push | Backend auf `dev`, UI-Schalter offen | Agenten-Arbeit, kein Nico-Blocker | Agenten: UI-Schritt; Nico danach: VAPID-Schlüssel (B2), PWA auf dem Homescreen, Test-Push |
+| R8 Themen | Backend im Worktree, UI offen | Subagenten am Nutzungslimit (bis 14:30) | Agenten fortsetzen; Nico: Themen im QA-Loop prüfen |
+| R9 Quarantäne/Papierkorb | in Arbeit | wie R8 | Agenten fortsetzen; Nico: Scharfschalten nur selbst, erst nach Trockenlauf in Staging |
