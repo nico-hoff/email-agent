@@ -25,7 +25,7 @@
 - Tests (tests/account-secrets.test.ts): 12 bestanden / 0 fehlgeschlagen
 
 ### R2 Erst-Import ohne Aktionen
-- ADR 0043: "Bezug: Wunsch Nico (echtes Postfach in Staging live beobachten), ergänzt 0004 (Checkpoints), 0005/0006 (IMAP lesend, Klassifikation), 0023/0035 (Konten in der App), 0025 (Postfach-Aktionen), 0028 (Live-Aufrufe nur synthe"
+- ADR 0043: "**Keine Postfach-Aktionen für importierte Mails:** `createMailboxActions.evaluate` gibt für `origin = 'import'` `imported` zurück (in jedem Modus, auch live) und der Start-Backfill überspringt sie. Absender-Statistik, Jev-Spam-Zähler und HITL laufen normal."
 - Code: `lib/mailbox-actions.ts: 185:    if (mail.origin === "import") return { outcome: "imported" };`
 - Tests (tests/initial-import.test.ts): 17 bestanden / 0 fehlgeschlagen
 
@@ -67,8 +67,8 @@
 - **R2**: 4 Bilder (R2-konten-liste.png R2-konto-erweitert.png R2-konto-hinzufuegen-google.png R2-verbindungstest.png ). Quelle laut Paket: "Stand 2026-10-31, Branch `wt/r2`. Screenshots (synthetischer Dev-Modus, 390x844): `docs/qa/img/R2-*.png`. Vertrag: `docs/accounts-contract.md`."
 - **R3**: 5 Bilder (R3-aktionen.png R3-berechtigungen.png R3-live-dialog.png R3-modell.png R3-not-aus.png ). Quelle laut Paket: "Stand 2026-11-01, Branch `wt/r3`. Screenshots (synthetischer QA-Server, 390x844): `docs/qa/img/R3-*.png`. Verträge: `docs/accounts-contract.md` (Abschnitt „Einstellungen im Profil“), `docs/imap-write-"
 - **R6**: 5 Bilder (R6-push-aktiv.png R6-push-aus.png R6-push-blockiert.png R6-push-ios-installieren.png R6-push-nicht-verfuegbar-dunkel.png ). Quelle laut Paket: "Die QA-Umgebung hat im Headless-Browser keinen echten Push-Dienst. Für „Aus/An/blockiert/iPhone“ ersetzt ein Testskript nur die Browser-Objekte (`PushManager`, `Notification`, `serviceWorker.ready`) d"
-- **R7**: 2 Bilder (R7-detail-v2.png R7-liste-v2.png ). Quelle laut Paket: "Fixture** `tests/fixtures/jev-email-v2-response.json` (echte v2-Antwort auf eine synthetische Werbemail) und die beobachteten Skalen in `docs/jev-contract.md`. Offline-Gate-Basis `evals/datasets/email"
-- **R8**: 7 Bilder (R8-liste-ohne-themen.png R8-liste-ordner-gefiltert-dunkel.png R8-liste-ordner.png R8-profil-thema-editor.png R8-profil-themen-an.png R8-profil-themen-aus.png R8-profil-themen-zwei.png ). Quelle laut Paket: "Live-Werkzeug** `npm run eval:topics` (`scripts/topics-eval.ts`, nur mit `--confirm-live`, nur synthetische Inhalte)."
+- **R7**: 2 Bilder (R7-detail-v2.png R7-liste-v2.png ). Quelle laut Paket: "`docs/qa/img/R7-liste-v2.png`: Liste im synthetischen Dev-Modus mit 24 v2-klassifizierten HF-Mails (Seed 11): „Offen 21 von 24“, Karten mit Wichtigkeit und Dringlichkeit. Das ist die sichtbare Folge d" Zweites Bild R7-detail-v2.png: in dieser Sitzung auf dem synthetischen QA-Server erzeugt (`npm run qa:serve`, Port 3600).
+- **R8**: 7 Bilder (R8-liste-ohne-themen.png R8-liste-ordner-gefiltert-dunkel.png R8-liste-ordner.png R8-profil-thema-editor.png R8-profil-themen-an.png R8-profil-themen-aus.png R8-profil-themen-zwei.png ). Quelle laut Paket: "Screenshots (390x844, synthetische QA-Daten; Themen-Antworten per Skript simuliert)"
 - **R9**: 5 Bilder (R9-aktionen.png R9-einstellungen.png R9-live-dialog.png R9-undo.png R9-yolo-warnung.png ). Quelle laut Paket: "Stand 2026-11-01, Branch `wt/r9`. Screenshots (synthetischer QA-Server, 390x844): `docs/qa/img/R9-*.png`. Verträge: `docs/imap-write-contract.md` Abschnitt 7, `docs/accounts-contract.md`."
 - **initial-import**: 8 Bilder (sync-1-verbinden-dark.png sync-1-verbinden.png sync-2-lesen.png sync-3-klassifizieren.png sync-4-klassifizieren-spaeter-dark.png sync-4-klassifizieren-spaeter.png sync-5-fertig-dark.png sync-5-fertig.png ). Quelle laut Paket: "node scripts/sync-sim.ts --port 3410            # eigener Port, eigene DB data/sync-sim.sqlite"
 - **R4**: keine Oberfläche; Nachweis per Workflow-Lauf durch Nico, mit Grund in `docs/qa/BLOCKERS.md` (B1–B4).
