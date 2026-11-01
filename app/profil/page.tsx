@@ -5,6 +5,7 @@ import { ProfileView, reasonText } from '../../components/profile.tsx'
 import { accountsErrorText, type AccountEditor } from '../../components/accounts-manager.tsx'
 import type { SettingsConfirm } from '../../components/settings-manager.tsx'
 import { mutationDeps } from '../../components/hooks.ts'
+import { usePushSection, useTopicsSection } from '../../components/profile-hooks.ts'
 import {
   fetchInvites,
   fetchProfile,
@@ -66,6 +67,9 @@ export default function Profil(): React.JSX.Element {
   const [settings, setSettings] = useState<SettingsData | null>(null)
   const [confirm, setConfirm] = useState<SettingsConfirm>(null)
   const generation = useRef(0)
+  const notify = useCallback((text: string, isError?: boolean): void => setNotice({ text, error: isError }), [])
+  const topics = useTopicsSection(notify)
+  const push = usePushSection()
   const syncsRef = useRef<Record<string, SyncData>>({})
 
   const load = useCallback(async (): Promise<void> => {
@@ -335,6 +339,8 @@ export default function Profil(): React.JSX.Element {
         syncRestartError: Object.fromEntries(Object.entries(syncRestartError).filter(([, v]) => v !== '')),
         onSyncRestart: restartSync,
       }}
+      topics={topics}
+      push={push}
       settings={{
         data: settings,
         busy,

@@ -5,6 +5,8 @@ import { ReviewListView, type NoiseState } from '../components/review.tsx'
 import { BriefingBox, HitlCards } from '../components/briefing.tsx'
 import { mutationDeps, useBriefing, useHitl } from '../components/hooks.ts'
 import { appendUnique, fetchPage, SessionExpired } from '../lib/list-client.ts'
+import { createBrowserPushEnv, syncPushSubscription } from '../lib/push-client.ts'
+import { effectiveTopic, fetchTopicCounts, NO_COUNTS, topicLabels, visibleFolders, type TopicCounts } from '../lib/topics-client.ts'
 import { DONE_ERROR_TEXT, postEmailDone } from '../lib/mutate-client.ts'
 import { markDone, reinsert, type ListState } from '../lib/review-done.ts'
 import {
@@ -22,18 +24,18 @@ import {
 const STORE_KEY = 'review-ui'
 
 // Per-viewer convenience only (view and account); never mail data. Storage may be blocked or empty.
-function restore(): { view?: ViewId; account?: string } {
+function restore(): { view?: ViewId; account?: string; topic?: string } {
   try {
-    const raw = JSON.parse(sessionStorage.getItem(STORE_KEY) ?? '{}') as { view?: string; account?: string }
-    return { view: isViewId(raw.view) ? raw.view : undefined, account: typeof raw.account === 'string' ? raw.account : undefined }
+    const raw = JSON.parse(sessionStorage.getItem(STORE_KEY) ?? '{}') as { view?: string; account?: string; topic?: string }
+    return { view: isViewId(raw.view) ? raw.view : undefined, account: typeof raw.account === 'string' ? raw.account : undefined, topic: typeof raw.topic === 'string' ? raw.topic : undefined }
   } catch {
     return {}
   }
 }
 
-function persist(view: ViewId, account: string): void {
+function persist(view: ViewId, account: string, topic: string): void {
   try {
-    sessionStorage.setItem(STORE_KEY, JSON.stringify({ view, account }))
+    sessionStorage.setItem(STORE_KEY, JSON.stringify({ view, account, topic }))
   } catch {
     // ignore
   }
@@ -56,6 +58,8 @@ interface ToastState {
 export default function ReviewList(): React.JSX.Element {
   const [view, setView] = useState<ViewId>(DEFAULT_VIEW)
   const [account, setAccount] = useState('')
+  const [topic, setTopic] = useState('')
+  const [topicCounts, setTopicCounts] = useState<TopicCounts>(NO_COUNTS)
   const [ready, setReady] = useState(false)
   const [tick, setTick] = useState(0)
   const [page, setPage] = useState<Page>(EMPTY_PAGE)
@@ -84,19 +88,42 @@ export default function ReviewList(): React.JSX.Element {
     const saved = restore()
     if (saved.view) setView(saved.view)
     if (saved.account !== undefined) setAccount(saved.account)
+    if (saved.topic !== undefined) setTopic(saved.topic)
     setReady(true)
   }, [])
 
   useEffect(() => {
-    if (ready) persist(view, account)
-  }, [ready, view, account])
+    if (ready) persist(view, account, topic)
+  }, [ready, view, account, topic])
+
+  // Web Push (R6): the app has no pushsubscriptionchange handler, so it refreshes its subscription whenever it opens.
+  // Silent: no prompt, nothing happens without a granted permission and an existing subscription.
+  useEffect(() => {
+    void syncPushSubscription(createBrowserPushEnv(), mutationDeps).catch(() => {})
+  }, [])
+
+  // Topic folders (R8): counts per topic; with topics off the list stays as it was (no row, no filter, no badge).
+  useEffect(() => {
+    if (!ready) return
+    let current = true
+    fetchTopicCounts(fetch, account)
+      .then((c) => {
+        if (current) setTopicCounts(c)
+      })
+      .catch(() => {})
+    return () => {
+      current = false
+    }
+  }, [ready, account, tick])
+
+  const activeTopic = effectiveTopic(topic, topicCounts)
 
   useEffect(() => {
     if (!ready) return
     const mine = ++generation.current
     loadingMore.current = false
     setLoading(true)
-    fetchPage(listUrl({ view, account, limit: PAGE_SIZE }))
+    fetchPage(listUrl({ view, account, topic: activeTopic, limit: PAGE_SIZE }))
       .then((r) => {
         if (mine !== generation.current) return
         setPage({ emails: r.emails, next: r.next_cursor })
@@ -113,7 +140,7 @@ export default function ReviewList(): React.JSX.Element {
       .finally(() => {
         if (mine === generation.current) setLoading(false)
       })
-  }, [ready, view, account, tick, expired])
+  }, [ready, view, account, activeTopic, tick, expired])
 
   // The folded section loads only once it is opened (view=noise) and follows account and reload.
   useEffect(() => {
@@ -121,7 +148,7 @@ export default function ReviewList(): React.JSX.Element {
     const mine = ++noiseGeneration.current
     setNoiseLoading(true)
     setNoiseError(false)
-    fetchPage(listUrl({ view: 'noise', account, limit: PAGE_SIZE }))
+    fetchPage(listUrl({ view: 'noise', account, topic: activeTopic, limit: PAGE_SIZE }))
       .then((r) => {
         if (mine === noiseGeneration.current) setNoisePage({ emails: r.emails, next: r.next_cursor })
       })
@@ -132,7 +159,7 @@ export default function ReviewList(): React.JSX.Element {
       .finally(() => {
         if (mine === noiseGeneration.current) setNoiseLoading(false)
       })
-  }, [ready, noiseOpen, view, account, tick, expired])
+  }, [ready, noiseOpen, view, account, activeTopic, tick, expired])
 
   const more = useCallback(() => {
     const cursor = page.next
@@ -140,7 +167,7 @@ export default function ReviewList(): React.JSX.Element {
     loadingMore.current = true
     const mine = generation.current
     setLoading(true)
-    fetchPage(listUrl({ view, account, cursor, limit: PAGE_SIZE }))
+    fetchPage(listUrl({ view, account, topic: activeTopic, cursor, limit: PAGE_SIZE }))
       .then((r) => {
         if (mine !== generation.current) return
         setPage((p) => ({ emails: appendUnique(p.emails, r.emails), next: r.next_cursor }))
@@ -154,14 +181,14 @@ export default function ReviewList(): React.JSX.Element {
         loadingMore.current = false
         if (mine === generation.current) setLoading(false)
       })
-  }, [page.next, view, account, expired])
+  }, [page.next, view, account, activeTopic, expired])
 
   const moreNoise = useCallback(() => {
     const cursor = noisePage.next
     if (cursor === null) return
     const mine = noiseGeneration.current
     setNoiseLoading(true)
-    fetchPage(listUrl({ view: 'noise', account, cursor, limit: PAGE_SIZE }))
+    fetchPage(listUrl({ view: 'noise', account, topic: activeTopic, cursor, limit: PAGE_SIZE }))
       .then((r) => {
         if (mine === noiseGeneration.current) setNoisePage((p) => ({ emails: appendUnique(p.emails, r.emails), next: r.next_cursor }))
       })
@@ -172,7 +199,7 @@ export default function ReviewList(): React.JSX.Element {
       .finally(() => {
         if (mine === noiseGeneration.current) setNoiseLoading(false)
       })
-  }, [noisePage.next, account, expired])
+  }, [noisePage.next, account, activeTopic, expired])
 
   const canLoadMore = !loading && page.next !== null
 
@@ -266,6 +293,9 @@ export default function ReviewList(): React.JSX.Element {
       canLoadMore={canLoadMore}
       noise={noise}
       autoActions={autoActions}
+      topics={topicCounts.enabled ? { folders: visibleFolders(topicCounts, activeTopic), selected: activeTopic, total: topicCounts.total } : undefined}
+      topicLabels={topicLabels(topicCounts)}
+      onTopic={setTopic}
       onView={setView}
       onAccount={setAccount}
       onReload={() => {

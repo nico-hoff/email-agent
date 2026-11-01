@@ -3,6 +3,8 @@
 // once, from state, and is never part of a list.
 import { UndoToast } from "./review.tsx";
 import { AccountsSection, type AccountsSectionProps } from "./accounts-manager.tsx";
+import { TopicsSection, type TopicsSectionProps } from "./topics-manager.tsx";
+import { PushSection, type PushSectionProps } from "./push-manager.tsx";
 import { SettingsSections, type SettingsSectionProps } from "./settings-manager.tsx";
 import { formatWhen, PROFILE_ERROR_TEXT, type CreatedInvite, type OpenInvite, type Profile, type ProfileReason } from "../lib/profile-client.ts";
 
@@ -29,6 +31,10 @@ export interface ProfileViewProps {
   accounts?: AccountsSectionProps;
   /** The settings sections (R3); absent = not shown. */
   settings?: SettingsSectionProps;
+  /** The topics section (R8); absent = not shown. */
+  topics?: TopicsSectionProps;
+  /** The push section (R6); absent = not shown. */
+  push?: PushSectionProps;
 }
 
 export function reasonText(reason: ProfileReason): string {
@@ -133,6 +139,8 @@ export function ProfileView(p: ProfileViewProps): React.JSX.Element {
             <AccountSection profile={p.profile} />
             {p.accounts !== undefined && <AccountsSection {...p.accounts} />}
             {p.settings !== undefined && <SettingsSections {...p.settings} />}
+            {p.topics !== undefined && <TopicsSection {...p.topics} />}
+            {p.push !== undefined && <PushSection {...p.push} />}
             <SessionSection profile={p.profile} busy={p.busy} onLogout={p.onLogout} onLogoutAll={p.onLogoutAll} />
             {p.profile.managed && p.profile.role === "admin" && <InviteSection {...p} />}
           </>

@@ -56,6 +56,8 @@ export interface ApiEmail {
   } | null;
   shadow_quarantine: ApiShadow | null;
   disagreement: string | null;
+  /** Topic key of the latest classification (R8); null/absent without a topic answer. */
+  topic?: string | null;
 }
 
 export interface FolderMove {
@@ -113,6 +115,8 @@ export function isViewId(v: unknown): v is ViewId {
 export interface ListRequest {
   view: ViewId | "noise";
   account?: string;
+  /** Topic key (R8 folder); empty = all. Works together with the view. */
+  topic?: string;
   cursor?: string | null;
   limit: number;
 }
@@ -120,6 +124,7 @@ export interface ListRequest {
 export function listUrl(r: ListRequest): string {
   const q = new URLSearchParams({ view: r.view, limit: String(r.limit) });
   if (r.account) q.set("account", r.account);
+  if (r.topic) q.set("topic", r.topic);
   if (r.cursor) q.set("cursor", r.cursor);
   return `/api/emails?${q}`;
 }

@@ -77,7 +77,7 @@ export function urlBase64ToBytes(value: string): Uint8Array {
   return out;
 }
 
-export interface PushConfigInfo { available: boolean; publicKey: string | null; reason: string | null }
+export interface PushConfigInfo { available: boolean; publicKey: string | null; reason: string | null; maxDevices: number | null }
 
 export async function fetchPushConfig(fetcher: typeof fetch): Promise<PushConfigInfo> {
   const r = await fetcher("/api/push/config", { cache: "no-store" });
@@ -85,7 +85,7 @@ export async function fetchPushConfig(fetcher: typeof fetch): Promise<PushConfig
   if (!r.ok) throw new Error("unavailable");
   const b = await readJson(r);
   const key = typeof b.public_key === "string" ? b.public_key : null;
-  return { available: b.available === true && key !== null, publicKey: key, reason: typeof b.reason === "string" ? b.reason : null };
+  return { available: b.available === true && key !== null, publicKey: key, reason: typeof b.reason === "string" ? b.reason : null, maxDevices: typeof b.max_devices === "number" ? b.max_devices : null };
 }
 
 function parseKinds(v: unknown): PushKinds {
@@ -242,4 +242,30 @@ export function createBrowserPushEnv(): PushEnv {
     standalone: () => nav.standalone === true || window.matchMedia("(display-mode: standalone)").matches,
     ios: () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1),
   };
+}
+
+/** Removes one of the user's own devices by id (any device, not only this browser). */
+export async function removePushDevice(id: number, deps: MutationDeps): Promise<PushResult> {
+  const raw = await postApi("/api/push/unsubscribe", deps, { body: { id } });
+  if (raw.kind === "forbidden") return { ok: false, reason: "forbidden" };
+  if (raw.kind === "failed") return { ok: false, reason: "failed" };
+  const common = commonReason(raw.response);
+  if (common) return { ok: false, reason: common.reason, ...(common.retryAfterSeconds !== undefined ? { retryAfterSeconds: common.retryAfterSeconds } : {}) };
+  return raw.response.ok ? { ok: true } : { ok: false, reason: "failed" };
+}
+
+/**
+ * Registers this browser's existing subscription with the server again (an upsert, kinds untouched) and returns the
+ * server's row, so the page knows which entry of the device list is this device. Silent, no prompt; null when this
+ * browser is not subscribed or permission is not granted.
+ */
+export async function currentPushDevice(env: PushEnv, deps: MutationDeps): Promise<PushResult<{ device: PushDevice | null }>> {
+  if (pushSupport(env) !== "supported" || env.permission() !== "granted") return { ok: true, device: null };
+  try {
+    const sub = await (await env.registration()).pushManager.getSubscription();
+    if (!sub) return { ok: true, device: null };
+    return await postSubscription(sub, undefined, deps);
+  } catch {
+    return { ok: false, reason: "failed" };
+  }
 }

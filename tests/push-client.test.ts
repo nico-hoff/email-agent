@@ -159,10 +159,10 @@ describe("other helpers", () => {
     assert.equal(await isSubscribed(env({ existing: true }).e), true);
     assert.equal(await isSubscribed(env().e), false);
     const f = async (u: string | URL | Request) => (String(u).endsWith("config") ? Response.json({ available: true, public_key: PUB }) : Response.json({ devices: [DEVICE, { id: "x" }] }));
-    assert.deepEqual(await fetchPushConfig(f as typeof fetch), { available: true, publicKey: PUB, reason: null });
+    assert.deepEqual(await fetchPushConfig(f as typeof fetch), { available: true, publicKey: PUB, reason: null, maxDevices: null });
     assert.deepEqual(await fetchPushDevices(f as typeof fetch), [DEVICE]);
     const off = async () => Response.json({ available: false, reason: "vapid_not_configured" });
-    assert.deepEqual(await fetchPushConfig(off as typeof fetch), { available: false, publicKey: null, reason: "vapid_not_configured" });
+    assert.deepEqual(await fetchPushConfig(off as typeof fetch), { available: false, publicKey: null, reason: "vapid_not_configured", maxDevices: null });
     const ok = await sendTestPush(deps((p) => (p === "/api/push/test" ? Response.json({ ok: true, sent: 2, removed: 0, failed: 0 }) : undefined)).d);
     assert.deepEqual(ok, { ok: true, delivered: true, sent: 2, removed: 0, failed: 0 });
     assert.deepEqual(await sendTestPush(deps(() => new Response("{}", { status: 409 })).d), { ok: false, reason: "not_found" });

@@ -1,6 +1,6 @@
 // Presentational components of the signal inbox (T36, T47, T48, T49). They are stateless and receive only the
 // metadata rows of GET /api/emails: no body, excerpt or raw source ever exists here. The mailbox itself is read-only.
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode, type Ref } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode, type Ref } from "react";
 import { SWIPE_COMMIT_PX, swipeCommits, swipeOffset } from "../lib/review-done.ts";
 import {
   cardBadges,
@@ -39,12 +39,41 @@ import {
   type Badge,
   type ViewId,
 } from "../lib/review-ui.ts";
+import type { TopicFolder } from "../lib/topics-client.ts";
+
+/** Labels of the topic keys (R8). Empty = topics are off: no badge on any card. Provided by ReviewListView. */
+const TopicLabels = createContext<ReadonlyMap<string, string>>(new Map());
+
+export interface TopicBar {
+  folders: TopicFolder[];
+  /** Selected topic key; "" = Alle. */
+  selected: string;
+  /** Number of all mails (the count of "Alle"). */
+  total: number;
+}
+
+/** The app folders (R8): a horizontal, scrollable row of topics with counts, "Alle" first. Only rendered with topics on. */
+export function TopicFolders({ bar, onTopic }: { bar: TopicBar; onTopic?: (key: string) => void }): React.JSX.Element {
+  const pick = onTopic ?? noop;
+  return (
+    <div className="chips chips-topics" role="group" aria-label="Thema" data-testid="topic-folders">
+      <button type="button" className="chip chip-topic" aria-pressed={bar.selected === ""} onClick={() => pick("")}>
+        Alle<span className="chip-count">{formatCount(bar.total)}</span>
+      </button>
+      {bar.folders.map((f) => (
+        <button key={f.key} type="button" className="chip chip-topic" aria-pressed={bar.selected === f.key} onClick={() => pick(f.key)}>
+          {f.label}<span className="chip-count">{formatCount(f.count)}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
 
 export function BadgeList({ badges }: { badges: Badge[] }): React.JSX.Element {
   return (
     <ul className="badges">
       {badges.map((b) => (
-        <li key={b.key} className={`badge badge-${b.tone}${b.category ? ` cat-${b.category}` : ""}`}>{b.text}</li>
+        <li key={b.key} className={`badge badge-${b.tone}${b.category ? ` cat-${b.category}` : ""}${b.key === "topic" ? " badge-topic" : ""}`}>{b.text}</li>
       ))}
     </ul>
   );
@@ -152,6 +181,8 @@ function SwipeFront({ onCommit, children }: { onCommit: () => void; children: Re
 export function CardLink({ m, now, timeZone }: { m: ApiEmail; now: Date; timeZone?: string }): React.JSX.Element {
   const folder = m.active_location?.folder ?? null;
   const vs = verdicts(m);
+  const topicLabel = useContext(TopicLabels).get(m.topic ?? "") ?? null;
+  const badges = topicLabel === null ? cardBadges(m) : [...cardBadges(m), { key: "topic", text: topicLabel, tone: "neutral" as const }];
   return (
     <a className="card" href={`/emails/${m.id}`} data-cat={categoryOf(m) ?? "none"}>
         <span className="avatar" aria-hidden="true">{initial(m.sender)}</span>
@@ -161,7 +192,7 @@ export function CardLink({ m, now, timeZone }: { m: ApiEmail; now: Date; timeZon
             <time className="time" dateTime={m.received_at}>{formatTime(m.received_at, now, timeZone)}</time>
           </span>
           <span className="subject">{m.subject || "(ohne Betreff)"}</span>
-          <BadgeList badges={cardBadges(m)} />
+          <BadgeList badges={badges} />
           {vs.length > 0 && (
             <span className="verdicts">
               {vs.map((v) => (
@@ -255,6 +286,11 @@ export interface ReviewListProps {
   onUndo?: () => void;
   onToastClose?: () => void;
   sentinelRef?: Ref<HTMLDivElement>;
+  /** Topic folders (R8); absent = topics off, the list looks as before. */
+  topics?: TopicBar;
+  /** Labels for the topic badge on the cards (key to German label); absent = no badges. */
+  topicLabels?: ReadonlyMap<string, string>;
+  onTopic?: (key: string) => void;
   /** Briefing and sender questions: rendered above the cards, in "Wichtig" only. */
   top?: ReactNode;
 }
@@ -338,7 +374,17 @@ function NoiseFold(
   );
 }
 
+const NO_LABELS: ReadonlyMap<string, string> = new Map();
+
 export function ReviewListView(p: ReviewListProps): React.JSX.Element {
+  return (
+    <TopicLabels.Provider value={p.topics !== undefined ? (p.topicLabels ?? NO_LABELS) : NO_LABELS}>
+      <ReviewListBody {...p} />
+    </TopicLabels.Provider>
+  );
+}
+
+function ReviewListBody(p: ReviewListProps): React.JSX.Element {
   return (
     <div className="screen">
       <header className="bar">
@@ -382,6 +428,7 @@ export function ReviewListView(p: ReviewListProps): React.JSX.Element {
             ))}
           </div>
         )}
+        {p.topics !== undefined && <TopicFolders bar={p.topics} onTopic={p.onTopic} />}
       </header>
       {p.error !== null && (
         <div className="notice notice-error" role="alert">
@@ -390,13 +437,13 @@ export function ReviewListView(p: ReviewListProps): React.JSX.Element {
         </div>
       )}
       <main>
-        {p.view === "important" && p.top}
+        {p.view === "important" && !(p.topics && p.topics.selected !== "") && p.top}
         {p.emails.length > 0 && <CardGroups emails={p.emails} now={p.now} timeZone={p.timeZone} onDone={p.onDone} />}
         {p.emails.length === 0 && !p.loading && p.error === null && (
           <div className="empty">
             <p className="empty-icon" aria-hidden="true">✉</p>
             <p className="empty-title">{EMPTY_TITLE}</p>
-            <p className="hint">{emptyText(p.view)}</p>
+            <p className="hint">{p.topics && p.topics.selected !== "" ? "In diesem Thema ist hier nichts. Wechsle die Ansicht oder wähle „Alle“." : emptyText(p.view)}</p>
           </div>
         )}
         {p.loading && p.emails.length === 0 && (
