@@ -12,7 +12,7 @@
 //   node scripts/fly-secrets.ts sync [--env-file F | --from-env] [--app A] [--profile prod] [--stage] [--prune] [--keep A,B] [--force]
 //     --from-env  take the values from the process environment instead of a file (GitHub Actions: environment secrets
 //                 mapped into env). Only catalog names are read; nothing else of the environment is looked at.
-//     --profile prod  the production secrets (ACCOUNTS_ENCRYPTION_KEY, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY) are required;
+//     --profile prod  the production secrets (ACCOUNTS_ENCRYPTION_KEY, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT) are required;
 //                 default profile: they are optional (still validated when present), e.g. for preview apps
 //     --stage   set without restarting the Machine (takes effect on the next `fly deploy`)
 //     --prune   also unset secrets on fly that the env file does not send (fly then matches the file);
@@ -67,7 +67,8 @@ export const SECRETS: readonly SecretSpec[] = [
   {
     name: "VAPID_SUBJECT",
     required: false,
-    purpose: "Web-Push (VAPID), Kontakt als mailto: oder https:// (vorerst optional)",
+    prodRequired: true,
+    purpose: "Web-Push (VAPID), Kontakt als mailto: oder https:// (Apple lehnt Push ohne gültiges sub ab)",
     validate: (v) => (/^(mailto:[^\s@]+@[^\s@]+|https:\/\/[^\s]+)$/.test(v) ? null : "weder mailto: noch https://"),
   },
 ];

@@ -236,12 +236,11 @@ test("VAPID values are validated; subject must be mailto: or https://", () => {
   assert.equal(buildPlan(parseEnv(`${OK_ENV}VAPID_SUBJECT=https://example.test/contact\n`)).ok, true);
 });
 
-test("profile prod: encryption key and VAPID keys are required, subject stays optional; default profile needs none", () => {
+test("profile prod: encryption key, VAPID keys and subject are required; default profile needs none", () => {
   assert.equal(buildPlan(parseEnv(OK_ENV)).ok, true);
   const prod = buildPlan(parseEnv(OK_ENV), undefined, "prod");
   assert.equal(prod.ok, false);
-  assert.deepEqual(prod.missingRequired, ["ACCOUNTS_ENCRYPTION_KEY", "VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY"]);
-  assert.ok(prod.emptyOptional.includes("VAPID_SUBJECT"));
+  assert.deepEqual(prod.missingRequired, ["ACCOUNTS_ENCRYPTION_KEY", "VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY", "VAPID_SUBJECT"]);
   const full = buildPlan(parseEnv(PROD_ENV), undefined, "prod");
   assert.equal(full.ok, true);
   assert.equal(full.send.length, 6);
@@ -262,14 +261,15 @@ function fromEnvHarness(env: Record<string, string | undefined>) {
 }
 
 test("--from-env sync: values from the environment go only to stdin, no env file is read", () => {
-  const h = fromEnvHarness({ APP_PASSWORD: PW, OPENROUTER_API_KEY: KEY, ACCOUNTS_ENCRYPTION_KEY: ENC_KEY, VAPID_PUBLIC_KEY: VAPID_PUB, VAPID_PRIVATE_KEY: VAPID_PRIV, VAPID_SUBJECT: "", OPENAI_API_KEY: "", GITHUB_TOKEN: "zzz" });
+  const h = fromEnvHarness({ APP_PASSWORD: PW, OPENROUTER_API_KEY: KEY, ACCOUNTS_ENCRYPTION_KEY: ENC_KEY, VAPID_PUBLIC_KEY: VAPID_PUB, VAPID_PRIVATE_KEY: VAPID_PRIV, VAPID_SUBJECT: "mailto:ops@example.test", OPENAI_API_KEY: "", GITHUB_TOKEN: "zzz" });
   assert.equal(main(["sync", "--from-env", "--profile", "prod", "--force"], h.deps), 0);
   assert.equal(h.questions.length, 0);
   assert.equal(h.calls.length, 1);
   assert.deepEqual(h.calls[0].args, ["secrets", "import", "--app", "email-agent"]);
   const stdin = h.calls[0].stdin ?? "";
   for (const v of [PW, KEY, ENC_KEY, VAPID_PUB, VAPID_PRIV]) assert.ok(stdin.includes(v));
-  assert.ok(!stdin.includes("zzz") && !stdin.includes("VAPID_SUBJECT"));
+  assert.ok(stdin.includes("VAPID_SUBJECT") && stdin.includes("mailto:ops@example.test"));
+  assert.ok(!stdin.includes("zzz") && !stdin.includes("OPENAI_API_KEY"));
   const visible = h.out.join("\n") + h.calls[0].args.join(" ");
   for (const v of [PW, KEY, ENC_KEY, VAPID_PUB, VAPID_PRIV, "zzz"]) assert.ok(!visible.includes(v));
   assert.ok(h.out.some((l) => l.includes("Prozess-Umgebung") && l.includes("Profil: prod")));
