@@ -47,7 +47,7 @@
 
 ## Meilensteine: was nach der Umsetzung bei Nico liegt
 
-Alle Meilensteine R1, R2, R3, R4, R6, R7, R8, R9 sind auf `dev` umgesetzt (QA-Pakete `docs/qa/R<n>.md`, Screenshots aus dem synthetischen Modus unter `docs/qa/img/`: R1 5, R2 4, R3 5, R6 5, R7 1, R8 7, R9 5, Erst-Import 8; R4 ohne UI). Offen sind nur Schritte, die Agenten nicht tun dürfen:
+Alle Meilensteine R1, R2, R3, R4, R6, R7, R8, R9 sind auf `dev` umgesetzt (QA-Pakete `docs/qa/R<n>.md`, Screenshots aus dem synthetischen Modus unter `docs/qa/img/`: R1 5, R2 4, R3 5, R6 5, R7 2, R8 7, R9 5, Erst-Import 8; R4 ohne UI). Offen sind nur Schritte, die Agenten nicht tun dürfen:
 
 | Meilenstein | Schritt von Nico | Warum nur Nico |
 |---|---|---|
