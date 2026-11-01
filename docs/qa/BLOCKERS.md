@@ -47,14 +47,14 @@
 
 ## Meilensteine: was nach der Umsetzung bei Nico liegt
 
-Alle Meilensteine R1, R2, R3, R4, R6, R7, R8, R9 sind auf `dev` umgesetzt (QA-Pakete `docs/qa/R<n>.md`). Offen sind nur Schritte, die Agenten nicht tun dürfen:
+Alle Meilensteine R1, R2, R3, R4, R6, R7, R8, R9 sind auf `dev` umgesetzt (QA-Pakete `docs/qa/R<n>.md`, Screenshots aus dem synthetischen Modus unter `docs/qa/img/`: R1 5, R2 4, R3 5, R6 5, R7 1, R8 7, R9 5, Erst-Import 8; R4 ohne UI). Offen sind nur Schritte, die Agenten nicht tun dürfen:
 
 | Meilenstein | Schritt von Nico | Warum nur Nico |
 |---|---|---|
 | R1–R4 | QA-Loop am iPhone (QA-Server bzw. Preview), dann „go“ für `main` (B5) | Prod-Deploy nur nach „go“ (ADR 0021) |
 | R2 | eigenes Postfach in Staging anlegen und testen (B9) | echte Postfächer (ADR 0028) |
 | R3 | „Spam als gelesen“ pro Konto auf „an“, erst nach Trockenlauf (B10, B11) | Scharfschalten nur der Nutzer (ADR 0025) |
-| R4 | Environments, Secrets, Workflows (B1–B4) | Secret-Werte |
+| R4 | Environments, Secrets, Workflows (B1–B4); R4 hat keine Oberfläche, daher keine Screenshots: der Nachweis ist ein Workflow-Lauf in GitHub (Checkliste `docs/qa/R4.md`) | Secret-Werte, Workflows brauchen die Environments |
 | R6 | `npm run push:keys` → `.env.local` (mit echter `mailto:`-Adresse) und GitHub-Secrets; PWA auf dem Homescreen installieren, „Auf diesem Gerät aktivieren“, „Test senden“ | Secrets; echtes Gerät |
 | R7 | Spam-Schwelle 0,70 an echten Mails prüfen (B10) | echte Mails |
 | R8 | „Themen sortieren“ in Staging einschalten, eigene Themen anlegen, Treffer prüfen | Bewertung an echten Mails |
