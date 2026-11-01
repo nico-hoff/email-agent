@@ -47,6 +47,7 @@ Neue ADR: nächste freie Nummer, Vorlage unten, Eintrag in dieser Tabelle, im se
 | [0042](0042-staging-environment.md) | Staging auf Nicos Mac: echte Postfächer, eigene DB, Tailnet (neben QA, prod, preview) | angenommen |
 | [0043](0043-initial-import.md) | Erst-Import: neueste Mails (50, 14 Tage) beim ersten Verbinden, Live-Fortschritt, keine Auto-Aktionen für Importiertes | angenommen |
 | [0044](0044-user-settings-stop-permissions.md) | Nutzereinstellungen: Not-Aus pro Nutzer, Berechtigung Modellwahl, Tageslimit pro Konto | angenommen |
+| [0045](0045-scaling-path.md) | Skalierungspfad: Schwellen (~50/200/1 000/10 000 Nutzer), Next.js-Frage, Query-Builder statt ORM | vorgeschlagen |
 
 ## Vorlage
 
