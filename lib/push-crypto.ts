@@ -28,7 +28,10 @@ export interface VapidKeys { publicKey: string; privateKey: string }
 export function generateVapidKeys(): VapidKeys {
   const ecdh = createECDH("prime256v1");
   ecdh.generateKeys();
-  return { publicKey: b64urlEncode(ecdh.getPublicKey()), privateKey: b64urlEncode(ecdh.getPrivateKey()) };
+  // getPrivateKey() drops leading zero bytes (about 1 in 256 keys): pad to the fixed 32 bytes.
+  const d = ecdh.getPrivateKey();
+  const padded = Buffer.concat([Buffer.alloc(VAPID_PRIVATE_BYTES - d.length), d]);
+  return { publicKey: b64urlEncode(ecdh.getPublicKey()), privateKey: b64urlEncode(padded) };
 }
 
 /** True when the private key belongs to the public key (the derived point is compared). */

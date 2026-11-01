@@ -60,7 +60,9 @@ test("layout declares manifest, theme colors, apple tags and viewport-fit=cover"
 // ---- service worker, executed in a sandbox with fake self/caches ----
 
 type Handler = (e: unknown) => void;
-function loadSw(opts: { fetch?: (r: Request) => Promise<Response>; seed?: string[] } = {}) {
+function loadSw(opts: { fetch?: (r: Request) => Promise<Response>; seed?: string[]; windows?: { url: string; focus: () => Promise<unknown> }[] } = {}) {
+  const shown: { title: string; options: Record<string, unknown> }[] = [];
+  const opened: string[] = [];
   const handlers: Record<string, Handler> = {};
   const store = new Map<string, Map<string, Response>>();
   const puts: string[] = [];
@@ -88,7 +90,8 @@ function loadSw(opts: { fetch?: (r: Request) => Promise<Response>; seed?: string
   const self = {
     addEventListener: (t: string, h: Handler) => { handlers[t] = h; },
     skipWaiting: async () => {},
-    clients: { claim: async () => {} },
+    clients: { claim: async () => {}, matchAll: async () => opts.windows ?? [], openWindow: async (u: string) => { opened.push(u); } },
+    registration: { showNotification: async (title: string, o: unknown) => { shown.push({ title, options: o as Record<string, unknown> }); } },
     location: { origin: "https://app.test" },
   };
   for (const n of opts.seed ?? []) store.set(n, new Map([[keyOf("/"), new Response("old")]]));
@@ -99,7 +102,7 @@ function loadSw(opts: { fetch?: (r: Request) => Promise<Response>; seed?: string
   };
   const ctx = vm.createContext({ self, caches, fetch: fakeFetch, Response, Request, URL, Promise, console });
   vm.runInContext(readFileSync(pub("sw.js"), "utf8"), ctx);
-  return { handlers, puts, fetched, store };
+  return { handlers, puts, fetched, store, shown, opened };
 }
 
 async function install(handlers: Record<string, Handler>) {
@@ -215,4 +218,64 @@ test("activate deletes the old shell-v1 cache", async () => {
   sw.handlers.activate({ waitUntil: (p: Promise<unknown>) => { waits.push(p); } });
   await Promise.all(waits);
   assert.deepEqual([...sw.store.keys()], ["shell-v4"]);
+});
+
+// ---- Web Push handlers ----
+async function pushEvent(sw: ReturnType<typeof loadSw>, data: unknown, raw?: string) {
+  const waits: Promise<unknown>[] = [];
+  sw.handlers.push({
+    data: raw !== undefined || data !== undefined ? { json: () => (raw !== undefined ? JSON.parse(raw) : data) } : null,
+    waitUntil: (p: Promise<unknown>) => { waits.push(p); },
+  });
+  await Promise.all(waits);
+}
+
+test("push: German text built from kind and count only", async () => {
+  const sw = loadSw();
+  await pushEvent(sw, { v: 1, kind: "important_mail", count: 1 });
+  await pushEvent(sw, { v: 1, kind: "important_mail", count: 3 });
+  await pushEvent(sw, { v: 1, kind: "briefing_ready", count: 4 });
+  await pushEvent(sw, { v: 1, kind: "test", count: 1 });
+  assert.deepEqual(sw.shown.map((n) => n.title), ["Eine wichtige Mail", "3 wichtige Mails", "Dein Briefing ist bereit", "Test-Benachrichtigung"]);
+  assert.equal(sw.shown[2]?.options.body, "4 Mails sind offen.");
+  assert.equal(sw.shown[1]?.options.tag, "important_mail", "same kind replaces the previous notification");
+  assert.equal(JSON.stringify(sw.shown[0]?.options.data), '{"url":"/"}');
+});
+
+test("push: foreign fields in the payload are never shown", async () => {
+  const sw = loadSw();
+  await pushEvent(sw, { v: 1, kind: "important_mail", count: 2, subject: "SUBJECT-MARKER-1", from: "x@y.test", body: "BODY-MARKER-1" });
+  assert.equal(JSON.stringify(sw.shown).includes("MARKER"), false);
+  assert.equal(JSON.stringify(sw.shown).includes("x@y.test"), false);
+});
+
+test("push: broken, empty or unknown payloads still show a neutral notification (iOS needs one per push)", async () => {
+  const sw = loadSw();
+  await pushEvent(sw, undefined);
+  await pushEvent(sw, undefined, "{not json");
+  await pushEvent(sw, { kind: "something_else", count: -4 });
+  await pushEvent(sw, { kind: "important_mail", count: "many" });
+  assert.deepEqual(sw.shown.map((n) => n.title), ["E-Mail-Agent", "E-Mail-Agent", "E-Mail-Agent", "Eine wichtige Mail"]);
+});
+
+test("notificationclick focuses an open app window or opens /", async () => {
+  let focused = 0;
+  const sw = loadSw({ windows: [{ url: "https://other.test/", focus: async () => { focused += 100; } }, { url: "https://app.test/emails/1", focus: async () => { focused++; } }] });
+  let closed = 0;
+  const waits: Promise<unknown>[] = [];
+  sw.handlers.notificationclick({ notification: { close: () => { closed++; } }, waitUntil: (p: Promise<unknown>) => { waits.push(p); } });
+  await Promise.all(waits);
+  assert.deepEqual({ closed, focused, opened: sw.opened }, { closed: 1, focused: 1, opened: [] });
+  const none = loadSw();
+  const w2: Promise<unknown>[] = [];
+  none.handlers.notificationclick({ notification: { close: () => {} }, waitUntil: (p: Promise<unknown>) => { w2.push(p); } });
+  await Promise.all(w2);
+  assert.deepEqual(none.opened, ["/"]);
+});
+
+test("sw.js stays free of mail fields and storage: push code builds text from kind/count and the /api/ rule is untouched", () => {
+  const src = readFileSync(pub("sw.js"), "utf8");
+  assert.doesNotMatch(src, /\.(subject|sender|from|body|excerpt)\b/);
+  assert.match(src, /url\.pathname\.startsWith\("\/api\/"\)\) return;/);
+  assert.doesNotMatch(src, /localStorage|indexedDB/);
 });

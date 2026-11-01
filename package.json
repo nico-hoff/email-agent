@@ -14,6 +14,7 @@
     "staging:user": "DATABASE_PATH=data/staging.sqlite node --env-file-if-exists=.env.local scripts/user-create.ts",
     "accounts:import": "node --env-file-if-exists=.env.local scripts/accounts-import.ts",
     "accounts:rekey": "node --env-file-if-exists=.env.local scripts/accounts-rekey.ts",
+    "push:keys": "node scripts/push-keys.ts",
     "user:create": "node --env-file-if-exists=.env.local scripts/user-create.ts",
     "user:invite": "node --env-file-if-exists=.env.local scripts/user-invite.ts",
     "build": "veryfront build",

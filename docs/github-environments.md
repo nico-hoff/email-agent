@@ -32,9 +32,9 @@ Pro Environment: **Environment secrets** → *Add environment secret*. Namen exa
 | `APP_PASSWORD` | ja (bis die Benutzerkonten aus R1 stehen) | Passphrase, mindestens 16 Zeichen, z. B. aus dem Passwort-Manager. |
 | `OPENROUTER_API_KEY` | ja | OpenRouter-Dashboard → Keys; ein eigener Schlüssel für prod mit Limit. |
 | `ACCOUNTS_ENCRYPTION_KEY` | ja | `openssl rand -base64 32` (32 Byte, base64; das Skript prüft das Format, ohne den Wert zu zeigen). **Einmal erzeugen und sicher sichern** (Passwort-Manager): ohne diesen Schlüssel sind gespeicherte Postfach-Zugangsdaten nicht mehr lesbar. Nicht ohne Not rotieren. |
-| `VAPID_PUBLIC_KEY` | ja | `npx web-push generate-vapid-keys` (Paket `web-push`, wird per npx geladen, nichts im Repo). Ausgabe „Public Key“ (base64url, 65 Byte). |
-| `VAPID_PRIVATE_KEY` | ja | Dieselbe Ausgabe, „Private Key“ (base64url, 32 Byte). Public und Private gehören zusammen, nicht mischen. |
-| `VAPID_SUBJECT` | nein (vorerst) | `mailto:deine@adresse` oder `https://…`. Leer lassen ist erlaubt. |
+| `VAPID_PUBLIC_KEY` | ja | `npm run push:keys` im Repo (druckt ein neues Paar, speichert nichts; kein Paket nötig). Ausgabe `VAPID_PUBLIC_KEY=` (base64url, 65 Byte). |
+| `VAPID_PRIVATE_KEY` | ja | Dieselbe Ausgabe, `VAPID_PRIVATE_KEY=` (base64url, 32 Byte). Public und Private gehören zusammen, nicht mischen. |
+| `VAPID_SUBJECT` | für Web-Push ja (ADR 0036) | `mailto:deine@adresse` oder `https://…`. Der Secret-Katalog behandelt ihn noch als optional, ohne ihn bleibt Push aus (Apple verlangt ihn). |
 | `OPENAI_API_KEY` | nein | Nur falls die Agenten direkt zu OpenAI sollen. Leer lassen = nicht gesetzt. |
 
 Fehlt ein Pflichtwert oder hat er das falsche Format, bricht der Workflow ab, **bevor** fly kontaktiert wird (Namen und Grund im Log, nie der Wert).

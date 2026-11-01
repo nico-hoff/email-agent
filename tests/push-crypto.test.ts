@@ -71,6 +71,10 @@ describe("VAPID", () => {
     assert.ok(!vapidKeysMatch("x", "y"));
   });
 
+  test("every generated private key is exactly 32 bytes (leading zero bytes are kept)", () => {
+    for (let i = 0; i < 1500; i++) assert.equal(b64urlDecode(generateVapidKeys().privateKey)!.length, 32);
+  });
+
   test("the JWT is ES256 with aud, exp (<= 24 h) and sub, and verifies with the public key only", () => {
     const k = generateVapidKeys();
     const now = Date.UTC(2026, 9, 31, 12);

@@ -6,6 +6,10 @@
 // navigation response that gets cached. Data reaches the page only through
 // /api/ calls made by the client. Every other navigation (e.g. /emails/:id)
 // is network-only; if the network fails, the cached "/" shell is served.
+//
+// Web Push (ADR 0036): the push payload is {"v":1,"kind":"important_mail"|"briefing_ready"|"test","count":n} and nothing
+// else. The German text is built here from kind and count; a subject, sender or body is never part of a push. Every push
+// shows a notification (browsers, iOS in particular, revoke the subscription of a worker that stays silent).
 const CACHE = "shell-v4";
 const SHELL = [
   "/",
@@ -85,4 +89,47 @@ self.addEventListener("fetch", (event) => {
   if (STATIC_DESTINATIONS.includes(request.destination) || SHELL.includes(url.pathname)) {
     event.respondWith(staleWhileRevalidate(request));
   }
+});
+
+// ---- Web Push ----------------------------------------------------------------------------------------------------------
+const KINDS = ["important_mail", "briefing_ready", "test"];
+
+/** Notification text for a payload; any unknown or broken payload still yields a neutral notification. */
+function notificationFor(data) {
+  const kind = data && typeof data === "object" && KINDS.includes(data.kind) ? data.kind : "unknown";
+  const n = data && Number.isInteger(data.count) && data.count > 0 ? Math.min(data.count, 99) : 1;
+  const opts = { icon: "/icon-192.png", tag: kind, renotify: true, data: { url: "/" } };
+  if (kind === "important_mail") {
+    return { title: n === 1 ? "Eine wichtige Mail" : n + " wichtige Mails", options: { ...opts, body: "Öffne den E-Mail-Agent, um sie zu sehen." } };
+  }
+  if (kind === "briefing_ready") {
+    return { title: "Dein Briefing ist bereit", options: { ...opts, body: n === 1 ? "Eine Mail ist offen." : n + " Mails sind offen." } };
+  }
+  if (kind === "test") {
+    return { title: "Test-Benachrichtigung", options: { ...opts, body: "Push funktioniert auf diesem Gerät." } };
+  }
+  return { title: "E-Mail-Agent", options: { ...opts, body: "Es gibt etwas Neues." } };
+}
+
+self.addEventListener("push", (event) => {
+  let data = null;
+  try {
+    data = event.data ? event.data.json() : null;
+  } catch (err) {
+    data = null;
+  }
+  const n = notificationFor(data);
+  event.waitUntil(self.registration.showNotification(n.title, n.options));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
+      for (const client of list) {
+        if (new URL(client.url).origin === self.location.origin && "focus" in client) return client.focus();
+      }
+      return self.clients.openWindow("/");
+    }),
+  );
 });

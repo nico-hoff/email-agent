@@ -266,6 +266,17 @@ describe("triggers: important mail", () => {
     }
   });
 
+  test("mails of the initial import (origin = import) never push, even when fresh and urgent", async () => {
+    const s = setup();
+    const id = addMail(s.db, "a1", NOW, { urgency: 3 });
+    s.db.prepare("UPDATE emails SET origin = 'import' WHERE id = ?").run(id);
+    await s.notifier.onClassified(id);
+    assert.equal(s.f.calls.length, 0);
+    s.set(new Date(NOW.getTime() + 11 * 60_000));
+    await s.notifier.tick();
+    assert.equal(s.f.calls.length, 0);
+  });
+
   test("old mail (initial sync), unclassified mail, unknown mail and users without a device send nothing", async () => {
     const s = setup();
     await s.notifier.onClassified(addMail(s.db, "a1", new Date(NOW.getTime() - 2 * 3600_000), { urgency: 3 }));

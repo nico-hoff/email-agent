@@ -415,7 +415,7 @@ export function listEmails(db: DatabaseSync, userId: number, q: ListQuery, deps:
 const PUSH_URGENT_MIN = 2;
 
 export interface PushCandidate {
-  /** Classified, not noise, not read or done, and (urgency >= 2 or open). */
+  /** Classified, not noise, not read or done, not from the initial import, and (urgency >= 2 or open). */
   important: boolean;
   firstSeenAt: string;
 }
@@ -429,7 +429,9 @@ export function pushCandidate(db: DatabaseSync, userId: number, emailId: number,
   if (!row) return null;
   const d = derive(row, deps.readNoul ?? interpretNoul);
   const urgent = d.key.urgency !== null && d.key.urgency >= PUSH_URGENT_MIN;
-  const important = row.status === "classified" && !d.noise && !d.seen && !d.done && (urgent || d.open);
+  // Mails of the initial import (emails.origin = 'import', migration 008) never push, however urgent they look.
+  const live = (db.prepare("SELECT origin FROM emails WHERE id = ?").get(emailId) as { origin: string } | undefined)?.origin !== "import";
+  const important = live && row.status === "classified" && !d.noise && !d.seen && !d.done && (urgent || d.open);
   return { important, firstSeenAt: row.first_seen_at };
 }
 
