@@ -37,6 +37,7 @@ Neuere Handover ersetzen ältere; immer das mit dem jüngsten Datum lesen.
 | Datei | Thema |
 |---|---|
 | `README.md` | Installation, Befehle, „Öffentlich hosten“ |
+| `docs/stack-beurteilung.md` | Veryfront und Alternativen, Konzepte (MVC, ORM, RBAC), Agenten/Workflows, Stack je Phase (zu ADR 0045) |
 | `docs/fly-deploy.md` | fly.io: Konfiguration, Schritte, Kosten, Backup, Not-Aus |
 | `docs/github-environments.md` | GitHub Environments `prod`/`preview`, Secrets, Workflows (ADR 0024) |
 | `docs/qa/R4.md` | QA-Paket R4: Prod-Pipeline |
