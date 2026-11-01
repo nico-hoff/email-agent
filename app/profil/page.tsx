@@ -33,6 +33,7 @@ import {
   postClassifierChoice,
   postClassifierModel,
   postGlobalStop,
+  postQuarantine,
   postSpamSeenMode,
   postUserStop,
   SETTINGS_ERROR_TEXT,
@@ -260,9 +261,29 @@ export default function Profil(): React.JSX.Element {
     runSettings(postSpamSeenMode(accountId, mode, false, mutationDeps), 'Gespeichert.')
   }, [settings, runSettings])
 
+  const changeQuarantineMode = useCallback((accountId: string, mode: SpamSeenMode): void => {
+    if (mode === 'live') {
+      const a = settings?.accounts.find((x) => x.id === accountId)
+      setConfirm({ kind: 'qlive', accountId, label: a?.label ?? accountId, yolo: a?.quarantine?.yolo === true })
+      return
+    }
+    runSettings(postQuarantine(accountId, { mode }, false, mutationDeps), 'Gespeichert.')
+  }, [settings, runSettings])
+
+  const changeYolo = useCallback((accountId: string, on: boolean): void => {
+    if (on) {
+      const label = settings?.accounts.find((x) => x.id === accountId)?.label ?? accountId
+      setConfirm({ kind: 'yolo', accountId, label })
+      return
+    }
+    runSettings(postQuarantine(accountId, { yolo: false }, false, mutationDeps), 'YOLO ist aus.')
+  }, [settings, runSettings])
+
   const acceptConfirm = useCallback((): void => {
     if (!confirm) return
-    if (confirm.kind === 'live') runSettings(postSpamSeenMode(confirm.accountId, 'live', true, mutationDeps), 'Spam wird jetzt auf dem Server als gelesen markiert.')
+    if (confirm.kind === 'qlive') runSettings(postQuarantine(confirm.accountId, { mode: 'live' }, true, mutationDeps), 'Spam wird jetzt auf dem Server verschoben.')
+    else if (confirm.kind === 'yolo') runSettings(postQuarantine(confirm.accountId, { yolo: true }, true, mutationDeps), 'YOLO ist an.')
+    else if (confirm.kind === 'live') runSettings(postSpamSeenMode(confirm.accountId, 'live', true, mutationDeps), 'Spam wird jetzt auf dem Server als gelesen markiert.')
     else runSettings(postGlobalStop(confirm.stopped, mutationDeps), confirm.stopped ? 'Globaler Not-Aus eingeschaltet.' : 'Globaler Not-Aus aufgehoben.')
   }, [confirm, runSettings])
 
@@ -320,6 +341,9 @@ export default function Profil(): React.JSX.Element {
         confirm,
         timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         onMode: changeMode,
+        onQuarantineMode: changeQuarantineMode,
+        onQuarantineDays: (accountId, days) => runSettings(postQuarantine(accountId, { days }, false, mutationDeps), 'Gespeichert.'),
+        onYolo: changeYolo,
         onUserStop: (stopped) => runSettings(postUserStop(stopped, mutationDeps), stopped ? 'Not-Aus eingeschaltet. Es passiert nichts mehr am Postfach.' : 'Aktionen wieder erlaubt.'),
         onGlobalStop: (stopped) => setConfirm({ kind: 'global', stopped }),
         onConfirm: acceptConfirm,

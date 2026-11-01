@@ -11,7 +11,7 @@ import { createAuthContext, createLoginLimiter, createMutationLimiter, handleLog
 import { CSRF_HEADER } from "../lib/csrf.ts";
 import { openDatabase } from "../lib/db.ts";
 import {
-  handleClassifierModel, handlePermission, handleSettingsGet, handleSpamSeenMode, handleStop, type SettingsApiDeps,
+  handleClassifierModel, handlePermission, handleQuarantineSettings, handleSettingsGet, handleSpamSeenMode, handleStop, type SettingsApiDeps,
 } from "../lib/settings-api.ts";
 import { LUNA_CLASSIFIER } from "../lib/classifier-models.ts";
 import { isSelectableModel } from "../lib/user-settings.ts";
@@ -137,5 +137,77 @@ describe("settings API", () => {
     assert.equal((await handlePermission(post(s, "/x", { user_id: 99, classifier_choice: true }), s.deps)).status, 404);
     assert.equal((await handlePermission(post(s, "/x", { user_id: 1, classifier_choice: false }), s.deps)).status, 200);
     assert.deepEqual((await settings(s)).classifier, { permitted: false });
+  });
+});
+
+describe("quarantine settings (R9, ADR 0025 Teil 2)", () => {
+  const q = (s: S, body: unknown, withSession = true) => handleQuarantineSettings(post(s, "/api/settings/quarantine", body, withSession), s.deps);
+  const view = async (s: S, id: string) => ((await settings(s)).accounts.find((a) => a.id === id) as unknown as { quarantine: { mode: string; days: number; yolo: boolean } }).quarantine;
+
+  it("defaults are off, 14 days, no YOLO", async () => {
+    const s = await setup();
+    const id = await mkAccount(s);
+    assert.deepEqual(await view(s, id), { mode: "off", days: 14, yolo: false });
+  });
+
+  it("dry_run needs no confirmation; live and YOLO need confirm: true", async () => {
+    const s = await setup();
+    const id = await mkAccount(s);
+    assert.equal((await q(s, { account_id: id, mode: "dry_run" })).status, 200);
+    assert.equal((await q(s, { account_id: id, mode: "live" })).status, 400);
+    assert.equal((await q(s, { account_id: id, mode: "live", confirm: false })).status, 400);
+    assert.equal((await view(s, id)).mode, "dry_run");
+    assert.equal((await q(s, { account_id: id, yolo: true })).status, 400, "YOLO without confirm");
+    assert.equal((await view(s, id)).yolo, false);
+    assert.equal((await q(s, { account_id: id, yolo: true, confirm: true })).status, 200);
+    assert.equal((await q(s, { account_id: id, mode: "live", confirm: true })).status, 200);
+    assert.deepEqual(await view(s, id), { mode: "live", days: 14, yolo: true });
+  });
+
+  it("YOLO needs a mode other than off; switching off clears YOLO", async () => {
+    const s = await setup();
+    const id = await mkAccount(s);
+    const r = await q(s, { account_id: id, yolo: true, confirm: true });
+    assert.equal(r.status, 409);
+    assert.equal(((await r.json()) as { error: string }).error, "quarantine_off");
+    await q(s, { account_id: id, mode: "dry_run" });
+    await q(s, { account_id: id, yolo: true, confirm: true });
+    await q(s, { account_id: id, mode: "off" });
+    assert.deepEqual(await view(s, id), { mode: "off", days: 14, yolo: false });
+  });
+
+  it("cleanup days: 1 to 90 only", async () => {
+    const s = await setup();
+    const id = await mkAccount(s);
+    assert.equal((await q(s, { account_id: id, days: 30 })).status, 200);
+    assert.equal((await view(s, id)).days, 30);
+    for (const days of [0, 91, -1, 1.5, "7"]) assert.equal((await q(s, { account_id: id, days })).status, 400, String(days));
+    assert.equal((await q(s, { account_id: id, days: 1 })).status, 200);
+    assert.equal((await q(s, { account_id: id, days: 90 })).status, 200);
+    assert.equal((await view(s, id)).days, 90);
+  });
+
+  it("unknown fields, an empty change, a missing session and a foreign account id are refused without a change", async () => {
+    const s = await setup();
+    const id = await mkAccount(s);
+    assert.equal((await q(s, { account_id: id, mode: "dry_run", extra: 1 })).status, 400);
+    assert.equal((await q(s, { account_id: id })).status, 400);
+    assert.equal((await q(s, { account_id: id, mode: "on" })).status, 400);
+    assert.equal((await q(s, { account_id: "nope", mode: "dry_run" })).status, 404);
+    assert.equal((await q(s, { account_id: id, mode: "dry_run" }, false)).status, 401);
+    assert.deepEqual(await view(s, id), { mode: "off", days: 14, yolo: false });
+  });
+
+  it("audit rows carry codes only", async () => {
+    const s = await setup();
+    const id = await mkAccount(s);
+    await q(s, { account_id: id, mode: "dry_run" });
+    await q(s, { account_id: id, days: 7 });
+    await q(s, { account_id: id, yolo: true, confirm: true });
+    assert.deepEqual(audits(s).map((a) => [a.action, a.details_json]), [
+      ["quarantine_mode_changed", '{"from":"off","to":"dry_run"}'],
+      ["quarantine_days_changed", '{"from":14,"to":7}'],
+      ["quarantine_yolo_changed", '{"from":false,"to":true}'],
+    ]);
   });
 });

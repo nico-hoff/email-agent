@@ -4,10 +4,11 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ActionsView } from '../../components/actions.tsx'
 import { csrfMutationHeaders } from 'veryfront/index.client'
 import { fetchActions, fetchDetail, fetchPage, mapLimit, SessionExpired } from '../../lib/list-client.ts'
-import { postEmailUnread, UNREAD_ERROR_TEXT, type MutationDeps } from '../../lib/mutate-client.ts'
+import { postActionUndo, postEmailUnread, UNDO_MOVE_ERROR_TEXT, UNREAD_ERROR_TEXT, type MutationDeps } from '../../lib/mutate-client.ts'
 import {
   ACTION_PAGE_SIZE,
   actionsUrl,
+  afterUndoMove,
   afterUnread,
   defaultActionTab,
   listUrl,
@@ -157,6 +158,29 @@ export default function Aussortiert(): React.JSX.Element {
     })
   }, [busy, counts, actions, tab])
 
+  const undoMove = useCallback((actionId: number): void => {
+    const emailId = actions.find((a) => a.id === actionId)?.email_id
+    if (emailId === undefined || busy.has(emailId) || counts === null) return
+    setBusy((b) => new Set(b).add(emailId))
+    void postActionUndo(actionId, mutationDeps).then((res) => {
+      setBusy((b) => {
+        const n = new Set(b)
+        n.delete(emailId)
+        return n
+      })
+      if (!res.ok) {
+        setToast({ text: UNDO_MOVE_ERROR_TEXT[res.reason], error: true })
+        return
+      }
+      const r = afterUndoMove(actions, counts, tab, actionId)
+      setActions(r.actions)
+      setCounts(r.counts)
+      setToast({
+        text: res.mode === 'live' ? 'Zurück im Posteingang. Auch auf dem Mailserver.' : 'Wird nicht verschoben. Im Postfach wurde nichts geändert (Trockenlauf).',
+      })
+    })
+  }, [busy, counts, actions, tab])
+
   useEffect(() => {
     if (!toast) return
     const t = setTimeout(() => setToast(null), toast.error ? 8000 : 6000)
@@ -184,6 +208,7 @@ export default function Aussortiert(): React.JSX.Element {
       onMore={more}
       onReload={() => setTick((t) => t + 1)}
       onUnread={unread}
+      onUndoMove={undoMove}
       toast={toast}
       onToastClose={() => setToast(null)}
     />

@@ -67,3 +67,37 @@ export function decideSpamSeen(i: RuleInput): RuleDecision {
   if (i.inProviderSpam) return { action: "mark_seen", reason: "provider_spam" };
   return { action: "none", reason: "no_signal" };
 }
+
+export type MoveReason = "jev_spam" | "blacklisted" | "protected_category" | "allowlisted" | "not_spam" | "no_signal" | "not_in_inbox";
+
+export interface MoveDecision {
+  action: "quarantine" | "none";
+  reason: MoveReason;
+}
+
+export interface MoveRuleInput extends Omit<RuleInput, "seen" | "inProviderSpam"> {
+  /** The mail's active location is the account's own mailbox (INBOX). Only there a mail is moved (ADR 0025). */
+  inInbox: boolean;
+}
+
+/**
+ * Rule "Spam in Quarantäne" (ADR 0025 Teil 2). Same protection and the same Jev reading as decideSpamSeen, with two
+ * differences: a mail that is already read is still moved, and the provider spam folder alone is no reason (a mail there is
+ * not in the INBOX and nothing is moved out of other folders). Fail-closed: a missing or unmapped is_spam never moves.
+ */
+export function decideQuarantine(i: MoveRuleInput): MoveDecision {
+  const category = i.answers.find((a) => a.key === "category" && a.type === "choice");
+  if (category && typeof category.value === "string" && PROTECTED_CATEGORIES.includes(category.value)) {
+    return { action: "none", reason: "protected_category" };
+  }
+  if (i.allowlisted === true) return { action: "none", reason: "allowlisted" };
+  if (!i.inInbox) return { action: "none", reason: "not_in_inbox" };
+
+  const interpret = i.interpret ?? interpretNoul;
+  const spam = i.answers.find((a) => a.key === "is_spam");
+  const reading = spam ? interpret(spam, i.questionSetVersion, i.model) : "unmapped";
+  if (reading === "positive") return { action: "quarantine", reason: "jev_spam" };
+  if (i.blacklisted === true) return { action: "quarantine", reason: "blacklisted" };
+  if (reading === "negative") return { action: "none", reason: "not_spam" };
+  return { action: "none", reason: "no_signal" };
+}

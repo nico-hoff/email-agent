@@ -6,6 +6,7 @@ import {
   ACTION_TABS,
   ACTION_TAB_LABEL,
   actionTitle,
+  isMoveAction,
   formatCount,
   modeNotices,
   tabCount,
@@ -36,13 +37,15 @@ export interface ActionsViewProps {
   onMore?: () => void;
   onReload?: () => void;
   onUnread?: (emailId: number) => void;
+  /** Undo of a quarantine or trash move (R9): the action id. */
+  onUndoMove?: (actionId: number) => void;
   toast?: { text: string; error?: boolean } | null;
   onToastClose?: () => void;
 }
 
 const EMPTY: Record<ActionTab, { title: string; hint: string }> = {
-  dry_run: { title: "Nichts geplant", hint: "Sobald neuer Spam eintrifft, steht hier, was die Regel tun würde." },
-  live: { title: "Noch nichts ausgeführt", hint: "Hier stehen Mails, die im Postfach als gelesen markiert wurden." },
+  dry_run: { title: "Nichts geplant", hint: "Sobald neuer Spam eintrifft, steht hier, was die Regeln tun würden (als gelesen markieren, in die Quarantäne oder den Papierkorb verschieben)." },
+  live: { title: "Noch nichts ausgeführt", hint: "Hier stehen Mails, die im Postfach als gelesen markiert oder verschoben wurden." },
 };
 
 function Row(
@@ -60,8 +63,10 @@ function Row(
     );
   }
   const busy = p.busy.has(action.email_id);
+  const move = isMoveAction(action);
   // In the dry run nothing was marked yet: the button keeps the rule from marking the mail, so it is not "ungelesen".
-  const label = p.tab === "dry_run" ? "Nicht markieren" : "Wieder ungelesen";
+  // A move (R9) is undone by moving the mail back to the INBOX.
+  const label = move ? (p.tab === "dry_run" ? "Nicht verschieben" : "Zurück in den Posteingang") : p.tab === "dry_run" ? "Nicht markieren" : "Wieder ungelesen";
   return (
     <li className="item action-item">
       <p className="action-title">{title}</p>
@@ -72,7 +77,7 @@ function Row(
           className="btn btn-unread"
           aria-label={`${label}: ${email.subject || "(ohne Betreff)"}`}
           disabled={busy}
-          onClick={() => (p.onUnread ?? noop)(action.email_id)}
+          onClick={() => (move ? (p.onUndoMove ?? noop)(action.id) : (p.onUnread ?? noop)(action.email_id))}
         >{label}</button>
       </div>
     </li>
@@ -98,7 +103,7 @@ export function ActionsView(p: ActionsViewProps): React.JSX.Element {
         </div>
         <div className="title">
           <h1>Aussortiert</h1>
-          <p className="mode">Spam, den die App als gelesen markiert</p>
+          <p className="mode">Spam, den die App markiert oder verschiebt</p>
         </div>
         <div className="segmented" role="group" aria-label="Ansicht">
           {ACTION_TABS.map((t) => (

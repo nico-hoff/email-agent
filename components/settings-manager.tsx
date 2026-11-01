@@ -2,7 +2,7 @@
 // "Klassifikationsmodell" (only with the permission) and "Berechtigungen" (admins). Stateless: the page passes data, the open
 // dialog and callbacks. Shows switches, counts and model names only; nothing from a mail.
 import { ConfirmDialog } from "./confirm-dialog.tsx";
-import { costText, MODE_LABEL, modeSummary, type SettingsAccount, type SettingsData, type SpamSeenMode } from "../lib/settings-client.ts";
+import { costText, MODE_LABEL, modeSummary, quarantineSummary, type SettingsAccount, type SettingsData, type SpamSeenMode } from "../lib/settings-client.ts";
 import { formatWhen } from "../lib/profile-client.ts";
 
 const noop = (): void => {};
@@ -10,6 +10,8 @@ const MODES: readonly SpamSeenMode[] = ["off", "dry_run", "live"];
 
 export type SettingsConfirm =
   | { kind: "live"; accountId: string; label: string }
+  | { kind: "qlive"; accountId: string; label: string; yolo: boolean }
+  | { kind: "yolo"; accountId: string; label: string }
   | { kind: "global"; stopped: boolean }
   | null;
 
@@ -19,6 +21,9 @@ export interface SettingsSectionProps {
   confirm: SettingsConfirm;
   timeZone?: string;
   onMode?: (accountId: string, mode: SpamSeenMode) => void;
+  onQuarantineMode?: (accountId: string, mode: SpamSeenMode) => void;
+  onQuarantineDays?: (accountId: string, days: number) => void;
+  onYolo?: (accountId: string, on: boolean) => void;
   onUserStop?: (stopped: boolean) => void;
   onGlobalStop?: (stopped: boolean) => void;
   onConfirm?: () => void;
@@ -59,6 +64,43 @@ function StopBlock(p: SettingsSectionProps & { data: SettingsData }): React.JSX.
   );
 }
 
+const DAY_OPTIONS: readonly number[] = Array.from({ length: 90 }, (_, i) => i + 1);
+
+/** "Spam in Quarantäne verschieben" (ADR 0025 Teil 2) with cleanup days and YOLO, per account. All switches default to off. */
+function QuarantineBlock(p: SettingsSectionProps & { a: SettingsAccount }): React.JSX.Element | null {
+  const { a } = p;
+  const q = a.quarantine;
+  if (q === null) return null;
+  return (
+    <div className="quarantine-block" data-testid="quarantine-block">
+      <h3 className="sub-h">Spam in Quarantäne verschieben</h3>
+      <div className="choices" role="group" aria-label={`Spam in Quarantäne verschieben für ${a.label}`}>
+        {MODES.map((m) => (
+          <button key={m} type="button" className="btn choice" aria-pressed={q.mode === m} disabled={p.busy} onClick={() => { if (q.mode !== m) (p.onQuarantineMode ?? noop)(a.id, m); }}>
+            {MODE_LABEL[m]}
+          </button>
+        ))}
+      </div>
+      <p className="hint" data-testid="quarantine-summary">{quarantineSummary(q)}</p>
+      {q.mode !== "off" && (
+        <>
+          <label className="field" htmlFor={`days-${a.id}`}>
+            <span className="field-label">Aufräumen nach</span>
+            <select id={`days-${a.id}`} className="select" value={q.days} disabled={p.busy} data-testid="cleanup-days" onChange={(e) => (p.onQuarantineDays ?? noop)(a.id, Number(e.target.value))}>
+              {DAY_OPTIONS.map((d) => <option key={d} value={d}>{d === 1 ? "1 Tag" : `${d} Tage`}</option>)}
+            </select>
+          </label>
+          <p className="hint">Nach dieser Frist wandern Mails aus der Quarantäne in den Papierkorb deines Anbieters. Endgültig gelöscht wird nie von der App.</p>
+          <button type="button" className={`btn btn-wide${q.yolo ? " btn-danger" : ""}`} aria-pressed={q.yolo} disabled={p.busy} data-testid="yolo-toggle" onClick={() => (p.onYolo ?? noop)(a.id, !q.yolo)}>
+            {q.yolo ? "YOLO ist an: Spam sofort in den Papierkorb" : "YOLO: Spam sofort in den Papierkorb"}
+          </button>
+          {q.yolo && <p className="hint hint-warn" role="status">Spam landet ohne Quarantäne im Papierkorb. Falsch erkannte Mails musst du dort selbst zurückholen oder hier mit „Rückgängig“.</p>}
+        </>
+      )}
+    </div>
+  );
+}
+
 function AccountRow(p: SettingsSectionProps & { data: SettingsData; a: SettingsAccount }): React.JSX.Element {
   const { a, data } = p;
   const limitReached = a.actions_24h >= data.daily_limit;
@@ -78,6 +120,7 @@ function AccountRow(p: SettingsSectionProps & { data: SettingsData; a: SettingsA
             ))}
           </div>
           <p className="hint" data-testid="mode-summary">{modeSummary(a.spam_seen_mode)}</p>
+          <QuarantineBlock {...p} a={a} />
           <p className={`hint${limitReached ? " hint-warn" : ""}`} data-testid="daily-count">
             Heute {a.actions_24h} von {data.daily_limit} Aktionen (letzte 24 Stunden){limitReached ? ". Das Limit ist erreicht, weitere Mails warten." : "."}
           </p>
@@ -168,6 +211,36 @@ function Dialogs(p: SettingsSectionProps): React.JSX.Element | null {
           <li>Höchstens {p.data?.daily_limit ?? 200} Aktionen je Konto in 24 Stunden.</li>
           <li>Sicherheits- und Systemmails und Absender auf deiner Positivliste bleiben unberührt.</li>
           <li>Der Not-Aus hält alles sofort an. Empfohlen: erst einige Tage im Trockenlauf prüfen.</li>
+        </ul>
+      </ConfirmDialog>
+    );
+  }
+  if (c.kind === "qlive") {
+    return (
+      <ConfirmDialog title="Spam in Quarantäne verschieben?" confirmLabel="Ja, einschalten" danger busy={p.busy} onConfirm={p.onConfirm} onCancel={p.onCancelConfirm}>
+        <p>Für <strong>{c.label}</strong> verbindet sich die App danach mit dem Mailserver und <strong>verschiebt</strong> Mails dort.</p>
+        <ul className="dialog-list">
+          <li>{c.yolo
+            ? "YOLO ist an: Spam wird sofort in den Papierkorb des Anbieters verschoben, ohne Quarantäne."
+            : "Als Spam erkannte Mails aus dem Posteingang werden in den Ordner „Quarantäne“ verschoben. Der Ordner wird bei Bedarf angelegt."}</li>
+          <li>Nach der eingestellten Frist (Standard 14 Tage) wandert die Mail aus der Quarantäne in den Papierkorb. Die App löscht nie endgültig und sendet nichts.</li>
+          <li>Unter „Letzte Aktionen“ kannst du jede Verschiebung zurück in den Posteingang holen.</li>
+          <li>Höchstens {p.data?.daily_limit ?? 200} Aktionen je Konto in 24 Stunden. Sicherheits- und Systemmails und Absender auf deiner Positivliste bleiben unberührt.</li>
+          <li>Der Not-Aus hält alles sofort an. Empfohlen: erst einige Tage im Trockenlauf prüfen.</li>
+        </ul>
+      </ConfirmDialog>
+    );
+  }
+  if (c.kind === "yolo") {
+    return (
+      <ConfirmDialog title="YOLO wirklich einschalten?" confirmLabel="Ja, YOLO einschalten" danger busy={p.busy} onConfirm={p.onConfirm} onCancel={p.onCancelConfirm}>
+        <p className="hint-warn"><strong>Achtung: Für {c.label} wird Spam ohne Zwischenstation in den Papierkorb verschoben.</strong></p>
+        <ul className="dialog-list">
+          <li>Es gibt keine Quarantäne und keine Frist. Eine falsch erkannte Mail liegt sofort im Papierkorb, auch eine wichtige.</li>
+          <li>Wann der Anbieter den Papierkorb leert, bestimmt der Anbieter, nicht die App. Danach ist die Mail weg.</li>
+          <li>Du kannst eine Mail unter „Letzte Aktionen“ zurück in den Posteingang holen, solange sie im Papierkorb liegt.</li>
+          <li>Die Schutzregeln (Sicherheits- und Systemmails, Positivliste), das Tageslimit und der Not-Aus gelten weiter.</li>
+          <li>Empfohlen: erst Quarantäne mit Frist nutzen und die Treffer prüfen.</li>
         </ul>
       </ConfirmDialog>
     );

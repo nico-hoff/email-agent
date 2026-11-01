@@ -38,6 +38,7 @@ function fakePort(fail?: () => ImapWriteError | undefined) {
       const e = fail?.();
       if (e) throw e;
     },
+    async moveMessage() { throw new ImapWriteError("move_unsupported"); },
   };
   return { port, calls };
 }

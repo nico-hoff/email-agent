@@ -111,6 +111,30 @@ interface PipelineOptions {
   /** Test seam: replaces the push transport (never a real network call in tests). */
   pushTransport?: PushTransport;
   pushNotifier?: PushNotifier;
+  /** Interval of the quarantine cleanup job (default 30 minutes). */
+  cleanupIntervalMs?: number;
+}
+
+const CLEANUP_INTERVAL_MS = 30 * 60_000;
+
+/** Periodic cleanup of Quarantäne -> trash (R9, ADR 0038). Every run honours the stops and limits itself; errors are swallowed. */
+function cleanupTimer(actions: MailboxActions, intervalMs: number, log: (message: string) => void) {
+  let timer: ReturnType<typeof setInterval> | undefined;
+  const run = (): void => {
+    void actions.cleanup().catch(() => log("quarantine cleanup failed"));
+  };
+  return {
+    start(): void {
+      if (timer !== undefined) return;
+      timer = setInterval(run, intervalMs);
+      timer.unref();
+    },
+    stop(): void {
+      if (timer !== undefined) clearInterval(timer);
+      timer = undefined;
+    },
+    run,
+  };
 }
 
 /**
@@ -136,7 +160,7 @@ function wirePipeline(deps: { db: StartupResult["db"]; accounts: ImapWorkersDeps
   const apiKey = env.OPENROUTER_API_KEY;
   if (!apiKey) {
     log("classification disabled: OPENROUTER_API_KEY not set");
-    return { actions, push, pipeline: undefined, onIngested: undefined };
+    return { actions, push, pipeline: undefined, onIngested: undefined, cleanup: cleanupTimer(actions, o.cleanupIntervalMs ?? CLEANUP_INTERVAL_MS, log) };
   }
   const pipeline = createClassificationPipeline({
     db: deps.db,
@@ -164,7 +188,7 @@ function wirePipeline(deps: { db: StartupResult["db"]; accounts: ImapWorkersDeps
     if (!accountId) return;
     return pipeline.submit({ emailId, accountId, input });
   };
-  return { actions, push, pipeline, onIngested };
+  return { actions, push, pipeline, onIngested, cleanup: cleanupTimer(actions, o.cleanupIntervalMs ?? CLEANUP_INTERVAL_MS, log) };
 }
 
 /** Imap workers for a fixed account list plus the Jev classification pipeline (onIngested -> submit). Without OPENROUTER_API_KEY only ingestion runs. */
@@ -181,9 +205,11 @@ export function createWorkersWithPipeline(
       workers.start();
       w.push.start();
       void w.pipeline?.start().catch(() => log("pipeline start failed"));
-      void w.actions.backfill().catch(() => log("mailbox action backfill failed"));
+      void w.actions.backfill().then(() => w.cleanup.run()).catch(() => log("mailbox action backfill failed"));
+      w.cleanup.start();
     },
     async stop() {
+      w.cleanup.stop();
       w.push.stop();
       w.pipeline?.stop();
       await workers.stop();
@@ -220,9 +246,11 @@ export function createSupervisedWorkers(
       supervisor.start();
       w.push.start();
       void w.pipeline?.start().catch(() => log("pipeline start failed"));
-      void supervisor.reconcile().then(() => w.actions.backfill()).catch(() => log("mailbox action backfill failed"));
+      void supervisor.reconcile().then(() => w.actions.backfill()).then(() => w.cleanup.run()).catch(() => log("mailbox action backfill failed"));
+      w.cleanup.start();
     },
     async stop() {
+      w.cleanup.stop();
       w.push.stop();
       w.pipeline?.stop();
       await supervisor.stop();

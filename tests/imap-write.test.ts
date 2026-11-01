@@ -131,14 +131,17 @@ describe("ImapWritePort (H16, H16a)", () => {
     assert.deepEqual(fake.calls, []);
   });
 
-  test("the port has exactly two methods; the module never references destructive IMAP calls", () => {
+  test("the port has exactly three methods; the module never references destructive IMAP calls (messageMove is the only move)", () => {
     const port = createImapWritePort(CFG, () => new FakeClient() as never);
-    assert.deepEqual(Object.keys(port).sort(), ["addSeen", "removeSeen"]);
+    assert.deepEqual(Object.keys(port).sort(), ["addSeen", "moveMessage", "removeSeen"]);
     const src = readFileSync(join(root, "lib", "imap-write.ts"), "utf8");
-    for (const bad of ["messageDelete", "expunge", "messageMove", "messageCopy", "append(", "moveTo", "messageFlagsSet", "\\\\Deleted"]) {
+    for (const bad of ["messageDelete", "expunge", "EXPUNGE", "messageCopy", "append(", "moveTo", "messageFlagsSet", "\\\\Deleted", "mailboxDelete", "mailboxRename", "messageFlagsAdd([uid], [\"\\\\Deleted"]) {
       assert.ok(!src.includes(bad), bad);
     }
-    assert.ok(!/readOnly:\s*true/.test(src), "the write port always opens writable");
+    assert.equal((src.match(/messageMove\(/g) ?? []).length, 1, "one move call");
+    assert.equal((src.match(/mailboxCreate\(/g) ?? []).length, 1, "one create call");
+    assert.equal((src.match(/readOnly:\s*true/g) ?? []).length, 1, "only the read-only look at the target after a move; every source lock is writable");
+    assert.ok(src.indexOf('capabilities.has("MOVE")') < src.indexOf("messageMove("), "capability is checked before the move");
   });
 
   test("the read port keeps no write method (H2 stays)", () => {

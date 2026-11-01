@@ -3,10 +3,12 @@
 // only. Errors leave as codes, never as server text.
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
+import { loadKeyring } from "./account-secrets.ts";
 import { type AccountConfig, loadAccountsConfig } from "./accounts-config.ts";
 import { type AuthContext, dataDirFromEnv, guardMutation, syntheticFromEnv } from "./auth-runtime.ts";
 import { KILL_SWITCH_FILE, PROJECT_ROOT } from "./constants.ts";
 import { parseEmailId } from "./email-status.ts";
+import { loadWorkerAccounts } from "./mail-accounts.ts";
 import { createMailboxActions, type MailboxActions } from "./mailbox-actions.ts";
 import type { RateLimiter } from "./rate-limit.ts";
 
@@ -41,7 +43,7 @@ export async function handleUnread(request: Request, rawId: unknown, deps: Unrea
 }
 
 /**
- * Default wiring of the route: accounts file read at request time (credentials stay inside the executor), kill switch
+ * Default wiring of the route: accounts of the app from the database (key from the environment) plus the legacy file, read at request time (credentials stay inside the executor), kill switch
  * file next to the database, synthetic mode never gets accounts and is forced to dry run.
  */
 export function defaultMailboxActions(db: DatabaseSync, env: Record<string, string | undefined> = process.env): MailboxActions {
@@ -49,8 +51,15 @@ export function defaultMailboxActions(db: DatabaseSync, env: Record<string, stri
   let accounts: AccountConfig[] = [];
   if (!synthetic) {
     try {
+      // accounts of the app (R2): needs the encryption key; an unreadable secret just leaves that account out
+      const keys = loadKeyring(env);
+      if (keys.ok) accounts = loadWorkerAccounts(db, keys.keyring).accounts;
+    } catch {
+      // no DB accounts: only the legacy file below
+    }
+    try {
       const cfg = loadAccountsConfig({ env, projectRoot: PROJECT_ROOT });
-      if (cfg.status === "ok") accounts = cfg.accounts;
+      if (cfg.status === "ok") accounts = [...accounts, ...cfg.accounts.filter((c) => !accounts.some((a) => a.id === c.id))];
     } catch {
       // an unusable accounts file: no account is live, a live undo then answers account_unavailable
     }

@@ -19,7 +19,7 @@ Ein persönlicher E-Mail-Agent für **einen Nutzer (Nico)** mit mehreren Postfä
   Jev (System1) │   Body nur im Speicher → Jev → normalisierte Antworten        │
                 │   → Shadow (lib/shadow.ts) → Absender (lib/senders.ts)        │
                 │   → Regel-Engine (lib/mailbox-rules.ts) → Aktionen            │
- IMAP (Seen) ◄──┤      (lib/mailbox-actions.ts → lib/imap-write.ts, nur \Seen)  │
+ IMAP (Seen) ◄──┤      (lib/mailbox-actions.ts → lib/imap-write.ts: \Seen und MOVE)  │
                 │                                   │                           │
                 │                         SQLite (node:sqlite, eine Datei)      │
                 │                                   ▲                           │
@@ -67,7 +67,7 @@ Auth-Modus (`selectAuthMode`, `lib/auth.ts`): `--synthetic` → `synthetic`; `AU
 
 ### 4.4 Postfach-Schreiben (kontrolliert)
 - `lib/mailbox-rules.ts`: reine Regel-Engine – **Schutz zuerst** (`security_auth`, `transactional`, Whitelist) → bereits gelesen → Jev-Spam → Blacklist → Provider-Spam-Ordner.
-- `lib/mailbox-actions.ts`: Ausführung je Konto (`auto_actions.spam_seen`: `off|dry_run|live`, Standard `dry_run`), Not-Aus-Datei `auto-actions.disabled` neben der DB, Tageslimit 200, Idempotenz, Undo, Nachlauf beim Start.
+- `lib/mailbox-actions.ts`: Ausführung je Konto (`auto_actions.spam_seen`: `off|dry_run|live`, Standard `dry_run`), Not-Aus-Datei `auto-actions.disabled` neben der DB, Tageslimit 200, Idempotenz, Undo, Nachlauf beim Start. Seit R9 auch die Regel „Spam in Quarantäne“ (und YOLO), das Aufräumen (`cleanup`, periodisch in `server.ts`) und `undoMove`; Einstellungen je Konto in `mail_accounts` (Migration 012, `lib/quarantine-settings.ts`); Verschieben nur als natives MOVE ohne Rückfall (ADR 0038, `docs/imap-write-contract.md` Abschnitt 7).
 - `lib/imap-write.ts`: **einziger** Schreibport, nur `addSeen`/`removeSeen`, eigene kurzlebige Verbindung, UIDVALIDITY-Prüfung, Rücklesen. Vertrag: `docs/imap-write-contract.md`.
 
 ### 4.5 Absender, Feedback, Kalibrierung
@@ -98,7 +98,8 @@ Auth-Modus (`selectAuthMode`, `lib/auth.ts`): `--synthetic` → `synthetic`; `AU
 | `GET|POST /api/topics` | Themenliste (12 feste + eigene), Schalter `topics_enabled`; POST `create|update|set_active|set_enabled` (R8, ADR 0037) |
 | `GET /api/topics/counts[?account]` | Mails je Thema für die Ordneransicht (nur Zahlen) |
 | `GET|POST /api/emails/:id/feedback` | Feedback-Zustand |
-| `GET /api/actions` | Trockenlauf/ausgeführte Aktionen |
+| `GET /api/actions` | Trockenlauf/ausgeführte Aktionen (alle Regeln) |
+| `POST /api/actions/:id/undo`, `POST /api/settings/quarantine` | Quarantäne/Papierkorb: Undo und Einstellungen (R9, ADR 0038) |
 | `GET /api/senders/hitl`, `POST …/hitl/dismiss`, `GET|POST /api/senders/rules`, `POST …/rules/:id/deactivate` | Absender |
 | `POST /api/briefing` | SSE-Briefing |
 | `GET /api/settings`, `POST /api/settings/spam-seen`, `/stop`, `/classifier`, `/permissions` | Profil-Einstellungen (R3), siehe `docs/accounts-contract.md` |

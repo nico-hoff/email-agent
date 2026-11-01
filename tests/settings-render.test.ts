@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { loadTsx } from "./helpers/load-tsx.ts";
-import { costText, fetchSettings, postClassifierModel, postGlobalStop, postSpamSeenMode, postUserStop, type SettingsData } from "../lib/settings-client.ts";
+import { costText, fetchSettings, postClassifierModel, postGlobalStop, postQuarantine, postSpamSeenMode, postUserStop, type SettingsData } from "../lib/settings-client.ts";
 
 type Mgr = typeof import("../components/settings-manager.tsx");
 const { SettingsSections } = await loadTsx<Mgr>("components/settings-manager.tsx");
@@ -12,7 +12,7 @@ const html = (el: unknown): string => renderToStaticMarkup(el as Parameters<type
 const data = (over: Partial<SettingsData> = {}): SettingsData => ({
   stop: { user_stopped_at: null, global_active: false, can_toggle_global: false },
   daily_limit: 200,
-  accounts: [{ id: "a_1", label: "Privat", color: "#10b981", enabled: true, managed: true, spam_seen_mode: "dry_run", actions_24h: 12 }],
+  accounts: [{ id: "a_1", label: "Privat", color: "#10b981", enabled: true, managed: true, spam_seen_mode: "dry_run", actions_24h: 12, quarantine: { mode: "off", days: 14, yolo: false } }],
   classifier: { permitted: false }, members: null, synthetic: false, ...over,
 });
 const view = (d: SettingsData | null, extra: Record<string, unknown> = {}) => html(SettingsSections({ data: d, busy: false, confirm: null, timeZone: "UTC", ...extra } as never));
@@ -93,6 +93,25 @@ describe("settings client", () => {
     assert.deepEqual(calls.map((c) => c.body), [{ account_id: "a_1", mode: "live" }, { account_id: "a_1", mode: "live", confirm: true }, { account_id: "a_1", mode: "dry_run" }]);
   });
 
+  it("quarantine: confirm is sent for live and YOLO on only, and only when confirmed", async () => {
+    const calls: { path: string; body: unknown }[] = [];
+    const d = deps(calls) as never;
+    await postQuarantine("a_1", { mode: "live" }, false, d);
+    await postQuarantine("a_1", { mode: "live" }, true, d);
+    await postQuarantine("a_1", { mode: "dry_run" }, true, d);
+    await postQuarantine("a_1", { yolo: true }, true, d);
+    await postQuarantine("a_1", { yolo: false }, true, d);
+    await postQuarantine("a_1", { days: 30 }, true, d);
+    assert.deepEqual(calls.map((c) => [c.path, c.body]), [
+      ["/api/settings/quarantine", { account_id: "a_1", mode: "live" }],
+      ["/api/settings/quarantine", { account_id: "a_1", mode: "live", confirm: true }],
+      ["/api/settings/quarantine", { account_id: "a_1", mode: "dry_run" }],
+      ["/api/settings/quarantine", { account_id: "a_1", yolo: true, confirm: true }],
+      ["/api/settings/quarantine", { account_id: "a_1", yolo: false }],
+      ["/api/settings/quarantine", { account_id: "a_1", days: 30 }],
+    ]);
+  });
+
   it("stop, global stop and model bodies; errors map to reasons", async () => {
     const calls: { path: string; body: unknown }[] = [];
     await postUserStop(true, deps(calls) as never);
@@ -112,3 +131,65 @@ describe("settings client", () => {
     assert.deepEqual([d.stop.global_active, d.accounts.length, d.accounts[0]?.spam_seen_mode, d.members, d.daily_limit], [true, 1, null, null, 200]);
   });
 });
+
+describe("quarantine settings (R9)", () => {
+  const withQ = (q: { mode: "off" | "dry_run" | "live"; days: number; yolo: boolean }) =>
+    data({ accounts: [{ id: "a_1", label: "Privat", color: "#10b981", enabled: true, managed: true, spam_seen_mode: "dry_run", actions_24h: 0, quarantine: q }] });
+
+  it("off by default: three modes, no days, no YOLO", () => {
+    const out = view(withQ({ mode: "off", days: 14, yolo: false }));
+    assert.match(out, /Spam in Quarantäne verschieben/);
+    assert.match(out, /Aus: Spam bleibt im Posteingang/);
+    assert.doesNotMatch(out, /Aufräumen nach/);
+    assert.doesNotMatch(out, /YOLO/);
+  });
+
+  it("dry run explains that nothing changes on the server; shows the days and the YOLO switch", () => {
+    const out = view(withQ({ mode: "dry_run", days: 14, yolo: false }));
+    assert.match(out, /Trockenlauf: die App zeigt nur, welchen Spam sie in den Ordner „Quarantäne“ verschieben würde/);
+    assert.match(out, /Aufräumen nach/);
+    assert.match(out, /<option value="14" selected="">14 Tage<\/option>/);
+    assert.match(out, /<option value="1">1 Tag<\/option>/);
+    assert.match(out, /<option value="90">90 Tage<\/option>/);
+    assert.match(out, /YOLO: Spam sofort in den Papierkorb/);
+    assert.match(out, /Endgültig gelöscht wird nie von der App/);
+  });
+
+  it("live without and with YOLO states what happens", () => {
+    assert.match(view(withQ({ mode: "live", days: 7, yolo: false })), /nach 7 Tagen in den Papierkorb/);
+    const y = view(withQ({ mode: "live", days: 7, yolo: true }));
+    assert.match(y, /Spam wird sofort in den Papierkorb deines Anbieters verschoben, ohne Quarantäne/);
+    assert.match(y, /YOLO ist an/);
+    assert.match(y, /btn-danger/);
+  });
+
+  it("an account without credentials shows no quarantine block", () => {
+    const d = data({ accounts: [{ id: "d", label: "Demo", color: "#000000", enabled: true, managed: false, spam_seen_mode: null, actions_24h: 0, quarantine: null }] });
+    assert.doesNotMatch(view(d), /Spam in Quarantäne verschieben/);
+  });
+
+  it("the live dialog names the move, the folder, the cleanup, the undo and the safe default focus", () => {
+    const out = view(data(), { confirm: { kind: "qlive", accountId: "a_1", label: "Privat", yolo: false } });
+    assert.match(out, /role="alertdialog"/);
+    assert.match(out, /Spam in Quarantäne verschieben\?/);
+    assert.match(out, /Ordner „Quarantäne“/);
+    assert.match(out, /Standard 14 Tage/);
+    assert.match(out, /löscht nie endgültig/);
+    assert.match(out, /zurück in den Posteingang/);
+    assert.match(out, /Höchstens 200 Aktionen/);
+    assert.match(out, /autoFocus|autofocus/i);
+    assert.match(view(data(), { confirm: { kind: "qlive", accountId: "a_1", label: "Privat", yolo: true } }), /YOLO ist an: Spam wird sofort in den Papierkorb/);
+  });
+
+  it("the YOLO dialog is a strong warning", () => {
+    const out = view(data(), { confirm: { kind: "yolo", accountId: "a_1", label: "Privat" } });
+    assert.match(out, /YOLO wirklich einschalten\?/);
+    assert.match(out, /Achtung/);
+    assert.match(out, /ohne Zwischenstation in den Papierkorb/);
+    assert.match(out, /auch eine wichtige/);
+    assert.match(out, /Wann der Anbieter den Papierkorb leert, bestimmt der Anbieter/);
+    assert.match(out, /Ja, YOLO einschalten/);
+    assert.match(out, /btn-danger/);
+  });
+});
+

@@ -560,8 +560,30 @@ export function actionsUrl(r: { tab: ActionTab; limit: number; cursor?: string |
   return `/api/actions?${q}`;
 }
 
-export function actionTitle(a: Pick<ApiAction, "mode" | "status">): string {
-  return a.mode === "live" && a.status === "done" ? "Als gelesen markiert" : "Würde als gelesen markieren";
+/** Quarantine and trash moves (R9) are undone with the move endpoint, the "gelesen" rule with the unread endpoint. */
+export const isMoveAction = (a: Pick<ApiAction, "rule">): boolean => a.rule === "quarantine" || a.rule === "purge";
+
+export function actionTitle(a: Pick<ApiAction, "mode" | "status"> & { rule?: string }): string {
+  const done = a.mode === "live" && a.status === "done";
+  if (a.rule === "quarantine") return done ? "In die Quarantäne verschoben" : "Würde in die Quarantäne verschieben";
+  if (a.rule === "purge") return done ? "In den Papierkorb verschoben" : "Würde in den Papierkorb verschieben";
+  return done ? "Als gelesen markiert" : "Würde als gelesen markieren";
+}
+
+/** Local update after a move was undone: like afterUnread, but keyed by the action (a mail can carry two actions). */
+export function afterUndoMove(
+  actions: ApiAction[], counts: ActionsCounts, tab: ActionTab, actionId: number,
+): { actions: ApiAction[]; counts: ActionsCounts } {
+  if (!actions.some((a) => a.id === actionId)) return { actions, counts };
+  const step = (c: ActionStatusCounts, from: "planned" | "done"): ActionStatusCounts => ({
+    ...c, [from]: Math.max(c[from] - 1, 0), undone: c.undone + 1,
+  });
+  return {
+    actions: actions.filter((a) => a.id !== actionId),
+    counts: tab === "live"
+      ? { ...counts, live: step(counts.live, "done") }
+      : { ...counts, dry_run: step(counts.dry_run, "planned") },
+  };
 }
 
 export function tabCount(c: ActionsCounts, tab: ActionTab): number {

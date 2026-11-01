@@ -9,6 +9,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { validateDatabasePath } from "./accounts.ts";
 import { AUTO_ACTION_MODES } from "./accounts-config.ts";
+import { changeQuarantineSettings, MAX_CLEANUP_DAYS, MIN_CLEANUP_DAYS, readQuarantineSettings } from "./quarantine-settings.ts";
 import { DAILY_ACTION_LIMIT, globalStopActive, liveActionsLast24h, setGlobalStop, setSpamSeenMode } from "./auto-actions-settings.ts";
 import { type AuthContext, dataDirFromEnv, defaultAuthContext, defaultMutationLimiter, guardMutation, requireUser } from "./auth-runtime.ts";
 import { CLASSIFIER_MODELS, relativeCost } from "./classifier-models.ts";
@@ -85,6 +86,7 @@ function accountViews(db: DatabaseSync, userId: number, now: Date) {
     // Demo accounts without credentials row have no mode of their own and never act (the list header reads them as dry run).
     spam_seen_mode: r.spam_seen_mode,
     actions_24h: liveActionsLast24h(db, r.id, now),
+    quarantine: r.spam_seen_mode === null ? null : readQuarantineSettings(db, r.id) ?? null,
   }));
 }
 
@@ -152,6 +154,37 @@ export async function handleSpamSeenMode(request: Request, deps: SettingsApiDeps
     const r = setSpamSeenMode(db, gate.userId, accountId, mode, now);
     if (!r.ok) return json({ error: r.code }, r.code === "not_found" ? 404 : 409);
     audit(db, gate.userId, "spam_seen_mode_changed", accountId, { from: r.previous, to: mode }, now);
+    return json({ ok: true, account: accountViews(db, gate.userId, now).find((a) => a.id === accountId) ?? null });
+  });
+}
+
+const quarantineBody = z.strictObject({
+  account_id: z.string().min(1).max(64),
+  mode: z.enum(AUTO_ACTION_MODES).optional(),
+  days: z.number().int().min(MIN_CLEANUP_DAYS).max(MAX_CLEANUP_DAYS).optional(),
+  yolo: z.boolean().optional(),
+  /** Required for `live` and for YOLO: the app sends it after the person confirmed the dialog. */
+  confirm: z.boolean().optional(),
+}).refine((b) => b.mode !== undefined || b.days !== undefined || b.yolo !== undefined, { message: "empty" });
+
+/**
+ * POST /api/settings/quarantine: quarantine mode ("Spam in Quarantäne verschieben"), cleanup days and YOLO of one of the user's
+ * own accounts (ADR 0025 Teil 2). `live` and `yolo: true` need `confirm: true`; YOLO needs a mode other than `off`.
+ */
+export async function handleQuarantineSettings(request: Request, deps: SettingsApiDeps): Promise<Response> {
+  const gate = guardMutation(request, deps.auth, deps.limiter);
+  if (!gate.ok) return gate.response;
+  const parsed = quarantineBody.safeParse(await readBody(request));
+  if (!parsed.success) return invalid(parsed);
+  const { account_id: accountId, mode, days, yolo, confirm } = parsed.data;
+  if ((mode === "live" || yolo === true) && confirm !== true) return json({ error: "confirmation_required" }, 400);
+  return withDb(deps, (db) => {
+    const now = nowOf(deps);
+    const r = changeQuarantineSettings(db, gate.userId, accountId, { ...(mode !== undefined ? { mode } : {}), ...(days !== undefined ? { days } : {}), ...(yolo !== undefined ? { yolo } : {}) }, now);
+    if (!r.ok) return json({ error: r.code }, r.code === "not_found" ? 404 : r.code === "invalid_days" ? 400 : 409);
+    if (r.previous.mode !== r.current.mode) audit(db, gate.userId, "quarantine_mode_changed", accountId, { from: r.previous.mode, to: r.current.mode }, now);
+    if (r.previous.days !== r.current.days) audit(db, gate.userId, "quarantine_days_changed", accountId, { from: r.previous.days, to: r.current.days }, now);
+    if (r.previous.yolo !== r.current.yolo) audit(db, gate.userId, "quarantine_yolo_changed", accountId, { from: r.previous.yolo, to: r.current.yolo }, now);
     return json({ ok: true, account: accountViews(db, gate.userId, now).find((a) => a.id === accountId) ?? null });
   });
 }

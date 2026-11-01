@@ -5,6 +5,14 @@ import type { MutationDeps } from "./mutate-client.ts";
 
 export type SpamSeenMode = "off" | "dry_run" | "live";
 
+export interface QuarantineSettings {
+  mode: SpamSeenMode;
+  /** Cleanup after this many days (1 to 90): Quarantäne -> Papierkorb. */
+  days: number;
+  /** Spam goes straight to the trash, skipping the quarantine. */
+  yolo: boolean;
+}
+
 export interface SettingsAccount {
   id: string;
   label: string;
@@ -14,6 +22,8 @@ export interface SettingsAccount {
   managed: boolean;
   spam_seen_mode: SpamSeenMode | null;
   actions_24h: number;
+  /** null = no stored credentials (demo data). */
+  quarantine: QuarantineSettings | null;
 }
 
 export interface ModelOption {
@@ -42,7 +52,7 @@ export interface SettingsData {
   synthetic: boolean;
 }
 
-export type SettingsReason = CommonReason | "confirmation_required" | "invalid_body" | "invalid_model" | "not_calibrated" | "not_managed";
+export type SettingsReason = CommonReason | "confirmation_required" | "invalid_body" | "invalid_model" | "not_calibrated" | "not_managed" | "quarantine_off" | "invalid_days";
 
 export const SETTINGS_ERROR_TEXT: Record<SettingsReason, string> = {
   rate_limited: "Zu viele Aktionen. Bitte kurz warten.",
@@ -54,6 +64,8 @@ export const SETTINGS_ERROR_TEXT: Record<SettingsReason, string> = {
   invalid_model: "Dieses Modell gibt es nicht.",
   not_calibrated: "Dieses Modell ist noch nicht kalibriert und lässt sich nicht wählen.",
   not_managed: "Dieses Konto hat keine gespeicherten Zugangsdaten. Hier lässt sich nichts einstellen.",
+  quarantine_off: "YOLO gibt es nur, wenn „Spam in Quarantäne verschieben“ nicht aus ist.",
+  invalid_days: "Die Frist muss zwischen 1 und 90 Tagen liegen.",
 };
 
 const KNOWN: ReadonlySet<string> = new Set(Object.keys(SETTINGS_ERROR_TEXT));
@@ -65,6 +77,15 @@ function map(v: unknown): Map<string, unknown> | null {
 }
 const str = (m: Map<string, unknown>, k: string): string | null => (typeof m.get(k) === "string" ? (m.get(k) as string) : null);
 
+function parseQuarantine(raw: unknown): QuarantineSettings | null {
+  const m = map(raw);
+  if (!m) return null;
+  const mode = m.get("mode");
+  const days = m.get("days");
+  if (!isMode(mode) || typeof days !== "number") return null;
+  return { mode, days, yolo: m.get("yolo") === true };
+}
+
 function parseAccount(raw: unknown): SettingsAccount | null {
   const m = map(raw);
   if (!m) return null;
@@ -75,7 +96,7 @@ function parseAccount(raw: unknown): SettingsAccount | null {
   const n = m.get("actions_24h");
   return {
     id, label, color: str(m, "color") ?? "#3b82f6", enabled: m.get("enabled") === true, managed: m.get("managed") === true,
-    spam_seen_mode: isMode(mode) ? mode : null, actions_24h: typeof n === "number" ? n : 0,
+    spam_seen_mode: isMode(mode) ? mode : null, actions_24h: typeof n === "number" ? n : 0, quarantine: parseQuarantine(m.get("quarantine")),
   };
 }
 
@@ -147,6 +168,14 @@ async function post(path: string, body: unknown, deps: MutationDeps): Promise<Se
 export const postSpamSeenMode = (accountId: string, mode: SpamSeenMode, confirmed: boolean, deps: MutationDeps): Promise<SettingsResult> =>
   post("/api/settings/spam-seen", { account_id: accountId, mode, ...(mode === "live" && confirmed ? { confirm: true } : {}) }, deps);
 
+export type QuarantineChange = { mode: SpamSeenMode } | { days: number } | { yolo: boolean };
+
+/** `confirm` is only sent for `live` and for YOLO on, and only by the caller after the person confirmed the dialog. */
+export const postQuarantine = (accountId: string, change: QuarantineChange, confirmed: boolean, deps: MutationDeps): Promise<SettingsResult> => {
+  const risky = ("mode" in change && change.mode === "live") || ("yolo" in change && change.yolo);
+  return post("/api/settings/quarantine", { account_id: accountId, ...change, ...(risky && confirmed ? { confirm: true } : {}) }, deps);
+};
+
 export const postUserStop = (stopped: boolean, deps: MutationDeps): Promise<SettingsResult> =>
   post("/api/settings/stop", { scope: "user", stopped }, deps);
 
@@ -175,4 +204,13 @@ export function costText(m: Pick<ModelOption, "relative_cost" | "usd_per_1000">)
   const base = `${usd(m.usd_per_1000)} USD je 1 000 Mails`;
   if (m.relative_cost <= 1) return `Preis: Referenz (${base})`;
   return `Preis: ca. ${m.relative_cost.toLocaleString("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}-mal so hoch wie Jev (${base})`;
+}
+
+export function quarantineSummary(q: QuarantineSettings): string {
+  if (q.mode === "off") return "Aus: Spam bleibt im Posteingang.";
+  const where = q.yolo ? "direkt in den Papierkorb" : "in den Ordner „Quarantäne“";
+  if (q.mode === "dry_run") return `Trockenlauf: die App zeigt nur, welchen Spam sie ${where} verschieben würde. Auf dem Server ändert sich nichts.`;
+  return q.yolo
+    ? "Spam wird sofort in den Papierkorb deines Anbieters verschoben, ohne Quarantäne."
+    : `Spam wird in den Ordner „Quarantäne“ verschoben und nach ${q.days} ${q.days === 1 ? "Tag" : "Tagen"} in den Papierkorb.`;
 }

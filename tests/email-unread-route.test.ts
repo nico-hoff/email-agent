@@ -38,6 +38,7 @@ function setup(o: { mode?: "dry_run" | "live"; limit?: number; fail?: string } =
   const calls: string[] = [];
   const port: ImapWritePort = {
     async addSeen() { calls.push("addSeen"); },
+    async moveMessage() { throw new ImapWriteError("move_unsupported"); },
     async removeSeen(folder, v, uid) {
       calls.push(`removeSeen ${folder} ${v} ${uid}`);
       if (o.fail) throw new ImapWriteError(o.fail as never);

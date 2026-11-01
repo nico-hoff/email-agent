@@ -43,6 +43,8 @@ import * as profileRoute from "../app/api/profile/route.ts";
 import * as accountsRoute from "../app/api/accounts/route.ts";
 import * as settingsRoute from "../app/api/settings/route.ts";
 import * as settingsSpamRoute from "../app/api/settings/spam-seen/route.ts";
+import * as settingsQuarantineRoute from "../app/api/settings/quarantine/route.ts";
+import * as actionUndoRoute from "../app/api/actions/[id]/undo/route.ts";
 import * as settingsStopRoute from "../app/api/settings/stop/route.ts";
 import * as settingsClassifierRoute from "../app/api/settings/classifier/route.ts";
 import * as settingsPermissionsRoute from "../app/api/settings/permissions/route.ts";
@@ -514,6 +516,28 @@ describe("API routes in users mode", () => {
     assert.equal((await feedbackRoute.POST(post(`/api/emails/${own}/feedback`, a, { kind: "reply_needed" }), ctxParams(own))).status, 200);
   });
 
+  it("undo of a quarantine action (R9): a foreign action id is 404 and changes nothing; the own one works (dry run, no server)", async () => {
+    const a = await signIn("a@example.test");
+    const T2 = "2026-10-26T12:00:00.000Z";
+    const mailB = mails.b[3];
+    const mailA = mails.a[3];
+    const locOf = (id: number) => (db.prepare("SELECT id FROM email_locations WHERE email_id = ?").get(id) as { id: number }).id;
+    const ins = db.prepare("INSERT INTO mailbox_actions (email_id, location_id, rule, action, mode, status, created_at) VALUES (?,?,'quarantine','move_quarantine','dry_run','planned',?)");
+    const idB = Number(ins.run(mailB.id, locOf(mailB.id), T2).lastInsertRowid);
+    const idA = Number(ins.run(mailA.id, locOf(mailA.id), T2).lastInsertRowid);
+    try {
+      const before = snapshot();
+      const r = await actionUndoRoute.POST(post(`/api/actions/${idB}/undo`, a), ctxParams(idB));
+      assert.deepEqual([r.status, await r.json()], [404, { error: "not_found" }]);
+      assert.equal(snapshot(), before, "no table changed");
+      const own = await actionUndoRoute.POST(post(`/api/actions/${idA}/undo`, a), ctxParams(idA));
+      assert.deepEqual([own.status, await own.json()], [200, { ok: true, id: idA, mode: "dry_run" }]);
+      assert.equal((db.prepare("SELECT status FROM mailbox_actions WHERE id = ?").get(idA) as { status: string }).status, "undone");
+    } finally {
+      db.prepare("DELETE FROM mailbox_actions WHERE id IN (?, ?)").run(idA, idB);
+    }
+  });
+
   it("writes: B's calls on A's ids are 404 too, and B's own calls change only B's rows", async () => {
     const b = await signIn("b@example.test");
     const target = mails.a[2].id;
@@ -683,6 +707,17 @@ describe("profile settings API (R3)", () => {
       }
       assert.equal(modes(), before, "no mode changed");
       assert.equal((await settingsSpamRoute.POST(post("/api/settings/spam-seen", b, { account_id: idB, mode: "dry_run" }))).status, 200);
+
+      // quarantine settings (R9): the same scoping, nothing changes on a foreign id
+      const qState = () => JSON.stringify(db.prepare("SELECT account_id, quarantine_mode, quarantine_days, quarantine_yolo FROM mail_accounts ORDER BY account_id").all());
+      const qBefore = qState();
+      for (const body of [{ account_id: idB, mode: "dry_run" }, { account_id: idB, days: 3 }, { account_id: idB, yolo: true, confirm: true }, { account_id: idB, mode: "live", confirm: true }]) {
+        const r = await settingsQuarantineRoute.POST(post("/api/settings/quarantine", a, body));
+        assert.deepEqual([r.status, await r.json()], [404, { error: "not_found" }]);
+      }
+      assert.equal(qState(), qBefore, "no quarantine setting changed");
+      assert.equal((await settingsQuarantineRoute.POST(post("/api/settings/quarantine", b, { account_id: idB, mode: "dry_run" }))).status, 200);
+      assert.ok(!(await (await settingsRoute.GET(get("/api/settings", a))).text()).includes(idB));
 
       // user stop is per user
       assert.equal((await settingsStopRoute.POST(post("/api/settings/stop", a, { scope: "user", stopped: true }))).status, 200);

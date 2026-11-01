@@ -54,3 +54,31 @@ Zwei Stufen, beide werden **vor jeder Aktion** gelesen (`lib/mailbox-actions.ts`
 2. **Pro Nutzer:** `user_settings.auto_actions_stopped_at`. Gleiche Wirkung für die Konten dieses Nutzers (Ergebnis `user_stop`; Undo am Server liefert `409 user_stop`). Das Zurückstellen auf „ungelesen“ im Trockenlauf (nur App-Status) bleibt möglich. Ein nicht lesbarer Zustand zählt als gestoppt.
 
 Der Backfill beim Start bricht beim globalen Stop ab; beim Nutzer-Stop überspringt er nur dessen Mails. Das Tageslimit (200 Live-Aktionen je Konto in 24 Stunden) bleibt unverändert und wird in der App je Konto angezeigt. `live` setzt nur der Nutzer in der App nach Bestätigung (`confirm: true`), nie ein Agent und nie ein Standardwert.
+
+## 7. Verschieben: Quarantäne und Papierkorb (R9, ADR 0025 Teil 2, ADR 0038)
+
+Stand 2026-11-01, `imapflow` 2.9.1. Quellen: Context7 `/postalsys/imapflow` (`messageMove`, `mailboxCreate`, `list`, `CopyResponseObject`), installierte Quellen `node_modules/imapflow/dist/esm/commands/move.js`, `create.js`, `copyuid-parser.js`, `types.d.ts` (`ListResponse`, `NamespaceObject`). Kein Kontakt zu einem echten Mailserver; alles gegen einen Fake-Client getestet (`tests/imap-write-move.test.ts`).
+
+**Befund, der die Umsetzung bestimmt.** `messageMove(range, destination, { uid: true })` sendet bei `MOVE` im Server-CAPABILITY ein `UID MOVE` (RFC 6851). **Fehlt `MOVE`, emuliert imapflow die Verschiebung selbst: `messageCopy`, dann `messageDelete` (also `\Deleted` und EXPUNGE) auf dem Quellordner** (`commands/move.js`). Die Dokumentation nennt das nur „equivalent to copy + delete“. Genau das ist durch ADR 0025 verboten. Der Port ruft `messageMove` deshalb **nur auf, nachdem `client.capabilities.has("MOVE")` gilt**; sonst `move_unsupported`, vor jedem LIST, CREATE, Lock oder Schreiben. Ein Quelltext-Test belegt: genau ein `messageMove(`, genau ein `mailboxCreate(`, die Fähigkeitsprüfung steht davor, und `messageDelete`, `messageCopy`, EXPUNGE, `\Deleted`, `append(` kommen im Modul nicht vor. Der Fake-Client im Test wirft bei jeder anderen Methode.
+
+**Methode.** `moveMessage({ folder, uidValidity, uid, target, inboxFolder? })` → `{ folder, uidValidity?, uid? }`; `target` ist `quarantine`, `trash` oder `inbox`.
+
+1. Eingaben prüfen (`invalid_target`, vor jeder Verbindung). Eigene, kurzlebige Verbindung (Abschnitt 3). Auth- und Verbindungsfehler: `imap_auth`, `imap_error`.
+2. `MOVE`-Fähigkeit prüfen: sonst `move_unsupported`, Abbruch.
+3. Zielordner bestimmen (`client.list()`):
+   - `quarantine`: Pfad `Namensraum-Präfix + "Quarantäne"` (`client.namespace.prefix`); vorhanden: verwenden. Sonst `mailboxCreate("Quarantäne")`: imapflow ergänzt das Präfix, kodiert Umlaute als modifiziertes UTF-7 (`encodePath`), legt an und **abonniert** den Ordner; `ALREADYEXISTS` ist `created: false` und kein Fehler. Scheitert das Anlegen: `folder_create_failed`. **Nur dieser Zweig legt je einen Ordner an**, nur im Schreibpfad (`trash` und `inbox` nie).
+   - `trash`: der Ordner mit Special-Use `\Trash` (die Erweiterung des Servers vor dem Namens-Hinweis von imapflow, `specialUseSource`), sonst ein Ordner mit einem Namen aus `Trash`, `Papierkorb`, `Deleted Items`, `Deleted Messages`, `Gelöschte Elemente`, `Gelöschte Objekte`, `Gelöschte Nachrichten` (ohne Groß-/Kleinschreibung). Nichts gefunden: `trash_not_found`; es wird kein Papierkorb angelegt und nichts gelöscht.
+   - `inbox`: `inboxFolder` (der Ordner des Kontos).
+   - Quelle gleich Ziel: `invalid_target`.
+4. `getMailboxLock(folder, { readOnly: false })`, UIDVALIDITY mit dem gespeicherten Wert vergleichen (`uidvalidity_changed`), UID noch vorhanden (`message_gone`).
+5. `messageMove([uid], ziel, { uid: true })`. `false` heißt, der Server hat abgelehnt: `move_rejected`.
+6. Rücklesen: die UID im Quellordner muss weg sein, sonst `move_unverified`.
+7. `COPYUID` (UIDPLUS; `uidValidity` und `uidMap` im Ergebnis): Zielordner schreibgeschützt öffnen (`readOnly: true`, EXAMINE), UIDVALIDITY gleich dem `COPYUID`-Wert und neue UID vorhanden, sonst `move_unverified`. Ergebnis: neuer Ort mit Ordner, UIDVALIDITY und UID. Ohne `COPYUID`: nur der Ordner; der Executor kann den neuen Ort nicht speichern (kein Aufräumen, kein Undo für diese Mail).
+
+**Executor (`lib/mailbox-actions.ts`).** Reihenfolge je Mail: importiert (`origin = 'import'`) → nie; Modus des Kontos (`mail_accounts.quarantine_mode`, Standard `off`); globale Stop-Datei; Not-Aus des Nutzers; Schutz (`security_auth`, `transactional`, Positivliste) vor der Spam-Regel; Tageslimit; Move; Protokollzeile in `mailbox_actions` (`quarantine` / `move_quarantine`, `purge` / `move_trash`, Undo: `undo` / `move_inbox`); bei Erfolg neuer Ort in `email_locations` (alter inaktiv), Audit `folder_changed` und `mailbox_action` nur mit Codes. Ein Fehler wird als `failed` mit Code gespeichert und nicht wiederholt.
+
+**Aufräumen.** Job im Server-Prozess (`server.ts`, alle 30 Minuten und einmal nach dem Start): `quarantine`-Zeilen (`done`, `live`) älter als `quarantine_days`, Mail noch in einem Ordner namens `Quarantäne` → `purge`. Dieselben Stopps, Limits und Schutzregeln; Trockenlauf plant nur.
+
+**Undo.** `POST /api/actions/:id/undo`: geplant = Plan verwerfen; erledigt = `moveMessage({ target: 'inbox' })` vom aktuellen Ort, Status `undone` am Original (und an der Quarantäne-Zeile, wenn die Papierkorb-Aktion zurückgenommen wird). Gesperrt durch beide Not-Aus-Stufen (`409`).
+
+**Offen (am echten Postfach beobachten, nichts annehmen).** Ob web.de/GMX/Gmail `MOVE` und `UIDPLUS` melden, wie ihr Papierkorb heißt (`\Trash` oder Fallback), ob ein neuer Ordner im Webmail sofort sichtbar ist, und wie sie ein Abonnieren handhaben. Der erste Live-Schritt gehört in den Trockenlauf vorweg und liegt bei Nico.

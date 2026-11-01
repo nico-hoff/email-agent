@@ -188,3 +188,28 @@ describe("detail: automatic action", () => {
     assert.match(err, /role="alert"[^>]*>Der Not-Aus ist aktiv\./);
   });
 });
+
+describe("Aussortiert view: quarantine and trash moves (R9)", () => {
+  it("titles and undo buttons differ per rule; moves call onUndoMove with the action id", () => {
+    const rows: ActionRow[] = [
+      { action: act(1, { rule: "quarantine", action: "move_quarantine" }), email: mail(1) },
+      { action: act(2, { rule: "purge", action: "move_trash" }), email: mail(2) },
+      { action: act(3), email: mail(3) },
+    ];
+    const dry = view({}, rows);
+    assert.match(dry, /Würde in die Quarantäne verschieben/);
+    assert.match(dry, /Würde in den Papierkorb verschieben/);
+    assert.match(dry, /Würde als gelesen markieren/);
+    assert.equal((dry.match(/Nicht verschieben:/g) ?? []).length, 2);
+    assert.equal((dry.match(/Nicht markieren:/g) ?? []).length, 1);
+    const liveRows: ActionRow[] = rows.map((r) => ({ ...r, action: { ...r.action, mode: "live", status: "done" } }));
+    const live = view({ tab: "live" }, liveRows);
+    assert.match(live, /In die Quarantäne verschoben/);
+    assert.match(live, /In den Papierkorb verschoben/);
+    assert.match(live, /Als gelesen markiert/);
+    assert.equal((live.match(/Zurück in den Posteingang:/g) ?? []).length, 2);
+    assert.equal((live.match(/Wieder ungelesen:/g) ?? []).length, 1);
+    assert.doesNotMatch(live + dry, new RegExp(MARKER));
+  });
+});
+

@@ -658,6 +658,10 @@ main { display: block; min-width: 0; }
 .acct-head .acct-dot { width: 12px; height: 12px; }
 .acct-name { font-weight: 650; overflow-wrap: anywhere; flex: 1 1 auto; min-width: 0; }
 .acct-row .hint { margin: 0; overflow-wrap: anywhere; }
+.quarantine-block { display: grid; gap: 8px; margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--border); }
+.quarantine-block .sub-h { margin: 8px 0 0; }
+.quarantine-block .choices { margin-bottom: 0; }
+.quarantine-block .select { width: 100%; }
 .acct-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px; }
 .acct-actions .btn:first-child { grid-column: 1 / -1; }
 .acct-form { display: grid; gap: 12px; margin-top: 8px; }

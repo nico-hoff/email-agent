@@ -41,7 +41,7 @@ const ALLOWLIST: Record<string, string[]> = {
   accounts: ["id", "label", "host", "port", "mailbox", "spam_mailbox", "enabled", "color", "user_id"],
   mail_accounts: [
     "account_id", "user_id", "type", "tls", "username", "secret_ciphertext", "secret_nonce", "secret_tag", "key_id", "secret_set_at",
-    "last_test_at", "last_test_code", "context", "spam_threshold", "spam_seen_mode", "created_at", "updated_at",
+    "last_test_at", "last_test_code", "context", "spam_threshold", "spam_seen_mode", "quarantine_mode", "quarantine_days", "quarantine_yolo", "created_at", "updated_at",
   ],
   email_status: ["email_id", "seen", "done", "updated_at"],
   mailbox_actions: [
@@ -420,7 +420,7 @@ describe("002 email_status and accounts.color", () => {
     const db = openDatabase(path);
     opened.push(db);
     assert.equal((db.prepare("SELECT COUNT(*) AS n FROM emails").get() as { n: number }).n, 1);
-    assert.deepEqual((db.prepare("SELECT version FROM schema_migrations ORDER BY version").all() as { version: number }[]).map((r) => r.version), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    assert.deepEqual((db.prepare("SELECT version FROM schema_migrations ORDER BY version").all() as { version: number }[]).map((r) => r.version), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
     db.exec(`INSERT INTO email_status (email_id,seen,updated_at) VALUES (1,1,'${T}')`);
   });
 });
@@ -693,7 +693,7 @@ describe("006 users, sessions, invites and the tenant key", () => {
   test("a database with data from 001 to 005 upgrades: everything belongs to user 1, nothing is lost, foreign keys hold", () => {
     const dir = join(tmp, "migs-001-005");
     mkdirSync(dir);
-    for (const f of readdirSync(MIGRATIONS_DIR).filter((f) => !f.startsWith("006_") && !f.startsWith("007_") && !f.startsWith("008_") && !f.startsWith("009_") && !f.startsWith("010_") && !f.startsWith("011_"))) writeFileSync(join(dir, f), readFileSync(join(MIGRATIONS_DIR, f), "utf8"));
+    for (const f of readdirSync(MIGRATIONS_DIR).filter((f) => /^00[1-5]_/.test(f))) writeFileSync(join(dir, f), readFileSync(join(MIGRATIONS_DIR, f), "utf8"));
     const path = join(tmp, "upgrade6.db");
     const old = openDatabase(path, dir);
     seedLegacy(old);
@@ -880,7 +880,7 @@ describe("migration runner", () => {
     const b = openDatabase(path);
     opened.push(b);
     const rows = b.prepare("SELECT version FROM schema_migrations").all() as { version: number }[];
-    assert.deepEqual(rows.map((r) => r.version), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    assert.deepEqual(rows.map((r) => r.version), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
   });
 
   test("numeric (not lexical) order, applied once", () => {
@@ -910,5 +910,19 @@ describe("migration runner", () => {
     writeFileSync(join(dir, "001_bad.sql"), "CREATE TABLE ok (x INTEGER); SELECT * FROM missing_table;");
     const path = join(tmp, "bad.db");
     assert.throws(() => openDatabase(path, dir));
+  });
+});
+
+describe("012 quarantine settings", () => {
+  test("defaults are off / 14 days / no YOLO and the CHECKs hold", () => {
+    const db = fresh();
+    seed(db);
+    db.exec(`INSERT INTO mail_accounts (account_id,user_id,type,tls,username,secret_ciphertext,secret_nonce,secret_tag,key_id,secret_set_at,created_at,updated_at)
+      VALUES ('a1',1,'imap',1,'u',x'aa',x'${"00".repeat(12)}',x'${"11".repeat(16)}','${"a".repeat(16)}','${T}','${T}','${T}')`);
+    assert.deepEqual({ ...db.prepare("SELECT quarantine_mode, quarantine_days, quarantine_yolo FROM mail_accounts").get() }, { quarantine_mode: "off", quarantine_days: 14, quarantine_yolo: 0 });
+    throwsSql(db, "UPDATE mail_accounts SET quarantine_mode = 'on'", /CHECK/);
+    throwsSql(db, "UPDATE mail_accounts SET quarantine_days = 0", /CHECK/);
+    throwsSql(db, "UPDATE mail_accounts SET quarantine_days = 91", /CHECK/);
+    throwsSql(db, "UPDATE mail_accounts SET quarantine_yolo = 2", /CHECK/);
   });
 });

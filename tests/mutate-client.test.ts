@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { postEmailDone, type MutationDeps } from "../lib/mutate-client.ts";
+import { postActionUndo, postEmailDone, UNDO_MOVE_ERROR_TEXT, type MutationDeps } from "../lib/mutate-client.ts";
 
 interface Call { url: string; init?: RequestInit }
 
@@ -71,3 +71,28 @@ describe("postEmailDone", () => {
     assert.deepEqual(await postEmailDone(1, true, throwing), { ok: false, reason: "failed" });
   });
 });
+
+describe("postActionUndo (R9)", () => {
+  const session = () => json({ csrfToken: "tok" });
+  it("posts to /api/actions/:id/undo with the CSRF headers, once", async () => {
+    const d = deps([session(), json({ ok: true, mode: "live" })]);
+    assert.deepEqual(await postActionUndo(7, d.deps), { ok: true, mode: "live" });
+    assert.equal(d.calls[1].url, "/api/actions/7/undo");
+    assert.equal(d.calls[1].init?.method, "POST");
+    assert.equal(d.calls.length, 2);
+  });
+
+  it("maps status codes to reasons with German texts", async () => {
+    const run = async (r: Response) => (await postActionUndo(1, deps([session(), r]).deps));
+    assert.deepEqual(await run(json({ error: "kill_switch" }, 409)), { ok: false, reason: "kill_switch" });
+    assert.deepEqual(await run(json({ error: "user_stop" }, 409)), { ok: false, reason: "kill_switch" });
+    assert.deepEqual(await run(json({ error: "not_undoable" }, 409)), { ok: false, reason: "not_undoable" });
+    assert.deepEqual(await run(json({}, 404)), { ok: false, reason: "not_found" });
+    assert.deepEqual(await run(json({}, 503)), { ok: false, reason: "account_unavailable" });
+    assert.deepEqual(await run(json({}, 502)), { ok: false, reason: "mailbox_error" });
+    assert.deepEqual(await run(json({}, 429, { "retry-after": "12" })), { ok: false, reason: "rate_limited", retryAfterSeconds: 12 });
+    assert.deepEqual(await run(json({}, 500)), { ok: false, reason: "failed" });
+    for (const t of Object.values(UNDO_MOVE_ERROR_TEXT)) assert.ok(t.length > 10);
+  });
+});
+
