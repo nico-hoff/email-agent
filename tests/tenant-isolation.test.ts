@@ -46,6 +46,9 @@ import * as settingsSpamRoute from "../app/api/settings/spam-seen/route.ts";
 import * as settingsStopRoute from "../app/api/settings/stop/route.ts";
 import * as settingsClassifierRoute from "../app/api/settings/classifier/route.ts";
 import * as settingsPermissionsRoute from "../app/api/settings/permissions/route.ts";
+import * as topicsRoute from "../app/api/topics/route.ts";
+import * as topicCountsRoute from "../app/api/topics/counts/route.ts";
+import { listCustomTopics, topicLabels, topicListForUser, topicsEnabled } from "../lib/topics-store.ts";
 import { userStopped } from "../lib/user-settings.ts";
 import * as accountRoute from "../app/api/accounts/[id]/route.ts";
 import * as accountDisableRoute from "../app/api/accounts/[id]/disable/route.ts";
@@ -703,5 +706,91 @@ describe("profile settings API (R3)", () => {
     } finally {
       if (saved === undefined) delete process.env.ACCOUNTS_ENCRYPTION_KEY; else process.env.ACCOUNTS_ENCRYPTION_KEY = saved;
     }
+  });
+});
+
+describe("topics API (R8, ADR 0037)", () => {
+  const topicAnswer = (emailId: number, topic: string) => {
+    const c = db.prepare("SELECT id FROM classifications WHERE email_id = ?").get(emailId) as { id: number };
+    db.prepare("INSERT OR REPLACE INTO classification_answers (classification_id, question_key, type, answer_json) VALUES (?, 'topic', 'choice', ?)").run(c.id, JSON.stringify({ value: topic }));
+  };
+  const topicState = () => JSON.stringify([db.prepare("SELECT * FROM user_topics ORDER BY id").all(), db.prepare("SELECT user_id, topics_enabled FROM user_settings ORDER BY user_id").all()]);
+
+  it("custom topics, the switch and the lists are per user; B's keys are 404 for A and change nothing", async () => {
+    const a = await signIn("a@example.test");
+    const b = await signIn("b@example.test");
+    assert.equal((await topicsRoute.GET(get("/api/topics", null))).status, 401);
+    assert.equal((await topicCountsRoute.GET(get("/api/topics/counts", null))).status, 401);
+    assert.equal((await topicsRoute.POST(post("/api/topics", { cookie: "", csrf: "x" }, { action: "set_enabled", enabled: true }))).status, 401);
+
+    const mk = async (who: Who, label: string) => topicsRoute.POST(post("/api/topics", who, { action: "create", label }));
+    assert.equal((await mk(a, "Nur A")).status, 200);
+    assert.equal((await mk(b, "Nur B")).status, 200);
+    const keyA = "custom_nur_a";
+    const keyB = "custom_nur_b";
+    const listA = await (await topicsRoute.GET(get("/api/topics", a))).text();
+    const listB = await (await topicsRoute.GET(get("/api/topics", b))).text();
+    assert.ok(listA.includes(keyA) && !listA.includes(keyB) && !listA.includes("Nur B"));
+    assert.ok(listB.includes(keyB) && !listB.includes(keyA) && !listB.includes("Nur A"));
+    // the same name is free for both users, each with their own row
+    assert.equal((await mk(b, "Nur A")).status, 200);
+    assert.deepEqual(listCustomTopics(db, A).map((t) => t.key), [keyA]);
+    assert.deepEqual(listCustomTopics(db, B).map((t) => t.key), [keyB, keyA]);
+
+    const before = topicState();
+    for (const body of [
+      { action: "update", key: keyB, label: "Hijack" },
+      { action: "set_active", key: keyB, active: false },
+    ]) {
+      const r = await topicsRoute.POST(post("/api/topics", a, body));
+      assert.deepEqual([r.status, await r.json()], [404, { error: "not_found" }], JSON.stringify(body));
+    }
+    assert.equal(topicState(), before, "nothing changed");
+    assert.equal((await topicsRoute.POST(post("/api/topics", a, { action: "update", key: keyA, label: "Nur A neu" }))).status, 200);
+    assert.equal(topicLabels(db, B).get(keyA), "Nur A", "B's own row with the same key is untouched");
+
+    // the switch is per user
+    assert.equal((await topicsRoute.POST(post("/api/topics", a, { action: "set_enabled", enabled: true }))).status, 200);
+    assert.equal(topicsEnabled(db, A), true);
+    assert.equal(topicsEnabled(db, B), false);
+    assert.equal(((await (await topicsRoute.GET(get("/api/topics", b))).json()) as { enabled: boolean }).enabled, false);
+    // each user's classification list is built from their own topics only
+    const la = topicListForUser(db, A), lb = topicListForUser(db, B);
+    assert.ok(la.ok && lb.ok);
+    assert.ok(la.options.some((o) => o.key === keyA) && !la.options.some((o) => o.key === keyB));
+    assert.notEqual(la.version, lb.version);
+    // audit rows carry the actor's user id and keys only
+    const rows = db.prepare("SELECT action, details_json, user_id FROM audit_log WHERE action LIKE 'topic%'").all() as { action: string; details_json: string; user_id: number }[];
+    assert.ok(rows.length >= 5 && rows.every((r) => r.user_id === A || r.user_id === B));
+    assert.ok(!JSON.stringify(rows).includes("MARKER"));
+  });
+
+  it("counts and the topic filter only see the user's own mails; a foreign account is 404", async () => {
+    const a = await signIn("a@example.test");
+    const b = await signIn("b@example.test");
+    topicAnswer(mails.a[0].id, "finance");
+    topicAnswer(mails.a[1].id, "work");
+    topicAnswer(mails.b[0].id, "finance");
+    topicAnswer(mails.b[1].id, "finance");
+    topicAnswer(mails.b[2].id, "custom_nur_b");
+
+    const counts = async (who: Who, qs = "") => (await topicCountsRoute.GET(get(`/api/topics/counts${qs}`, who))).json() as Promise<{ total: number; none: number; topics: { key: string; count: number }[] }>;
+    const ca = await counts(a);
+    const cb = await counts(b);
+    const by = (c: { topics: { key: string; count: number }[] }) => new Map(c.topics.map((t) => [t.key, t.count]));
+    assert.equal(ca.total, listEmails(db, A, query()).counts.all);
+    assert.equal(cb.total, listEmails(db, B, query()).counts.all);
+    assert.deepEqual([by(ca).get("finance"), by(ca).get("work"), by(ca).has("custom_nur_b")], [1, 1, false]);
+    assert.deepEqual([by(cb).get("finance"), by(cb).get("work"), by(cb).get("custom_nur_b")], [2, 0, 1]);
+    assert.equal(ca.none, ca.total - 2, "two of A's mails carry a topic");
+    assert.equal((await topicCountsRoute.GET(get("/api/topics/counts?account=b-main", a))).status, 404);
+    assert.equal((await topicCountsRoute.GET(get("/api/topics/counts?account=a-main", a))).status, 200);
+    assert.equal((await counts(a, "?account=a-main")).total, listEmails(db, A, query({ account: "a-main" })).counts.all);
+
+    const list = async (who: Who, topic: string) => (await (await emailsRoute.GET(get(`/api/emails?topic=${topic}`, who))).json()) as { emails: { id: number; topic: string | null }[] };
+    assert.deepEqual((await list(a, "finance")).emails.map((e) => e.id), [mails.a[0].id]);
+    assert.deepEqual((await list(b, "finance")).emails.map((e) => e.id).sort((x, y) => x - y), [mails.b[0].id, mails.b[1].id].sort((x, y) => x - y));
+    assert.deepEqual((await list(a, "custom_nur_b")).emails, [], "B's topic key finds nothing for A");
+    assert.equal((await emailsRoute.GET(get("/api/emails?topic=Fin%20ance", a))).status, 400);
   });
 });

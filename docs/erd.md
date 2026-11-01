@@ -15,6 +15,7 @@ erDiagram
   users ||--o{ push_subscriptions : "Push-Geräte (009)"
 
   users ||--o| user_settings : "Einstellungen und Berechtigungen (010)"
+  users ||--o{ user_topics : "eigene Themen (011)"
   users |o--o{ audit_log : "optional"
   accounts ||--o{ mailbox_state : "Checkpoint je Ordner"
   accounts ||--o| worker_status : "Betriebszustand"
@@ -171,6 +172,18 @@ erDiagram
     integer attempts
     text next_attempt_at
     integer latency_ms
+    text created_at
+    text updated_at
+    text topic_list_version
+  }
+  user_topics {
+    integer id PK
+    integer user_id FK
+    text key UK
+    text label
+    text hint
+    integer position
+    integer active
     text created_at
     text updated_at
   }
@@ -717,6 +730,32 @@ CREATE TABLE user_settings (
 ```
 
 `user_settings` hält je Nutzer höchstens eine Zeile (angelegt beim ersten Schreiben; keine Zeile = Standard: keine Berechtigung, Not-Aus aus, Modell Jev). `classifier_choice` ist die Berechtigung „Klassifikationsmodell wählen“ (nur ein Admin setzt sie, ADR 0041). `classifier_model` ist die Wahl aus der festen Allowlist im Code (`lib/classifier-models.ts`); die Datenbank prüft nur die Form, die Allowlist prüft der Code. `auto_actions_stopped_at` ist der Not-Aus des Nutzers (Zeitstempel = aktiv; Postfach-Aktionen des Nutzers pausieren, ADR 0025). Nur Zeitstempel, Schalter und ein Modellname; keine Mailinhalte.
+
+## DDL (`db/migrations/011_topics.sql`)
+
+```sql
+ALTER TABLE classifications ADD COLUMN topic_list_version TEXT CHECK (topic_list_version IS NULL OR (length(topic_list_version) BETWEEN 8 AND 40 AND topic_list_version NOT GLOB '*[^a-z0-9-]*'));
+
+ALTER TABLE user_settings ADD COLUMN topics_enabled INTEGER NOT NULL DEFAULT 0 CHECK (topics_enabled IN (0, 1));
+
+CREATE TABLE user_topics (
+  id         INTEGER PRIMARY KEY,
+  user_id    INTEGER NOT NULL REFERENCES users (id),
+  key        TEXT NOT NULL CHECK (key GLOB 'custom_*' AND length(key) BETWEEN 8 AND 40 AND key NOT GLOB '*[^a-z0-9_]*'),
+  label      TEXT NOT NULL CHECK (length(label) BETWEEN 2 AND 40),
+  hint       TEXT CHECK (hint IS NULL OR length(hint) <= 120),
+  position   INTEGER NOT NULL DEFAULT 0 CHECK (position >= 0),
+  active     INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (user_id, key)
+);
+CREATE INDEX user_topics_user ON user_topics (user_id, active, position);
+```
+
+Themen (R8, ADR 0026/0037). `classifications.topic_list_version` hält bei einer Klassifikation mit dem Fragenset `email-classification-v3` die Version der Themenliste (`topics-` + 12 Hex-Zeichen, Hash der Optionsliste aus `lib/topics.ts`), mit der Jev gefragt wurde; bei v1/v2 und bei noch nicht beantworteten Zeilen ist sie NULL. Die Fragenset-Version bleibt für alle v3-Zeilen gleich; die Liste ist **kein** Teil des Eindeutigkeitsschlüssels (je Mail, Fragenset und Modell höchstens eine Zeile). Die Antwort `topic` steht wie jede Choice-Antwort in `classification_answers` (`{"value": "<key>"}` plus `probabilities_json`); ihr Schlüssel (`finance`, `custom_segelverein`, …) ändert sich nie, deshalb behalten alte Antworten ihre Bedeutung, auch wenn die Liste später wächst oder schrumpft.
+
+`user_settings.topics_enabled` ist der Schalter „Themen“ je Nutzer (Standard 0 = aus; die Pipeline fragt dann v2). `user_topics` hält die eigenen Themen eines Nutzers: `key` (`custom_` plus Kürzel aus dem Namen, wird einmal beim Anlegen vergeben und danach nie geändert, auch nicht bei einer Umbenennung), `label` (2 bis 40 Zeichen, vom Nutzer getippt), `hint` (optionaler Abgrenzungstext bis 120 Zeichen, geht als Optionsbeschreibung an Jev), `position` (Reihenfolge der Liste), `active` (0 = abgewählt; die Zeile bleibt, damit Antworten mit diesem Schlüssel ihren Namen behalten). Aktiv sind höchstens 4 gleichzeitig (Code, nicht Schema: `ACTIVE_CUSTOM_TOPICS_LIMIT`, gemessen sind nur 4), insgesamt höchstens 16 Zeilen je Nutzer. Nur vom Nutzer getippte Namen und Hinweise; keine Mailinhalte.
 
 ## Schema-Test (`tests/db.test.ts`)
 

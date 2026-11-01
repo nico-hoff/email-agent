@@ -1,0 +1,24 @@
+# 0037 Themen: Fragenset v3, Listenversion je Klassifikation, Schalter pro Nutzer, Eval-Gate
+
+- Status: angenommen
+- Datum: 2026-11-01
+- Bezug: setzt 0026 um; 0006, 0007, 0014, 0032, 0041, 0044; `lib/topics.ts`, `lib/topics-store.ts`, `lib/topics-api.ts`, `lib/topics-gate.ts`, Migration 011
+
+## Kontext
+0026 beschließt Themen als Jev-Choice-Frage mit einer Optionsliste pro Nutzer. Die Live-Probe (`docs/insights-topics.md`) zeigt: bis 16 Optionen einstufig zuverlässig. Offen waren (1) wie eine Antwort die Liste identifiziert, mit der sie gestellt wurde, (2) die Kalibrierung und (3) wie das Feature bis zum grünen Eval ausgeschaltet bleibt.
+
+## Entscheidung
+- **Fragenset `email-classification-v3`** = v2 (Texte unverändert) plus die Choice-Frage `topic`. Die Optionen: 12 feste Themen plus die **aktiven** eigenen Themen des Nutzers (jetzt höchstens 4, weil nur 4 gemessen sind; das Schema erlaubt mehr). v1 und v2 bleiben eingefroren (ein Test friert beide Texte per Hash ein). Der Standard (`QUESTION_SET_VERSION`) bleibt v2.
+- **Listenversion in der Klassifikation, nicht in der Versionszeichenkette.** `classifications.topic_list_version` (`topics-<12 Hex>`, Hash über Schlüssel, normalisierten Namen und Optionstext der Liste in Reihenfolge) wird in derselben Transaktion gesetzt wie die Antworten und nennt die Liste, mit der Jev gefragt wurde. Gründe gegen die Zeichenkette: die Eindeutigkeit `(email_id, question_set_version, model_requested)` bliebe je Mail eine Zeile statt einer pro Listenstand, die Kalibrierung ist je Fragenset-Version (nicht je Liste) gültig, und `interpretNoul` und alle Leser kennen weiter nur drei Versionen. Eine Änderung der eigenen Liste ⇒ neue Listenversion ⇒ NEUE Klassifikationen tragen die neue; bereits beantwortete Mails werden nicht neu gefragt.
+- **Alte Antworten behalten ihre Bedeutung:** der Schlüssel einer Option ändert sich nie. Feste Schlüssel sind im Code fest, eigene (`custom_<kürzel>`) werden beim Anlegen einmal aus dem Namen abgeleitet und gespeichert; Umbenennen ändert nur den Namen (`buildTopicList` nimmt den gespeicherten Schlüssel). Abwählen setzt `active = 0`, die Zeile bleibt (Name für alte Antworten). Wieder Anlegen desselben Namens belebt dieselbe Zeile.
+- **Kalibrierung:** `topic` ist Choice, hat keine Schwelle. Die noul-Schwellen von v3 sind je Modell die von v2 (Jev Eintrag 4, Luna Eintrag 5 in `config/noul-calibration.ts`); der Live-Eval zeigt keinen Unterschied (Zahlen: `docs/insights-topics.md`).
+- **Schalter:** `user_settings.topics_enabled` (Standard 0). Pipeline: NEUE Klassifikationen nur dann mit v3, wenn der Schalter an ist und die Liste gültig ist (`topicsEnabled`/`topicList` in `PipelineOptions`, Verdrahtung in `server.ts`); sonst v2. Eine schon angelegte v3-Zeile bleibt v3. Der Nutzer schaltet in der App (`POST /api/topics` `set_enabled`); das UI-Angebot kommt erst, wenn das Gate grün ist.
+- **„Eval grün“ (Gate, je Modell, `lib/topics-gate.ts`):** (1) Themen-Genauigkeit >= 0.85 **und** Macro-F1 >= 0.85 auf dem synthetischen Themen-Fixture mit dem **vollen** v3-Fragenset (>= 100 Fälle); (2) für jede noul-Frage mit >= 5 positiven Fällen auf >= 30 gepaarten HF-Fällen (mindestens zwei solche Fragen): F1 von v3 bei der v3-Schwelle höchstens 0.02 schlechter als F1 von v2 bei der v2-Schwelle. Das Gate läuft offline über die gespeicherten Antworten (`evals/datasets/topics-v3__<modell>.jsonl`, nur IDs, Schlüssel und Zahlen): `npm run eval` (`evals/topics-v3.eval.ts`) und `tests/topics-gate.test.ts`. Erneuern: `npm run eval:topics -- --write-gate` (live, nur synthetisch, ADR 0028).
+- **API:** `GET|POST /api/topics` (Liste, anlegen, ändern, abwählen, Schalter), `GET /api/topics/counts`, Filter `GET /api/emails?topic=<key>`, jedes Listenelement mit `topic`. Guard-Muster wie bei den Einstellungen (Session, CSRF, Rate-Limit, `userId` aus der Sitzung, fremder Schlüssel oder fremdes Konto = 404). Nur Namen und Hinweise, die der Nutzer selbst getippt hat, Schlüssel und Zahlen; keine Mailinhalte.
+
+## Folgen
+- Migration 011: `classifications.topic_list_version`, `user_settings.topics_enabled`, Tabelle `user_topics`.
+- Bis zu 16 Zeilen je Nutzer in `user_topics` (inklusive abgewählter); aktiv höchstens 4. Mehr erst nach einem Lauf mit 8 (offen in `docs/insights-topics.md`).
+- Jeder Wechsel der eigenen Liste kostet nichts rückwirkend; alte Mails zeigen ihr altes Thema oder keines (v2-Mails haben keins). Eine Neu-Auswertung vorhandener Mails wäre ein eigener Schritt (Kosten pro Mail, kein Teil von R8).
+- Der Schalter und das Gate schützen nicht vor einem Nutzer, der `set_enabled` direkt aufruft; sie sind ein Produktschutz, kein Sicherheitsmerkmal. Die Folge einer Einschaltung ist eine zusätzliche Choice-Frage pro Klassifikation.
+- Luna ist mit nur 32 gepaarten HF-Fällen gemessen; die noul-Aussage für Luna ist schwächer gestützt (siehe Insights).

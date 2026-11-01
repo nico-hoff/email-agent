@@ -38,12 +38,44 @@ Häufigste Verwechslungen (16 Optionen): `Steuerberater` → Finanzen (2), `Haus
 - **Eigenthemen brauchen einen kurzen Hinweis (`hint`)**, der sie vom nächsten festen Thema abgrenzt (z. B. „Steuerberater: Mails der eigenen Steuerkanzlei, nicht Bank oder Versicherung“). Ohne Hinweis ist das Kriterium nur „Mails zum Thema <Label>“.
 - **Kein Zwei-Stufen-Verfahren**, keine Zusatzkosten: ein Aufruf bleibt bei ca. 0,00003 bis 0,00004 USD (`topic` im selben Aufruf wie die übrigen Fragen wurde hier nicht gemessen).
 
+## Eval v3 mit vollem Fragenset (R8, ADR 0037)
+
+Stand 2026-11-01. Live-Eval nach ADR 0028, nur synthetische Inhalte; nur Aggregate, keine Mailtexte, keine Roh-Responses. Werkzeug: `npm run eval:topics -- --hf-n jev=90,luna-decisions=32 --topics-n 120 --write-gate` (`scripts/topics-eval.ts`).
+
+**Methode.** Je Modell zwei Teile. (1) HF-`test`-Split (`triage` + `sinabis`, Seed 7, balanciert, n Fälle), jeder Fall zweimal gefragt: mit dem v2-Fragenset und mit dem **vollen v3-Fragenset** (v2 plus `topic`), gepaart, gleiche Fälle. Gemessen wird, ob `topic` im selben Aufruf die noul-Antworten verschiebt: F1 bei der Schwelle der jeweiligen Kalibrierung (v3-Schwellen = v2-Schwellen). (2) Das Themen-Fixture `tests/fixtures/eval/topics-synthetic.jsonl` (alle 120 Fälle) mit dem **vollen v3-Fragenset** und der größten gemessenen Liste (12 feste + 4 eigene Themen = 16 Optionen); das war bisher nur mit der Einzelfrage gemessen. Die Daten des Laufs (IDs, erwartete Werte, Themenschlüssel, noul-Zahlen) liegen als Gate-Datensatz in `evals/datasets/topics-v3__jev.jsonl` und `…__luna-decisions.jsonl`.
+
+**Aufwand.** 484 Aufrufe (Budget 500), keine Fehler: Jev 300 Aufrufe (2 x 90 HF + 120 Thema), ca. 0,021 USD (ca. 0,00007 je Aufruf, Mittel 231 ms); Luna Decisions 184 Aufrufe (2 x 32 HF + 120 Thema), ca. 0,040 USD (ca. 0,00022 je Aufruf, Mittel 451 ms). Zusammen ca. 0,061 USD.
+
+| Modell | Thema Genauigkeit | Thema Macro-F1 | `is_spam` F1 v2 / v3 | `is_phishing_or_scam` F1 v2 / v3 | `needs_my_reply` F1 v2 / v3 | gepaarte HF-Fälle |
+| --- | --- | --- | --- | --- | --- | --- |
+| Jev (`typesafe/jev-1.13`) | 0,933 | 0,929 | 0,909 / 0,941 (n=36, 18 pos.) | 1,000 / 1,000 (n=36, 18 pos.) | 0,684 / 0,684 (n=72, 27 pos.) | 90 |
+| Luna Decisions | 0,925 | 0,916 | 1,000 / 1,000 (n=13, 7 pos.) | 1,000 / 1,000 (n=13, 7 pos.) | 0,692 / 0,692 (n=26, 9 pos.) | 32 |
+
+`addresses_an_ai`: auf HF keine positiven Fälle, nicht bewertbar (wie in der Kalibrierung v2). `is_assessable` ist unkalibriert.
+
+**Verwechslungen im Themen-Fixture** (erwartet -> Antwort; nur Schlüssel). Jev: `custom_steuerberater` -> `finance` (2), `custom_hausbau` -> `official`, `custom_segelverein` -> `clubs`, `family` -> `newsletter`, drei Fälle des Fixtures `other` -> `shopping`/`travel`/`official`. Luna: `custom_segelverein` -> `clubs` (2) und -> `education`, `custom_steuerberater` -> `finance`, `clubs` -> `health`, vier Fälle `other` -> `family` (2)/`newsletter`/`travel`. Wie in der Probe: Eigenthemen, die sich inhaltlich mit einem festen Thema überlappen, verliert gegen das breitere feste Thema; die `other`-Fälle des Fixtures sind teils zuordenbar.
+
+**Einordnung.**
+1. **`topic` im vollen Fragenset kostet nichts Messbares.** Jev erreicht mit allen Fragen im selben Aufruf 0,933 / 0,929 (Einzelfrage in der Probe: 0,917 / 0,911 auf denselben 120 Fällen, innerhalb des Rauschens). Die noul-F1-Werte sind bei Jev gleich oder besser als v2 (`is_spam` 0,941 gegen 0,909 ist ein Fall mehr richtig, kein Beleg für eine Verbesserung).
+2. **Luna ist bei Themen ähnlich gut** (0,925 / 0,916), kostet aber etwa das Dreifache je Aufruf und braucht doppelt so lange.
+3. **Die noul-Schwellen von v3 bleiben die von v2**, je Modell (Kalibrierung v3 in `docs/jev-contract.md`, Einträge 4 und 5 in `config/noul-calibration.ts`).
+4. **Aussagekraft.** Bei Jev 90 gepaarte Fälle, bei Luna nur 32 (Budget): Luna ist für die noul-Stabilität nur grob gestützt. Die Stichprobe ist eine Teilmenge des `test`-Splits von R7 (andere Größe, deshalb sind die v2-F1-Werte nicht mit `docs/insights.md` vergleichbar). Das Fixture ist klein und sauber geschrieben (Obergrenze, siehe unten).
+
+### Eval grün (Gate)
+
+Je Modell, offline über die gespeicherten Antworten (`lib/topics-gate.ts`, Konstanten `TOPICS_GATE`):
+1. Themen-Genauigkeit >= 0,85 **und** Macro-F1 >= 0,85 auf dem Themen-Fixture mit dem vollen v3-Fragenset, mindestens 100 Fälle.
+2. noul: mindestens 30 gepaarte HF-Fälle; für jede Frage mit >= 5 positiven Fällen (mindestens zwei solche Fragen) ist F1 von v3 bei der v3-Schwelle höchstens 0,02 schlechter als F1 von v2 bei der v2-Schwelle.
+
+Stand: **Jev grün** (0,933 / 0,929; keine noul-Verschlechterung), **Luna grün** (0,925 / 0,916; wie Jev, bei kleiner Stichprobe). Prüfung: `npm run eval` (Beispiele `topics-v3:topics-v3__jev` und `…__luna-decisions`) und `tests/topics-gate.test.ts`. Ein nicht grünes Gate lässt `npm run eval` und den Test fehlschlagen. Das UI-Angebot des Schalters („Themen“ im Profil) darf erst erscheinen, wenn beides grün ist; `topics_enabled` bleibt bis dahin aus.
+
 ## Offene Punkte
 
 - Fixture ist klein und sauber geschrieben (kurze, eindeutige Mails). Echte Mails (lange Texte, Mischthemen) sind schwerer; Genauigkeit ist eher eine Obergrenze. Der Test mit echten Mails ist ein Nico-Schritt.
 - Die `Sonstiges`-Fälle des Fixtures sind teils mehrdeutig; vor einem Kalibrierlauf überarbeiten oder getrennt auswerten.
 - Top-p als Abstain-Schwelle (unterhalb → `Sonstiges`/unsicher) nicht untersucht; dazu Trefferquote je Top-p-Band messen.
-- `topic` zusammen mit den übrigen v2-Fragen in einem Aufruf: Einfluss auf die anderen Antworten und auf die Kosten messen, wenn das Fragenset v3 gebaut ist.
+- ~~`topic` zusammen mit den übrigen v2-Fragen in einem Aufruf~~ gemessen in „Eval v3 mit vollem Fragenset“ (R8): kein messbarer Einfluss auf die noul-Antworten; Kosten ca. 0,00007 USD je Aufruf bei Jev.
+- Luna nur mit 32 gepaarten HF-Fällen gemessen; vor einem Verlass auf Luna + Themen ein größerer Lauf (z. B. 90 Fälle, ca. 180 Aufrufe).
 - Eigenthemen mit 8 Stück und mit absichtlich ähnlichen Labels (z. B. „Segeln“ und „Segelverein“) sind nicht getestet.
 - Wiederholbarkeit: ein Lauf je Variante (plus ein zweiter Seed bei 16 Optionen, dort 0,927 und 0,917); Konfidenzintervalle bei n=36 bis 96 sind breit (grob ±5 Prozentpunkte).
 

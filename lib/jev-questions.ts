@@ -3,7 +3,8 @@ import type {
   DecisionsNoulQuestion,
   DecisionsScoreQuestion,
 } from "@openrouter/sdk/models";
-import { EXCERPT_MAX_CHARS, QUESTION_SET_VERSION, QUESTION_SET_VERSION_V1, QUESTION_SET_VERSION_V2 } from "./constants.ts";
+import { EXCERPT_MAX_CHARS, QUESTION_SET_VERSION, QUESTION_SET_VERSION_V1, QUESTION_SET_VERSION_V2, QUESTION_SET_VERSION_V3 } from "./constants.ts";
+import { buildTopicList, type TopicOption } from "./topics.ts";
 
 export { QUESTION_SET_VERSION };
 
@@ -108,14 +109,44 @@ const QUESTIONS_V2: Record<string, JevQuestion> = {
   ),
 };
 
-export const QUESTION_SET_VERSIONS = [QUESTION_SET_VERSION_V1, QUESTION_SET_VERSION_V2] as const;
+/** The choice question `topic` of v3 (R8, ADR 0037): one option per topic of the user's list, criteria text = the option hint. */
+export function topicQuestion(options: readonly Pick<TopicOption, "key" | "criteria">[]): JevQuestion {
+  return {
+    type: "choice",
+    instructions:
+      "Which everyday topic does this mail belong to? Pick the single best fit. Use the catch-all option only if no other topic fits.",
+    criteria: Object.fromEntries(options.map((o) => [o.key, o.criteria])),
+  };
+}
 
-/** Question set by explicit version. Unknown versions throw: callers never fall back silently. */
+/**
+ * Question set `email-classification-v3` for one topic list: exactly the v2 questions (same texts, so the v2 noul
+ * thresholds carry over) plus the choice question `topic`. The option list is per user (lib/topics.ts); the list version
+ * (`topicListVersion`) is stored with the classification, so the version string stays the same while the options change.
+ */
+export function questionsV3(options: readonly Pick<TopicOption, "key" | "criteria">[]): Record<string, JevQuestion> {
+  return { ...QUESTIONS_V2, topic: topicQuestion(options) };
+}
+
+/** v3 with the fixed topics only (no custom topics): what `questionsFor(v3)` returns, and what the offline gates refer to. */
+function questionsV3Fixed(): Record<string, JevQuestion> {
+  const list = buildTopicList([]);
+  if (!list.ok) throw new Error("topic_list_invalid");
+  return questionsV3(list.options);
+}
+
+export const QUESTION_SET_VERSIONS = [QUESTION_SET_VERSION_V1, QUESTION_SET_VERSION_V2, QUESTION_SET_VERSION_V3] as const;
+
+/**
+ * Question set by explicit version. Unknown versions throw: callers never fall back silently. v3 depends on the user's
+ * topic list; this returns the fixed-topics-only base (use `questionsV3(options)` for a user's list).
+ */
 export function questionsFor(version: string): Record<string, JevQuestion> {
   // Map instead of obj[key]: the Veryfront API loader rejects reads with a dynamic key.
   const found = new Map<string, Record<string, JevQuestion>>([
     [QUESTION_SET_VERSION_V1, QUESTIONS_V1],
     [QUESTION_SET_VERSION_V2, QUESTIONS_V2],
+    [QUESTION_SET_VERSION_V3, questionsV3Fixed()],
   ]).get(version);
   if (!found) throw new Error("question_set_unknown");
   return found;

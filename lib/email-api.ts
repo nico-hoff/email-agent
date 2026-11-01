@@ -97,7 +97,12 @@ export interface ListQuery {
   status: string | null;
   limit: number;
   cursor: SortKey | null;
+  /** Topic key (R8, ADR 0037): only mails whose latest classification answered `topic` with this key. */
+  topic?: string | null;
 }
+
+/** Shape of a topic key in a query: fixed keys and `custom_` keys. Anything else is a 400. */
+const TOPIC_KEY = /^[a-z][a-z0-9_]{0,39}$/;
 
 export type ParsedQuery = { ok: true; query: ListQuery } | { ok: false; error: string };
 
@@ -124,7 +129,9 @@ export function parseListQuery(url: URL): ParsedQuery {
     cursor = decodeCursor(cursorParam);
     if (cursor === null) return { ok: false, error: "invalid_cursor" };
   }
-  return { ok: true, query: { view, account: p.get("account"), status, limit, cursor } };
+  const topic = p.get("topic");
+  if (topic !== null && !TOPIC_KEY.test(topic)) return { ok: false, error: "invalid_topic" };
+  return { ok: true, query: { view, account: p.get("account"), status, limit, cursor, topic } };
 }
 
 // ---- rows -------------------------------------------------------------------------------------------------------
@@ -156,6 +163,7 @@ interface Row {
   urgency: unknown;
   importance: unknown;
   needs_my_reply: unknown;
+  topic: unknown;
 }
 
 const answerValue = (key: string) =>
@@ -169,7 +177,7 @@ const SELECT_ROWS = `
          COALESCE(s.seen, 0) AS seen, COALESCE(s.done, 0) AS done,
          ${answerValue("category")} AS category, ${answerValue("route")} AS route,
          ${answerValue("urgency")} AS urgency, ${answerValue("importance")} AS importance,
-         ${answerValue("needs_my_reply")} AS needs_my_reply
+         ${answerValue("needs_my_reply")} AS needs_my_reply, ${answerValue("topic")} AS topic
   FROM emails e
   JOIN accounts a ON a.id = e.account_id
   LEFT JOIN email_locations l ON l.id = (
@@ -268,6 +276,8 @@ export interface EmailItem {
   urgency: number | null;
   importance: number | null;
   needs_my_reply: NoulReading | null;
+  /** Topic key of the latest classification (question set v3), else null. The label comes from GET /api/topics. */
+  topic: string | null;
   classification: Record<string, unknown> | null;
   shadow_quarantine: Record<string, unknown> | null;
   disagreement: Disagreement;
@@ -321,6 +331,7 @@ function buildItem(db: DatabaseSync, d: Derived, readNoul: NoulInterpreter): Ema
     urgency: d.key.urgency,
     importance: d.key.importance,
     needs_my_reply: d.needsReading,
+    topic: str(r.topic),
     classification: r.cls_id === null ? null : {
       status: r.status,
       question_set_version: r.question_set_version,
@@ -381,6 +392,10 @@ export function listEmails(db: DatabaseSync, userId: number, q: ListQuery, deps:
   if (q.status !== null) {
     where.push("c.status = ?");
     params.push(q.status);
+  }
+  if (q.topic !== undefined && q.topic !== null) {
+    where.push(`${answerValue("topic")} = ?`);
+    params.push(q.topic);
   }
   const rows = db.prepare(`${SELECT_ROWS} WHERE ${where.join(" AND ")}`).all(...params) as unknown as Row[];
   const all = rows.map((r) => derive(r, readNoul));

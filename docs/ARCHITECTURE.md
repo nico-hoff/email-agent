@@ -62,6 +62,7 @@ Auth-Modus (`selectAuthMode`, `lib/auth.ts`): `--synthetic` → `synthetic`; `AU
 - `lib/jev-questions.ts`: versionierte Fragensets `email-classification-v1` (Standard) und `-v2` (bereit, unkalibriert); `buildState` mit Allowlist (nur strukturierter Kontext, Body/Betreff als `untrusted_*`, gekürzt auf 1 200 Zeichen).
 - `lib/jev-response.ts`: Normalisierung der Antworten; `interpretNoul(answer, questionSetVersion)` über `config/noul-calibration.ts` (`lib/noul-calibration.ts` validiert). Fehlende Version/Schwelle → `unmapped`.
 - `lib/classification-pipeline.ts`: Body nur im Speicher, Klassifikation persistieren (`persistNormalizedAnswers`), Shadow, `onClassified`-Hook (Absender, Regeln, Aktionen), Retry/Source-gone.
+- Themen (R8, ADR 0026/0037): `lib/topics.ts` (12 feste Themen, Validierung, Optionsliste, Listenversion), `lib/topics-store.ts` (Tabelle `user_topics`, Schalter `topics_enabled`, Liste je Nutzer), `lib/topics-api.ts` (`/api/topics`, `/api/topics/counts`), Fragenset `email-classification-v3` (`questionsV3` in `lib/jev-questions.ts`) = v2 plus Choice `topic`. Die Pipeline fragt NEUE Klassifikationen nur dann mit v3, wenn der Besitzer des Kontos `topics_enabled` eingeschaltet hat (`topicsEnabled`/`topicList` in `PipelineOptions`, Verdrahtung in `server.ts`); sonst v2. Die Listenversion steht in `classifications.topic_list_version`. Offline-Gate „Eval grün“: `lib/topics-gate.ts`, Datensätze `evals/datasets/topics-v3__<modell>.jsonl`, `evals/topics-v3.eval.ts` (`npm run eval`); Live-Lauf `scripts/topics-eval.ts` (`npm run eval:topics`).
 - `lib/shadow.ts`: Shadow-Quarantäne-Entscheidung (heute nie Kandidat, weil `needs_my_reply`/`is_assessable` unkalibriert; `security_auth` nie, D15).
 
 ### 4.4 Postfach-Schreiben (kontrolliert)
@@ -93,6 +94,9 @@ Auth-Modus (`selectAuthMode`, `lib/auth.ts`): `--synthetic` → `synthetic`; `AU
 | `GET /api/emails?view=important|open|noise|all&account&cursor&limit` | Liste (Dringlichkeit → Wichtigkeit → Zeit) |
 | `GET /api/emails/:id` | Detail inkl. Ordnerverlauf, Aktion |
 | `POST /api/emails/:id/done|undone|unread|feedback|draft` | Erledigt, Undo, Feedback, Entwurf |
+| `GET /api/emails?topic=<key>` | Filter nach Thema (letzte Klassifikation); jedes Listenelement trägt `topic` (Schlüssel oder null) |
+| `GET|POST /api/topics` | Themenliste (12 feste + eigene), Schalter `topics_enabled`; POST `create|update|set_active|set_enabled` (R8, ADR 0037) |
+| `GET /api/topics/counts[?account]` | Mails je Thema für die Ordneransicht (nur Zahlen) |
 | `GET|POST /api/emails/:id/feedback` | Feedback-Zustand |
 | `GET /api/actions` | Trockenlauf/ausgeführte Aktionen |
 | `GET /api/senders/hitl`, `POST …/hitl/dismiss`, `GET|POST /api/senders/rules`, `POST …/rules/:id/deactivate` | Absender |
@@ -101,7 +105,7 @@ Auth-Modus (`selectAuthMode`, `lib/auth.ts`): `--synthetic` → `synthetic`; `AU
 
 ## 5. Datenmodell
 
-Quelle der Wahrheit: `docs/erd.md` (ERD + DDL je Migration, Schema-Test vergleicht wörtlich). Migrationen `db/migrations/001`–`008`. **Mandantenregel (ADR 0033):** `accounts`, `senders`, `sender_rules`, `user_state` tragen `user_id`; alle anderen Tabellen gehören einem Nutzer über die FK-Kette zu `accounts`, und jede Abfrage joint bis `accounts.user_id` und filtert danach (fremde ID = 404). `tests/tenant-isolation.test.ts` prüft jede Datenfunktion und Route mit zwei Nutzern.
+Quelle der Wahrheit: `docs/erd.md` (ERD + DDL je Migration, Schema-Test vergleicht wörtlich). Migrationen `db/migrations/001`–`011`. **Mandantenregel (ADR 0033):** `accounts`, `senders`, `sender_rules`, `user_state` tragen `user_id`; alle anderen Tabellen gehören einem Nutzer über die FK-Kette zu `accounts`, und jede Abfrage joint bis `accounts.user_id` und filtert danach (fremde ID = 404). `tests/tenant-isolation.test.ts` prüft jede Datenfunktion und Route mit zwei Nutzern.
 
 
 | Tabelle | Inhalt |
@@ -112,6 +116,7 @@ Quelle der Wahrheit: `docs/erd.md` (ERD + DDL je Migration, Schema-Test vergleic
 | `account_sync` | Fortschritt des Erst-Imports je Konto (Phase, Zähler, Code; 008) |
 | `emails`, `email_locations` | Metadaten (Absender, Betreff, Zeit), Ort je Ordner/UIDVALIDITY |
 | `classifications`, `classification_answers` | Jev-Lauf je Mail/Fragenset/Modell, normalisierte Antworten |
+| `user_topics` | eigene Themen je Nutzer (Schlüssel `custom_…`, Name, Hinweis, Reihenfolge, aktiv; 011); `user_settings.topics_enabled`, `classifications.topic_list_version` |
 | `email_status` | `seen` (Provider), `done` (Nico) |
 | `mailbox_actions` | geplante/ausgeführte Postfach-Aktionen (CHECKs enthalten schon M7-Werte) |
 | `feedback`, `senders`, `sender_rules` | Feedback, Absender-Statistik, Black/Whitelist |

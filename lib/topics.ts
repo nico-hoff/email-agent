@@ -35,7 +35,8 @@ export const CUSTOM_HINT_MAX = 120;
 export const CUSTOM_KEY_PREFIX = "custom_";
 const CUSTOM_SLUG_MAX = 32;
 
-export type CustomTopicInput = { label: string; hint?: string };
+/** `key` is the stored key of an existing custom topic (stays stable when the label is edited); without it the key is derived from the label. */
+export type CustomTopicInput = { label: string; hint?: string; key?: string };
 
 export type TopicOption = {
   key: string;
@@ -50,6 +51,7 @@ export type TopicListError =
   | "label_chars"
   | "hint_length"
   | "key_empty"
+  | "key_invalid"
   | "duplicate";
 
 export type TopicList =
@@ -76,6 +78,11 @@ export function deriveCustomKey(label: string): string {
     .slice(0, CUSTOM_SLUG_MAX)
     .replace(/_+$/g, "");
   return slug === "" ? "" : `${CUSTOM_KEY_PREFIX}${slug}`;
+}
+
+/** Shape of a stored custom key: `custom_` + 1..32 characters of [a-z0-9_]. */
+export function isCustomKey(key: string): boolean {
+  return /^custom_[a-z0-9_]{1,32}$/.test(key);
 }
 
 function customCriteria(label: string, hint: string | undefined): string {
@@ -106,7 +113,8 @@ export function buildTopicList(custom: readonly CustomTopicInput[] = []): TopicL
     if (/[\u0000-\u001f\u007f<>"]/.test(label)) return { ok: false, code: "label_chars", index };
     const hint = c.hint?.replace(/\s+/g, " ").trim();
     if (hint !== undefined && hint.length > CUSTOM_HINT_MAX) return { ok: false, code: "hint_length", index };
-    const key = deriveCustomKey(label);
+    if (c.key !== undefined && !isCustomKey(c.key)) return { ok: false, code: "key_invalid", index };
+    const key = c.key ?? deriveCustomKey(label);
     if (key === "") return { ok: false, code: "key_empty", index };
     const norm = normalizeLabel(label);
     if (keys.has(key) || labels.has(norm)) return { ok: false, code: "duplicate", index };

@@ -75,7 +75,7 @@ describe("sort keys and cursors", () => {
 describe("parseListQuery", () => {
   const q = (s: string) => parseListQuery(new URL(`http://x/api/emails${s}`));
   test("defaults, clamp and strict values", () => {
-    assert.deepEqual(q(""), { ok: true, query: { view: "all", account: null, status: null, limit: 50, cursor: null } });
+    assert.deepEqual(q(""), { ok: true, query: { view: "all", account: null, status: null, limit: 50, cursor: null, topic: null } });
     const paged = q("?view=open&limit=500");
     assert.ok(paged.ok && paged.query.limit === 50 && paged.query.view === "open");
     const noLimit = q("?limit=500");

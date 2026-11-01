@@ -15,6 +15,8 @@ export const SAMPLE_HARD_LIMIT = 400;
 export const JEV_MODEL = "typesafe/jev-1.13";
 export const QUESTION_SET_VERSION_V1 = "email-classification-v1";
 export const QUESTION_SET_VERSION_V2 = "email-classification-v2";
+/** v2 plus the choice question `topic` (R8, ADR 0037). Only for users with topics_enabled; the default stays v2. */
+export const QUESTION_SET_VERSION_V3 = "email-classification-v3";
 /**
  * Question set for NEW classifications (pipeline, sample, dev database): v2 since R7 (ADR 0032; calibration v2 in
  * config/noul-calibration.ts plus the table in docs/jev-contract.md, a start-up check enforces both). Stored v1

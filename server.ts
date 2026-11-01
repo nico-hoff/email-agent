@@ -5,6 +5,7 @@ import { startup as defaultStartup, type StartupResult } from "./lib/accounts.ts
 import { createImapWorkers, type ImapWorkers, type ImapWorkersDeps } from "./workers/imap-worker.ts";
 import { fileURLToPath } from "node:url";
 import { createClassificationPipeline, createPersistResponse } from "./lib/classification-pipeline.ts";
+import { topicListForUser, topicsEnabled } from "./lib/topics-store.ts";
 import { createJevClient, type JevClient } from "./lib/jev.ts";
 import { createDecisionsClient } from "./lib/decisions-client.ts";
 import { LUNA_CLASSIFIER } from "./lib/classifier-models.ts";
@@ -143,6 +144,9 @@ function wirePipeline(deps: { db: StartupResult["db"]; accounts: ImapWorkersDeps
     decisions: (o.createDecisions ?? ((key) => createDecisionsClient({ apiKey: key, model: LUNA_CLASSIFIER })))(apiKey),
     // The owner's choice (user_settings, needs the permission `classifier_choice`); anything else is Jev.
     modelFor: (accountId) => classifierModelFor(deps.db, accountUserId(deps.db, accountId)),
+    // Topics (R8, ADR 0037): the question set v3 only for owners who switched topics_enabled on (default off).
+    topicsEnabled: (accountId) => topicsEnabled(deps.db, accountUserId(deps.db, accountId)),
+    topicList: (accountId) => topicListForUser(deps.db, accountUserId(deps.db, accountId)),
     portFactory: o.portFactory ?? ((accountId) => {
       const a = find(accountId);
       if (!a) throw new Error("unknown account");

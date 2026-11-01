@@ -72,6 +72,18 @@ Gleich zu v1: alle Schlüssel und Typen, Kategorie-Optionen (Ordner folgen in M4
 
 **Eval:** `tests/fixtures/eval/email-eval-v2.jsonl` (siehe `docs/eval-datasets.md`), Lauf mit `npm run eval:jev -- --question-set v2 --dataset v2`.
 
+## Fragenset v3 (Themen, R8, ADR 0037)
+
+`email-classification-v3` = die Fragen von v2 (Texte unverändert, Zeichen für Zeichen) plus eine Choice-Frage `topic`. Gebaut in `lib/jev-questions.ts` (`questionsV3(options)`); die Optionsliste kommt pro Nutzer aus `lib/topics.ts` (`buildTopicList`): 12 feste Alltagsthemen (`finance`, `shopping`, `work`, `travel`, `official`, `health`, `family`, `housing`, `newsletter`, `education`, `clubs`, `other`) plus die aktiven eigenen Themen des Nutzers (höchstens 4, Schlüssel `custom_<kürzel>`). Typen wie in den installierten SDK-Typen (`DecisionsChoiceQuestion`: `instructions`, `criteria` als Option -> Beschreibung), keine neuen SDK-Felder.
+
+- **Frage:** „Which everyday topic does this mail belong to? Pick the single best fit. Use the catch-all option only if no other topic fits.“ Optionstexte sind die englischen Kriterien aus `lib/topics.ts`; bei eigenen Themen `Mails about the user's own topic "<Name>".` plus der Hinweis des Nutzers (`hint`).
+- **Listenversion:** `topics-<12 Hex>` = SHA-256 über (Schlüssel, normalisierter Name, Optionstext) der Liste in Reihenfolge. Gleiche Liste ⇒ gleiche Version; jede Änderung (Thema dazu, abgewählt, umbenannt, Hinweis geändert, Reihenfolge) ⇒ neue Version. Sie steht **nicht** in der Fragenset-Version, sondern in `classifications.topic_list_version` (Migration 011), gesetzt in der Transaktion, die die Antworten speichert: die Liste, mit der Jev tatsächlich gefragt wurde. Alte Antworten behalten ihre Bedeutung, weil der Schlüssel einer Option nie umbenannt wird (auch nicht beim Umbenennen eines eigenen Themas) und abgewählte Themen in `user_topics` mit ihrem Namen bleiben.
+- **`questionsFor("email-classification-v3")`** liefert die Basis nur mit den festen Themen (für die Offline-Gates und Tests); die Pipeline baut die Frage mit der Liste des Besitzers des Kontos.
+- **Normalisierung:** `topic` ist eine Choice-Antwort wie `category` (`choice` aus den Optionsschlüsseln der gestellten Liste, `probabilities` mit jeder Option, Summe 1). Eine Antwort außerhalb der Liste verwirft die Pipeline (`invalid_response_invalid_value`).
+- **Schalter:** `user_settings.topics_enabled` (Standard aus). Nur wenn er an ist **und** die Liste gültig ist, fragt die Pipeline NEUE Klassifikationen mit v3; sonst v2. Standard-Fragenset (`QUESTION_SET_VERSION`) bleibt v2. Eine bereits angelegte v3-Zeile (Wiederholung nach einem Fehler) bleibt v3, auch wenn der Schalter inzwischen aus ist; ihre Optionsliste ist dann die aktuelle des Besitzers.
+- **Kalibrierung:** `topic` ist eine Choice-Frage und hat keine Schwelle (`noulThreshold("topic", …)` = null). Die noul-Schwellen von v3 sind je Modell die von v2 (Abschnitte „Kalibrierung v3“ und „Kalibrierung v3, Luna Decisions“).
+- **Messung (R8, 2026-11-01):** `docs/insights-topics.md`, Abschnitt „Eval v3 mit vollem Fragenset“; Definition „Eval grün“ und Offline-Gate dort und in `lib/topics-gate.ts`.
+
 ## Kalibrierung
 
 Version 1 (gilt nur für `email-classification-v1`; v2 siehe unten), 2026-10-27, Fragenset `email-classification-v1`. Konfiguration: `config/noul-calibration.ts` (versioniert im Repo, von `interpretNoul` einmal geladen und mit zod validiert; ungültige Datei oder falsches Fragenset ist ein Startfehler, nie ein stilles Fallback). Ort: ein TypeScript-Datenmodul statt JSON, weil Veryfront Tools und API-Routen in einem Temp-Verzeichnis bündelt (kein brauchbares `import.meta.url`, kein JSON-Loader) und der Import so in Node, im Build und im Client gleich funktioniert; nicht in `data/`. Ein Test hält Datei und diese Tabelle synchron. **Vorläufig**: Werte werden mit Nicos `insights-calib.md` (Kalibrierteil) bestätigt oder angepasst; jede Änderung ist eine neue Version.
@@ -128,6 +140,34 @@ Datenbasis: dieselbe Stichprobe wie bei Jev (Seed 7, `triage` + `sinabis`, balan
 | `needs_my_reply` | 0.50 | Recall zuerst: kleinster positiver calib-Wert 0.64 minus 0.10, auf das 0.05-Raster abgerundet. Wie bei Jev trennt die Frage nicht zwischen `reply` und `forward`/`flag` (Precision gegen die lockere Etikettierung 0.58 calib, 0.50 test). |
 
 Nicht kalibriert (bleiben `unmapped`): `is_assessable`.
+
+## Kalibrierung v3
+
+Version 4, 2026-11-01, Fragenset `email-classification-v3`, Modell `typesafe/jev-1.13` (Jev). Gleiche Konfigurationsdatei `config/noul-calibration.ts`. v3 enthält die v2-Fragen mit unverändertem Wortlaut plus die Choice-Frage `topic`; die Schwellen sind deshalb die von Version 2 (ADR 0037). Regel wie bisher: `positive` wenn Rohwert >= Schwelle, sonst `negative`; `topic` und nicht aufgeführte Fragen bleiben `unmapped`.
+
+Datenbasis: Live-Eval R8 auf dem HF-`test`-Split (Seed 7, balanciert, 90 Fälle, jeder Fall mit v2 und mit v3 gefragt, gepaart), v3 mit dem vollen Fragenset inklusive `topic` (16 Optionen). Zahlen in `docs/insights-topics.md`: der F1 bei der Schwelle ist bei jeder Frage mit mindestens 5 positiven Fällen höchstens 0.02 schlechter als bei v2 (tatsächlich nicht schlechter).
+
+| Frage | Schwelle | Begründung |
+| --- | --- | --- |
+| `is_spam` | 0.70 | Von v2 übernommen; paarweise gemessen F1 0.941 (v3) gegen 0.909 (v2) auf 36 Fällen. |
+| `is_phishing_or_scam` | 0.70 | Von v2 übernommen; F1 1.000 gegen 1.000. |
+| `addresses_an_ai` | 0.30 | Von v2 übernommen; auf HF keine positiven Fälle, nicht messbar. |
+| `needs_my_reply` | 0.50 | Von v2 übernommen; F1 0.684 gegen 0.684 auf 72 Fällen. |
+
+Nicht kalibriert (bleiben `unmapped`): `is_assessable`, `topic` (Choice).
+
+## Kalibrierung v3, Luna Decisions
+
+Version 5, 2026-11-01, Fragenset `email-classification-v3`, Modell `openai/gpt-6-luna-decisions` (ADR 0041). Wie Version 4 mit den Schwellen von Version 3 (Luna auf v2). Datenbasis: derselbe Lauf, aber nur 32 gepaarte HF-Fälle (Budget); die Aussage „v3 stört die noul-Antworten nicht“ ist damit schwächer gestützt als bei Jev.
+
+| Frage | Schwelle | Begründung |
+| --- | --- | --- |
+| `is_spam` | 0.85 | Von Luna auf v2 übernommen; F1 1.000 gegen 1.000 auf 13 Fällen. |
+| `is_phishing_or_scam` | 0.90 | Von Luna auf v2 übernommen; F1 1.000 gegen 1.000 auf 13 Fällen. |
+| `addresses_an_ai` | 0.30 | Von Luna auf v2 übernommen; auf HF keine positiven Fälle. |
+| `needs_my_reply` | 0.50 | Von Luna auf v2 übernommen; F1 0.692 gegen 0.692 auf 26 Fällen. |
+
+Nicht kalibriert (bleiben `unmapped`): `is_assessable`, `topic`.
 
 ## State: Feedback-Zähler in `sender_history` (T55, H21)
 

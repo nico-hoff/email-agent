@@ -54,4 +54,38 @@ export default [
       needs_my_reply: 0.5,
     },
   },
+  {
+    version: "4",
+    created: "2026-11-01",
+    model: "typesafe/jev-1.13",
+    question_set_version: "email-classification-v3",
+    rule: "positive wenn Rohwert >= Schwelle, sonst negative; nicht aufgeführte Fragen bleiben unmapped",
+    basis: [
+      "Schwellen von Eintrag 2 übernommen: v3 = v2 plus die Choice-Frage topic, die noul-Texte sind unverändert (ADR 0037)",
+      "Live-Eval R8 2026-11-01 (HF test, v3 gegen v2 gepaart): noul-F1 nicht schlechter als v2, Zahlen in docs/insights-topics.md",
+    ],
+    thresholds: {
+      is_spam: 0.7,
+      is_phishing_or_scam: 0.7,
+      addresses_an_ai: 0.3,
+      needs_my_reply: 0.5,
+    },
+  },
+  {
+    version: "5",
+    created: "2026-11-01",
+    model: "openai/gpt-6-luna-decisions",
+    question_set_version: "email-classification-v3",
+    rule: "positive wenn Rohwert >= Schwelle, sonst negative; nicht aufgeführte Fragen bleiben unmapped",
+    basis: [
+      "Schwellen von Eintrag 3 übernommen: v3 = v2 plus die Choice-Frage topic, die noul-Texte sind unverändert (ADR 0037)",
+      "Live-Eval R8 2026-11-01 (HF test, v3 gegen v2 gepaart): Zahlen in docs/insights-topics.md",
+    ],
+    thresholds: {
+      is_spam: 0.85,
+      is_phishing_or_scam: 0.9,
+      addresses_an_ai: 0.3,
+      needs_my_reply: 0.5,
+    },
+  },
 ];

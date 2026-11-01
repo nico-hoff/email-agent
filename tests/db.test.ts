@@ -91,6 +91,7 @@ const ALLOWLIST: Record<string, string[]> = {
     "latency_ms",
     "created_at",
     "updated_at",
+    "topic_list_version",
   ],
   classification_answers: [
     "id",
@@ -113,7 +114,8 @@ const ALLOWLIST: Record<string, string[]> = {
   ],
   user_state: ["user_id", "key", "value_json", "updated_at"],
   push_subscriptions: ["id", "user_id", "endpoint", "p256dh", "auth", "agent_family", "important_mail", "briefing_ready", "failure_count", "next_attempt_at", "created_at", "last_success_at"],
-  user_settings: ["user_id", "classifier_choice", "classifier_model", "auto_actions_stopped_at", "updated_at"],
+  user_settings: ["user_id", "classifier_choice", "classifier_model", "auto_actions_stopped_at", "updated_at", "topics_enabled"],
+  user_topics: ["id", "user_id", "key", "label", "hint", "position", "active", "created_at", "updated_at"],
   users: ["id", "email", "password_hash", "role", "status", "created_at", "updated_at"],
   user_sessions: ["id", "user_id", "created_at", "expires_at", "last_used_at", "revoked_at"],
   invites: ["id", "code_hash", "role", "created_by", "created_at", "expires_at", "used_at", "used_by"],
@@ -418,7 +420,7 @@ describe("002 email_status and accounts.color", () => {
     const db = openDatabase(path);
     opened.push(db);
     assert.equal((db.prepare("SELECT COUNT(*) AS n FROM emails").get() as { n: number }).n, 1);
-    assert.deepEqual((db.prepare("SELECT version FROM schema_migrations ORDER BY version").all() as { version: number }[]).map((r) => r.version), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    assert.deepEqual((db.prepare("SELECT version FROM schema_migrations ORDER BY version").all() as { version: number }[]).map((r) => r.version), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
     db.exec(`INSERT INTO email_status (email_id,seen,updated_at) VALUES (1,1,'${T}')`);
   });
 });
@@ -691,7 +693,7 @@ describe("006 users, sessions, invites and the tenant key", () => {
   test("a database with data from 001 to 005 upgrades: everything belongs to user 1, nothing is lost, foreign keys hold", () => {
     const dir = join(tmp, "migs-001-005");
     mkdirSync(dir);
-    for (const f of readdirSync(MIGRATIONS_DIR).filter((f) => !f.startsWith("006_") && !f.startsWith("007_") && !f.startsWith("008_") && !f.startsWith("009_") && !f.startsWith("010_"))) writeFileSync(join(dir, f), readFileSync(join(MIGRATIONS_DIR, f), "utf8"));
+    for (const f of readdirSync(MIGRATIONS_DIR).filter((f) => !f.startsWith("006_") && !f.startsWith("007_") && !f.startsWith("008_") && !f.startsWith("009_") && !f.startsWith("010_") && !f.startsWith("011_"))) writeFileSync(join(dir, f), readFileSync(join(MIGRATIONS_DIR, f), "utf8"));
     const path = join(tmp, "upgrade6.db");
     const old = openDatabase(path, dir);
     seedLegacy(old);
@@ -831,6 +833,44 @@ describe("010 user_settings", () => {
   });
 });
 
+describe("011 topics", () => {
+  const user2 = (db: DatabaseSync) => db.exec(`INSERT INTO users (id,email,password_hash,role,status,created_at,updated_at) VALUES (2,'b@x.test','${"h".repeat(40)}','user','active','${T}','${T}')`);
+  const topic = (user: number, key: string, label = "Segeln") =>
+    `INSERT INTO user_topics (user_id,key,label,created_at,updated_at) VALUES (${user},'${key}','${label}','${T}','${T}')`;
+
+  test("topics_enabled defaults to off and is 0 or 1; the list version of a classification has a safe form", () => {
+    const db = fresh();
+    user2(db);
+    db.exec(`INSERT INTO user_settings (user_id, updated_at) VALUES (2, '${T}')`);
+    assert.equal((db.prepare("SELECT topics_enabled AS t FROM user_settings").get() as { t: number }).t, 0);
+    throwsSql(db, "UPDATE user_settings SET topics_enabled = 2", /CHECK/);
+    db.exec("UPDATE user_settings SET topics_enabled = 1");
+    seed(db);
+    db.exec(`INSERT INTO classifications (email_id,question_set_version,model_requested,status,created_at,updated_at) VALUES (1,'email-classification-v3','m','pending','${T}','${T}')`);
+    assert.equal((db.prepare("SELECT topic_list_version AS v FROM classifications").get() as { v: string | null }).v, null, "v1/v2 rows and new rows start without one");
+    db.exec("UPDATE classifications SET topic_list_version = 'topics-0123456789ab'");
+    for (const bad of ["x", "TOPICS-0123456789AB", "topics 0123456789ab", "topics-" + "a".repeat(40)]) {
+      throwsSql(db, `UPDATE classifications SET topic_list_version = '${bad}'`, /CHECK/);
+    }
+  });
+
+  test("user_topics: custom_ keys only, one key per user, label and hint lengths, flags, owner must exist", () => {
+    const db = fresh();
+    user2(db);
+    db.exec(topic(1, "custom_segeln"));
+    db.exec(topic(2, "custom_segeln"));
+    assert.deepEqual({ ...db.prepare("SELECT position, active, hint FROM user_topics WHERE user_id = 1").get() }, { position: 0, active: 1, hint: null });
+    throwsSql(db, topic(1, "custom_segeln"), /UNIQUE/);
+    throwsSql(db, topic(99, "custom_x1"), /FOREIGN KEY/);
+    for (const key of ["finance", "custom_", "custom_A1", "custom_a-b", "custom_" + "x".repeat(34)]) throwsSql(db, topic(1, key), /CHECK/);
+    throwsSql(db, topic(1, "custom_kurz", "x"), /CHECK/);
+    throwsSql(db, topic(1, "custom_lang", "x".repeat(41)), /CHECK/);
+    throwsSql(db, `UPDATE user_topics SET hint = '${"h".repeat(121)}'`, /CHECK/);
+    throwsSql(db, "UPDATE user_topics SET active = 2", /CHECK/);
+    throwsSql(db, "UPDATE user_topics SET position = -1", /CHECK/);
+  });
+});
+
 describe("migration runner", () => {
   test("idempotent: reopening applies nothing twice", () => {
     const path = join(tmp, "idem.db");
@@ -840,7 +880,7 @@ describe("migration runner", () => {
     const b = openDatabase(path);
     opened.push(b);
     const rows = b.prepare("SELECT version FROM schema_migrations").all() as { version: number }[];
-    assert.deepEqual(rows.map((r) => r.version), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    assert.deepEqual(rows.map((r) => r.version), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
   });
 
   test("numeric (not lexical) order, applied once", () => {

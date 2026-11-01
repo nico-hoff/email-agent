@@ -22,7 +22,7 @@ import { buildTopicQuestion, loadTopicCases, sampleTopicCases, variantOptions } 
 export const REPORT_DIR = join(PROJECT_ROOT, "data", "eval-runs");
 export const MODEL_NAMES = ["jev", "luna-decisions"] as const;
 export const SUITES = ["hf-v2", "fixed-v2", "topics", "all"] as const;
-export type SuiteName = "hf-v2" | "fixed-v2" | "topics";
+export type SuiteName = "hf-v2" | "fixed-v2" | "topics" | "hf-v3" | "topics-v3";
 const NOUL_KEYS = ["is_spam", "is_phishing_or_scam", "addresses_an_ai", "is_assessable", "needs_my_reply"] as const;
 // Measured against the v1 thresholds (the production thresholds at the time of the run, docs/insights-models.md).
 const JEV_THRESHOLDS = new Map<string, number>(Object.entries(calibrationFor(QUESTION_SET_VERSION_V1)?.thresholds ?? {}));
@@ -326,7 +326,7 @@ export function summarizeSuite(run: SuiteRun, models: string[]): SuiteSummary {
 
 const v2 = (): Record<string, JevQuestion> => questionsFor(QUESTION_SET_VERSION_V2);
 
-function expectedOf(e: EvalCase["expected"]): Expected {
+export function expectedOf(e: EvalCase["expected"]): Expected {
   const noul: Record<string, boolean> = {};
   for (const k of NOUL_KEYS) {
     const v = e[k];
@@ -335,7 +335,7 @@ function expectedOf(e: EvalCase["expected"]): Expected {
   return { noul, choice: e.category !== undefined ? { category: e.category } : {} };
 }
 
-function stateOf(c: Pick<EvalCase, "sender_domain" | "subject" | "body">): Record<string, unknown> {
+export function stateOf(c: Pick<EvalCase, "sender_domain" | "subject" | "body">): Record<string, unknown> {
   return buildState({ sender_domain: c.sender_domain, untrusted_subject: c.subject, untrusted_body: c.body });
 }
 

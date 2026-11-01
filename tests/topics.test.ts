@@ -110,3 +110,18 @@ test("synthetic topic fixture: >= 8 per fixed topic, custom cases, placeholder d
   }
   assert.equal(counts.size, 16);
 });
+
+test("an explicit stored key survives a label edit; a malformed key is rejected (R8)", () => {
+  {
+    const edited = buildTopicList([{ key: "custom_segeln", label: "Segelverein" }]);
+    assert.ok(edited.ok);
+    assert.equal(edited.options.at(-1)?.key, "custom_segeln");
+    const derived = buildTopicList([{ label: "Segelverein" }]);
+    assert.ok(derived.ok);
+    assert.notEqual(edited.version, derived.version);
+    for (const key of ["segeln", "custom_", "custom_A", "custom_" + "x".repeat(33), "finance"]) {
+      assert.deepEqual(buildTopicList([{ key, label: "Segelverein" }]), { ok: false, code: "key_invalid", index: 0 }, key);
+    }
+    assert.deepEqual(buildTopicList([{ key: "custom_a", label: "Eins" }, { key: "custom_a", label: "Zwei" }]), { ok: false, code: "duplicate", index: 1 });
+  }
+});

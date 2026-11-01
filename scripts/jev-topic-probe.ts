@@ -11,7 +11,7 @@ import { pathToFileURL } from "node:url";
 import { JEV_MODEL, PROJECT_ROOT } from "../lib/constants.ts";
 import { mulberry32, shuffle } from "../lib/eval-sources.ts";
 import { createJevClient, type JevClient } from "../lib/jev.ts";
-import { buildState, type JevQuestion } from "../lib/jev-questions.ts";
+import { buildState, topicQuestion, type JevQuestion } from "../lib/jev-questions.ts";
 import { normalizeAnswers } from "../lib/jev-response.ts";
 import { createLimiter } from "../lib/limiter.ts";
 import {
@@ -113,12 +113,7 @@ export function variantOptions(variant: Exclude<Variant, "two-stage">): TopicOpt
 }
 
 export function buildTopicQuestion(options: readonly TopicOption[]): JevQuestion {
-  return {
-    type: "choice",
-    instructions:
-      "Which everyday topic does this mail belong to? Pick the single best fit. Use the catch-all option only if no other topic fits.",
-    criteria: Object.fromEntries(options.map((o) => [o.key, o.criteria])),
-  };
+  return topicQuestion(options);
 }
 
 export type Row = {

@@ -1,15 +1,16 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import type { DecisionsResponse } from "@openrouter/sdk/models";
-import { JEV_MAX_ATTEMPTS, JEV_MODEL, QUESTION_SET_VERSION, SCHEDULER_TICK_MS } from "./constants.ts";
+import { JEV_MAX_ATTEMPTS, JEV_MODEL, QUESTION_SET_VERSION, QUESTION_SET_VERSION_V3, SCHEDULER_TICK_MS } from "./constants.ts";
 import { parseMessage, type ImapPort, type TransientInput } from "./imap.ts";
 import type { JevClient } from "./jev.ts";
-import { buildState, QUESTIONS } from "./jev-questions.ts";
+import { buildState, QUESTIONS, questionsFor, questionsV3, type JevQuestion } from "./jev-questions.ts";
+import type { TopicList } from "./topics.ts";
 import { feedbackHistory, recordJevSpam } from "./senders.ts";
 import { accountUserId } from "./tenant.ts";
 import { backoffMs, classifyFailure } from "./retry-policy.ts";
 import { interpretNoul, normalizeAnswers, type NormalizedAnswer } from "./jev-response.ts";
-import { assertCalibrationMatchesQuestions, calibrationFor, NoulCalibrationError } from "./noul-calibration.ts";
+import { assertCalibrationMatchesQuestions, calibrationFor, NOUL_CALIBRATIONS, NoulCalibrationError } from "./noul-calibration.ts";
 import { DEFAULT_CLASSIFIER, isClassifierModel, LUNA_CLASSIFIER } from "./classifier-models.ts";
 import { computeShadowQuarantine, type ShadowQuarantine } from "./shadow.ts";
 
@@ -21,6 +22,15 @@ assertCalibrationMatchesQuestions(
   QUESTION_SET_VERSION,
   Object.entries(QUESTIONS).filter(([, q]) => q.type === "noul").map(([k]) => k),
 );
+
+// Every shipped calibration (v1, v2, v3 per model) must match the noul questions of its own question set.
+for (const cal of NOUL_CALIBRATIONS) {
+  assertCalibrationMatchesQuestions(
+    cal,
+    cal.question_set_version,
+    Object.entries(questionsFor(cal.question_set_version)).filter(([, q]) => q.type === "noul").map(([k]) => k),
+  );
+}
 
 /** Thrown by persistResponse to reject an invalid response: the pipeline rolls back and marks the row failed. */
 export class ResponseRejectedError extends Error {
@@ -38,12 +48,18 @@ export class ResponseRejectedError extends Error {
  */
 export function createPersistResponse(spamThresholdFor: (accountId: string) => number) {
   return (ctx: ClassifiedContext): void => {
-    const n = normalizeAnswers(ctx.response.answers, QUESTIONS);
+    // The question set (and, for v3, the user's topic options) this classification was asked with; default v2.
+    const version = ctx.questionSetVersion ?? QUESTION_SET_VERSION;
+    const n = normalizeAnswers(ctx.response.answers, ctx.questions ?? QUESTIONS);
     if (!n.ok) throw new ResponseRejectedError(`invalid_response_${n.code}`);
-    persistNormalizedAnswers(ctx, n.answers, spamThresholdFor(ctx.accountId), "pipeline", QUESTION_SET_VERSION, ctx.model);
+    persistNormalizedAnswers(ctx, n.answers, spamThresholdFor(ctx.accountId), "pipeline", version, ctx.model);
+    // v3: the topic list version the answer belongs to (the options Jev saw), so that old answers keep their meaning.
+    if (ctx.topicListVersion) {
+      ctx.db.prepare("UPDATE classifications SET topic_list_version = ? WHERE id = ?").run(ctx.topicListVersion, ctx.classificationId);
+    }
     // E7: Jev's spam verdicts per sender feed the HITL question. Same transaction as the answers.
     const spam = n.answers.find((a) => a.key === "is_spam");
-    if (spam && interpretNoul(spam, QUESTION_SET_VERSION, ctx.model) === "positive") {
+    if (spam && interpretNoul(spam, version, ctx.model) === "positive") {
       recordJevSpam(ctx.db, ctx.emailId, ctx.classificationId, ctx.now.toISOString());
     }
   };
@@ -106,6 +122,12 @@ export interface ClassifiedContext {
   accountId: string;
   /** The model this classification was requested from (classifications.model_requested). */
   model: string;
+  /** Question set of this classification (the row's version). Absent = the default (v2). */
+  questionSetVersion?: string;
+  /** The questions that were sent (v3: with the owner's topic options). Absent = the default set. */
+  questions?: Record<string, JevQuestion>;
+  /** v3 only: version of the topic list that was sent (stored in classifications.topic_list_version). */
+  topicListVersion?: string | null;
   response: DecisionsResponse;
   latencyMs: number;
   attempts: number;
@@ -131,6 +153,13 @@ export interface PipelineOptions {
    */
   onClassified?: (info: { emailId: number; accountId: string }) => void | Promise<void>;
   accountContext?: (accountId: string) => string | undefined;
+  /**
+   * Topics (R8, ADR 0037): has the owner of this account switched `topics_enabled` on? Only then do NEW classifications use
+   * the question set v3. Absent = never (v2).
+   */
+  topicsEnabled?: (accountId: string) => boolean;
+  /** The option list of the account's owner (fixed plus active custom topics). Needed for every v3 request, also a retry. */
+  topicList?: (accountId: string) => TopicList;
   tickMs?: number;
 }
 
@@ -150,6 +179,7 @@ interface Row {
   account_id: string;
   attempts: number;
   model: string;
+  question_set_version: string;
 }
 
 export function createClassificationPipeline(opts: PipelineOptions): ClassificationPipeline {
@@ -165,6 +195,15 @@ export function createClassificationPipeline(opts: PipelineOptions): Classificat
       m = JEV_MODEL;
     }
     return isClassifierModel(m) && clientFor(m) !== undefined ? m : JEV_MODEL;
+  };
+  /** Question set for a new classification: v3 only with the owner's switch on AND a valid topic list, else the default v2. */
+  const chooseQuestionSet = (accountId: string): string => {
+    try {
+      if (opts.topicsEnabled?.(accountId) === true && opts.topicList?.(accountId).ok === true) return QUESTION_SET_VERSION_V3;
+    } catch {
+      // fall through to v2
+    }
+    return QUESTION_SET_VERSION;
   };
   const clock = opts.clock ?? systemClock;
   const cache = new Map<number, TransientInput>();
@@ -208,13 +247,25 @@ export function createClassificationPipeline(opts: PipelineOptions): Classificat
     }
   }
 
-  function buildRequest(accountId: string, input: TransientInput) {
+  /** Questions of a classification: the default v2, or v3 with the owner's current topic list. null = v3 without a usable list. */
+  function questionsOf(accountId: string, version: string): { questions: Record<string, JevQuestion>; topicListVersion: string | null } | null {
+    if (version !== QUESTION_SET_VERSION_V3) return { questions: QUESTIONS, topicListVersion: null };
+    try {
+      const list = opts.topicList?.(accountId);
+      if (!list || !list.ok) return null;
+      return { questions: questionsV3(list.options), topicListVersion: list.version };
+    } catch {
+      return null;
+    }
+  }
+
+  function buildRequest(accountId: string, input: TransientInput, questions: Record<string, JevQuestion>) {
     const at = input.sender.lastIndexOf("@");
     const ctx = opts.accountContext?.(accountId);
     // T55/H21: two numbers, only for an authenticated sender (DMARC pass) with feedback; otherwise absent.
     const history = feedbackHistory(db, accountUserId(db, accountId), input.sender, input.dmarc);
     return {
-      questions: QUESTIONS,
+      questions,
       state: buildState({
         ...(ctx !== undefined ? { account_context: ctx } : {}),
         ...(at >= 0 ? { sender_domain: input.sender.slice(at + 1) } : {}),
@@ -265,7 +316,12 @@ export function createClassificationPipeline(opts: PipelineOptions): Classificat
       audit("classification_failed", traceId, row.account_id, row.email_id, { failure_code: "model_unavailable" });
       return;
     }
-    const result = await client.classify(buildRequest(row.account_id, input));
+    const asked = questionsOf(row.account_id, row.question_set_version);
+    if (!asked) {
+      handleRetryOrFail(row, row.attempts + 1, "topic_list_unavailable", traceId);
+      return;
+    }
+    const result = await client.classify(buildRequest(row.account_id, input, asked.questions));
     const latencyMs = Math.max(0, clock.now().getTime() - started);
     const attempts = row.attempts + 1;
 
@@ -278,6 +334,7 @@ export function createClassificationPipeline(opts: PipelineOptions): Classificat
         ).run(result.response.model, latencyMs, attempts, iso(), row.id);
         opts.persistResponse?.({
           db, classificationId: row.id, emailId: row.email_id, accountId: row.account_id, model: row.model,
+          questionSetVersion: row.question_set_version, questions: asked.questions, topicListVersion: asked.topicListVersion,
           response: result.response, latencyMs, attempts, traceId, now: clock.now(),
         });
         db.exec("COMMIT");
@@ -319,7 +376,7 @@ export function createClassificationPipeline(opts: PipelineOptions): Classificat
   async function runDue(): Promise<void> {
     if (paused) return;
     const rows = db.prepare(
-      `SELECT c.id, c.email_id, c.attempts, c.model_requested AS model, e.account_id FROM classifications c JOIN emails e ON e.id = c.email_id
+      `SELECT c.id, c.email_id, c.attempts, c.model_requested AS model, c.question_set_version, e.account_id FROM classifications c JOIN emails e ON e.id = c.email_id
        WHERE c.status = 'pending' OR (c.status = 'retry_wait' AND c.next_attempt_at <= ?)
        ORDER BY c.id`,
     ).all(iso()) as unknown as Row[];
@@ -334,14 +391,15 @@ export function createClassificationPipeline(opts: PipelineOptions): Classificat
       return enqueue(async () => {
         const ts = iso();
         const model = chooseModel(accountId);
+        const version = chooseQuestionSet(accountId);
         db.prepare(
           `INSERT OR IGNORE INTO classifications
              (email_id, question_set_version, model_requested, status, attempts, created_at, updated_at)
            VALUES (?, ?, ?, 'pending', 0, ?, ?)`,
-        ).run(emailId, QUESTION_SET_VERSION, model, ts, ts);
+        ).run(emailId, version, model, ts, ts);
         const r = db.prepare(
-          "SELECT id, email_id, attempts, model_requested AS model FROM classifications WHERE email_id = ? AND question_set_version = ? AND model_requested = ?",
-        ).get(emailId, QUESTION_SET_VERSION, model) as unknown as Omit<Row, "account_id">;
+          "SELECT id, email_id, attempts, model_requested AS model, question_set_version FROM classifications WHERE email_id = ? AND question_set_version = ? AND model_requested = ?",
+        ).get(emailId, version, model) as unknown as Omit<Row, "account_id">;
         const status = db.prepare("SELECT status FROM classifications WHERE id = ?").get(r.id) as { status: string };
         if (status.status !== "pending") return;
         cache.set(r.id, input);

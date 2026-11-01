@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { assertCalibrationMatchesQuestions, calibrationFor, NOUL_CALIBRATIONS, NoulCalibrationError, noulThreshold, parseNoulCalibration, parseNoulCalibrations } from "../lib/noul-calibration.ts";
 import { interpretNoul, type NormalizedAnswer } from "../lib/jev-response.ts";
-import { QUESTION_SET_VERSION, QUESTION_SET_VERSION_V1, QUESTION_SET_VERSION_V2 } from "../lib/constants.ts";
+import { QUESTION_SET_VERSION, QUESTION_SET_VERSION_V1, QUESTION_SET_VERSION_V2, QUESTION_SET_VERSION_V3 } from "../lib/constants.ts";
 import { questionsFor } from "../lib/jev-questions.ts";
 import shippedConfig from "../config/noul-calibration.ts";
 
@@ -18,10 +18,13 @@ const cal1 = calibrationFor(V1)!;
 const cal2 = calibrationFor(V2)!;
 const LUNA = "openai/gpt-6-luna-decisions";
 const cal3 = calibrationFor(V2, LUNA)!;
+const V3 = QUESTION_SET_VERSION_V3;
+const cal4 = calibrationFor(V3)!;
+const cal5 = calibrationFor(V3, LUNA)!;
 
 describe("config/noul-calibration.ts", () => {
   it("has one entry per question set: v1 unchanged (version 1), v2 new (version 2)", () => {
-    assert.equal(NOUL_CALIBRATIONS.length, 3);
+    assert.equal(NOUL_CALIBRATIONS.length, 5);
     assert.equal(cal1.version, "1");
     assert.equal(cal1.created, "2026-10-27");
     assert.deepEqual(cal1.thresholds, { is_spam: 0.8, is_phishing_or_scam: 0.5, addresses_an_ai: 0.3 });
@@ -39,6 +42,19 @@ describe("config/noul-calibration.ts", () => {
     assert.equal(calibrationFor(V1, LUNA), null, "no Luna calibration for v1: fail-closed");
   });
 
+  it("v3 (R8, ADR 0037): entries 4 (Jev) and 5 (Luna) carry exactly the thresholds of v2 per model; topic has none (choice)", () => {
+    assert.deepEqual([cal4.version, cal5.version], ["4", "5"]);
+    assert.deepEqual([cal4.model, cal5.model], ["typesafe/jev-1.13", LUNA]);
+    assert.deepEqual(cal4.thresholds, cal2.thresholds);
+    assert.deepEqual(cal5.thresholds, cal3.thresholds);
+    assert.equal(noulThreshold("topic", V3), null);
+    assert.equal(interpretNoul({ key: "is_spam", type: "noul", value: 0.7 }, V3), "positive");
+    assert.equal(interpretNoul({ key: "is_spam", type: "noul", value: 0.84 }, V3, LUNA), "negative");
+    assert.equal(interpretNoul({ key: "is_spam", type: "noul", value: 0.85 }, V3, LUNA), "positive");
+    assert.equal(interpretNoul({ key: "topic", type: "choice", value: "finance" }, V3), "unmapped");
+    assert.equal(calibrationFor(V3, "other/model"), null);
+  });
+
   it("the default question set has a calibration", () => {
     assert.ok(calibrationFor(QUESTION_SET_VERSION));
   });
@@ -53,7 +69,7 @@ describe("config/noul-calibration.ts", () => {
     return doc.slice(start, next < 0 ? undefined : next);
   };
 
-  for (const [cal, heading] of [[cal1, "Kalibrierung"], [cal2, "Kalibrierung v2"], [cal3, "Kalibrierung v2, Luna Decisions"]] as const) {
+  for (const [cal, heading] of [[cal1, "Kalibrierung"], [cal2, "Kalibrierung v2"], [cal3, "Kalibrierung v2, Luna Decisions"], [cal4, "Kalibrierung v3"], [cal5, "Kalibrierung v3, Luna Decisions"]] as const) {
     it(`matches docs/jev-contract.md (section ${heading}: version, date and every value)`, () => {
       const section = sectionOf(heading);
       assert.ok(section.includes(`Version ${cal.version}`), "version");
@@ -193,7 +209,7 @@ describe("calibration v2 (R7)", () => {
     for (const raw of [[], {}, null, [v1, v1]]) {
       assert.throws(() => parseNoulCalibrations(raw), (e: unknown) => e instanceof NoulCalibrationError && e.code === "noul_calibration_invalid");
     }
-    assert.equal(parseNoulCalibrations(structuredClone(shippedConfig)).length, 3);
+    assert.equal(parseNoulCalibrations(structuredClone(shippedConfig)).length, 5);
   });
   it("every v2 threshold belongs to a noul question of v2", () => {
     const noulKeys = new Set(Object.entries(questionsFor(V2)).filter(([, q]) => q.type === "noul").map(([k]) => k));
