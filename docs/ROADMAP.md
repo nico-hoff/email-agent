@@ -1,6 +1,6 @@
 # Roadmap
 
-> Stand 2026-11-01. Entscheidungen: ADR 0021–0044. Umgebungen: prod (fly), preview, QA und Staging auf Nicos Mac (ADR 0042). Jeder Meilenstein endet mit dem **QA-Loop** (ADR 0021): Checkliste + Screenshots + Preview-App → Nicos „go“ → `main` (= Prod-Deploy auf fly).
+> Stand 2026-11-01. Entscheidungen: ADR 0021–0045. Umgebungen: prod (fly), preview, QA und Staging auf Nicos Mac (ADR 0042). Jeder Meilenstein endet mit dem **QA-Loop** (ADR 0021): Checkliste + Screenshots + Preview-App → Nicos „go“ → `main` (= Prod-Deploy auf fly).
 > Legende: 🤖 Agenten allein · 👤 Nico · ✅ fertig · 🟡 läuft · ⏳ offen
 
 ## Phase A – Grundlage und Prod-MVP

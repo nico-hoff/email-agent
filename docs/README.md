@@ -6,7 +6,7 @@
 2. **`docs/HANDOVER_2026-11-01.md`** — aktueller Stand, was in Arbeit ist, nächste Schritte, Werkzeug-Notizen.
 3. **`docs/ROADMAP.md`** — Meilensteine R0–R10, go2market-Gate, Liste für Nico. Laufender Agenten-Auftrag: `docs/GOAL.md`.
 4. **`docs/ARCHITECTURE.md`** — wie das System gebaut ist (Komponenten, Datenfluss, Laufzeitmodi, Sicherheit, Deployment).
-5. **`docs/adr/`** — warum es so gebaut ist (0001–0031). Veryfront-Bausteine, Tipps und Fallstricke: **`docs/veryfront-guide.md`**.
+5. **`docs/adr/`** — warum es so gebaut ist (0001–0045). Veryfront-Bausteine, Tipps und Fallstricke: **`docs/veryfront-guide.md`**.
 6. Bei Bedarf der passende Vertrag (unten) und `docs/erd.md` vor jeder Schemaänderung.
 
 Neuere Handover ersetzen ältere; immer das mit dem jüngsten Datum lesen.
@@ -27,8 +27,8 @@ Neuere Handover ersetzen ältere; immer das mit dem jüngsten Datum lesen.
 |---|---|
 | `docs/jev-contract.md` | Jev/System One, Fragensets |
 | `docs/agent-contract.md` | Agenten, Briefing/SSE (§6), Evals (§7) |
-| `docs/imap-write-contract.md` | `\Seen`-Schreibport |
-| `docs/access-contract.md` | Zugang: synthetic, password, tailnet |
+| `docs/imap-write-contract.md` | Schreibport: `\Seen` und natives MOVE (Quarantäne, Papierkorb, Undo), Not-Aus |
+| `docs/access-contract.md` | Zugang: synthetic, users (Nutzerkonten), password, tailnet |
 | `docs/accounts-contract.md` | Postfächer in der App: Verschlüsselung, Supervisor, Import, API, Grenzen (R2) |
 | `docs/eval-datasets.md` | HF-Datensets, Splits, Kalibrierung |
 
@@ -40,6 +40,7 @@ Neuere Handover ersetzen ältere; immer das mit dem jüngsten Datum lesen.
 | `docs/stack-beurteilung.md` | Veryfront und Alternativen, Konzepte (MVC, ORM, RBAC), Agenten/Workflows, Stack je Phase (zu ADR 0045) |
 | `docs/fly-deploy.md` | fly.io: Konfiguration, Schritte, Kosten, Backup, Not-Aus |
 | `docs/github-environments.md` | GitHub Environments `prod`/`preview`, Secrets, Workflows (ADR 0024) |
+| `docs/qa/` | QA-Pakete R1–R4, R6–R9 und Erst-Import (Checklisten, Screenshots), `BLOCKERS.md` (Schritte für Nico) |
 | `docs/qa/R4.md` | QA-Paket R4: Prod-Pipeline |
 | `docs/qa/initial-import.md` | QA-Paket Erst-Import (ADR 0043): Live-Karte, iPhone-Checkliste für Staging |
 | `docs/LOCAL_DEV_MAC.md` | lokal auf dem Mac, Live-Betrieb, Live-Proben |
