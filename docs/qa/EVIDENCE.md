@@ -100,4 +100,4 @@
 
 ## 4. Status
 
-- `dev` = `origin/dev` = `b91abb6`; Gate und Docker-Smoke grün auf diesem Stand (siehe Sitzungsprotokoll); `main` unberührt.
+- `dev` = `origin/dev` = `0607ad6` (Skriptlauf auf `b91abb6`, danach nur diese Datei korrigiert); Gate (1623 Tests, ℹ fail 0) und Docker-Smoke (Migrationen 1–12) grün auf `0607ad6`; `main` unberührt.
