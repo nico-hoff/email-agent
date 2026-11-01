@@ -46,7 +46,16 @@ if ! docker run -d --name "$NAME" \
 fi
 echo "ok start"
 
-code() { curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$1"; }
+# The first request to a route compiles it inside the container; under load that can exceed a few seconds (seen as 000).
+code() {
+  local c
+  for _ in 1 2 3; do
+    c=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$1")
+    [ "$c" != "000" ] && break
+    sleep 2
+  done
+  echo "$c"
+}
 expect_code() { # expect_code <name> <expected> <url>
   local got
   got="$(code "$3")"
@@ -71,12 +80,13 @@ for _ in $(seq 1 30); do
 done
 if [ "$STATUS" = "healthy" ]; then echo "ok healthcheck healthy"; else echo "FAIL healthcheck ${STATUS:-unknown}"; FAILED=1; fi
 
-# Only a count leaves the container: how many of the migrations 1..8 are recorded in schema_migrations.
+# Only a count leaves the container: how many of the migrations 1..N (N = files in db/migrations) are recorded.
+MIG_TOTAL=$(ls "$(dirname "$0")/../db/migrations/"*.sql | wc -l | tr -d ' ')
 MIG="$(docker exec "$NAME" node -e "
 const { DatabaseSync } = require('node:sqlite');
 const db = new DatabaseSync('/data/email-agent.sqlite', { readOnly: true });
-console.log(String(db.prepare('SELECT COUNT(*) AS n FROM schema_migrations WHERE version BETWEEN 1 AND 8').get().n));
+console.log(String(db.prepare('SELECT COUNT(*) AS n FROM schema_migrations WHERE version BETWEEN 1 AND $MIG_TOTAL').get().n));
 " 2>/dev/null)"
-if [ "$MIG" = "8" ]; then echo "ok migrations 1-8 applied"; else echo "FAIL migrations 1-8 applied (${MIG:-database not readable})"; FAILED=1; fi
+if [ "$MIG" = "$MIG_TOTAL" ]; then echo "ok migrations 1-$MIG_TOTAL applied"; else echo "FAIL migrations 1-$MIG_TOTAL applied (${MIG:-database not readable})"; FAILED=1; fi
 
 exit "$FAILED"
