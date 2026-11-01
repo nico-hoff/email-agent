@@ -12,6 +12,7 @@ erDiagram
   users ||--o{ senders : "Absender je Nutzer"
   users ||--o{ sender_rules : "Regeln je Nutzer"
   users ||--o{ user_state : "Zustand je Nutzer"
+  users ||--o{ push_subscriptions : "Push-Geräte (009)"
   users |o--o{ audit_log : "optional"
   accounts ||--o{ mailbox_state : "Checkpoint je Ordner"
   accounts ||--o| worker_status : "Betriebszustand"
@@ -67,6 +68,20 @@ erDiagram
     text spam_mailbox
     integer enabled
     text color
+  }
+  push_subscriptions {
+    int id PK
+    int user_id FK
+    text endpoint UK
+    text p256dh
+    text auth
+    text agent_family
+    int important_mail
+    int briefing_ready
+    int failure_count
+    text next_attempt_at
+    text created_at
+    text last_success_at
   }
   mail_accounts {
     text account_id PK, FK
@@ -274,6 +289,7 @@ Mermaid kann zusammengesetzte Eindeutigkeit nicht gruppieren. Maßgeblich sind d
 24. **Audit der Nutzerverwaltung.** `user_created`, `invite_created` und `invite_used` stehen mit `actor = 'system'` und `user_id` im `audit_log`; `details_json` enthält nur IDs und die Rolle, nie E-Mail-Adressen, Codes oder Tokens.
 25. **Postfächer in der DB (007, ADR 0023).** `accounts` bleibt Mandantenwurzel und Metadatentabelle (Label, Farbe, Host, Port, Ordner, `enabled`, `user_id`). `mail_accounts` ist 1:1 dazu (`account_id` ist PK, zusammengesetzter FK `(account_id, user_id) → accounts (id, user_id)`, damit Konto und Nutzer nicht auseinanderlaufen) und trägt Typ, TLS, Benutzername, das verschlüsselte Passwort (`secret_ciphertext`, `secret_nonce` 12 Byte, `secret_tag` 16 Byte als getrennte BLOBs, AAD `account_id|user_id`), `key_id`, den kurzen Kontext-Text des Nutzers, die Spam-Schwelle und `spam_seen_mode`. Konten ohne Zeile in `mail_accounts` (Demo-/Synthetikdaten, Konten vor dem Import) werden von Workern nie gestartet. Die Spam-Schwelle liegt damit in der DB (frühere Regel „kein `spam_threshold` im Schema“ entfällt; sie ist eine Einstellung, kein Mailinhalt); der Schema-Test prüft weiter, dass keine Inhaltsspalten existieren.
 26. **Neue Konten starten mit `spam_seen_mode = 'off'`** (ADR 0025). Importierte Konten behalten den Wert der Konten-Datei, fehlend gilt `dry_run` wie bisher. Konto-IDs erzeugt der Server (`a_` plus 16 Hexzeichen), sie sind nie frei wählbar. Der einmalige Import der Konten-Datei wird als `user_state (1, 'accounts_import')` vermerkt; danach wird die Datei nie wieder gelesen.
+27. **Web-Push-Geräte (009, ADR 0036).** `push_subscriptions` hält ein Gerät je Zeile (Nutzer-FK, `endpoint` eindeutig). Gespeichert sind nur Endpunkt, Gerätschlüssel, eine grobe Browser-Familie, die zwei Schalter und der Zustellzustand (Fehlerzähler, nächster Versuch, letzter Erfolg). Keine Mailinhalte, kein Absendername, kein Betreff, kein User-Agent-String. Ratenbegrenzung und ausstehende Zähler je Nutzer liegen in `user_state` (Schlüssel `push_state`: Zeitpunkt des letzten Pushes je Art, ausstehende Mail-IDs, Tag des letzten Briefing-Pushes), nicht in einer eigenen Tabelle. Das Abo verlangt keine Mailkonten-Verbindung und überlebt kein Löschen des Nutzers (FK ohne Kaskade, wie bei den anderen Nutzertabellen).
 
 27. **Erst-Import (008, ADR 0043).** `account_sync` (1:1 zu `accounts`, `account_id` PK, zusammengesetzter FK `(account_id, user_id) → accounts (id, user_id)`) hält den Fortschritt des einmaligen Erst-Imports je Konto: `phase` (`queued`, `connecting`, `fetching`, `classifying`, `done`, `failed`), Zähler `total`, `fetched`, `classified`, `failed_count`, einen kurzen `error_code`, die Zahl der Läufe (`runs`, steigt bei „Erneut importieren“) und Zeitstempel. Nur Zähler und Codes, nie Mailinhalt. Der Worker im Serverprozess schreibt, Routen lesen (kein gemeinsamer Speicher). `emails.origin` (`live` | `import`) markiert importierte Mails: sie werden klassifiziert, lösen aber keine automatische Postfach-Aktion aus und zählen nicht als „neu seit dem letzten Öffnen“. Der Import liest nur UIDs ≤ Checkpoint (`mailbox_state.last_uid`), der Live-Pfad nur UIDs > Checkpoint: die Bereiche sind disjunkt.
 ## Verbindungs-Pragmas (nicht Teil der Migration, bei jeder Verbindung setzen)
@@ -663,6 +679,28 @@ ALTER TABLE emails ADD COLUMN origin TEXT NOT NULL DEFAULT 'live' CHECK (origin 
 ```
 
 `account_sync.error_code` ist nur ein kurzer Code (`imap_auth`, `imap_error`, `no_range`, `classify_timeout`), nie eine Server-Antwort. `emails.origin` ist `import` nur für Mails, die der Erst-Import als Erstes gesehen hat.
+
+## DDL (`db/migrations/009_push_subscriptions.sql`)
+
+```sql
+CREATE TABLE push_subscriptions (
+  id                  INTEGER PRIMARY KEY,
+  user_id             INTEGER NOT NULL REFERENCES users (id),
+  endpoint            TEXT NOT NULL UNIQUE CHECK (length(endpoint) BETWEEN 20 AND 1024 AND endpoint LIKE 'https://%'),
+  p256dh              TEXT NOT NULL CHECK (length(p256dh) = 87 AND p256dh NOT GLOB '*[^A-Za-z0-9_-]*'),
+  auth                TEXT NOT NULL CHECK (length(auth) = 22 AND auth NOT GLOB '*[^A-Za-z0-9_-]*'),
+  agent_family        TEXT NOT NULL DEFAULT 'unknown' CHECK (length(agent_family) BETWEEN 1 AND 32 AND agent_family NOT GLOB '*[^A-Za-z0-9 ]*'),
+  important_mail      INTEGER NOT NULL DEFAULT 1 CHECK (important_mail IN (0, 1)),
+  briefing_ready      INTEGER NOT NULL DEFAULT 1 CHECK (briefing_ready IN (0, 1)),
+  failure_count       INTEGER NOT NULL DEFAULT 0 CHECK (failure_count >= 0),
+  next_attempt_at     TEXT,
+  created_at          TEXT NOT NULL,
+  last_success_at     TEXT
+);
+CREATE INDEX push_subscriptions_user ON push_subscriptions (user_id);
+```
+
+`endpoint` ist die Push-URL des Browsers und damit geheimnisähnlich (wer sie samt Schlüsseln kennt, kann Pushes an das Gerät senden): sie erscheint nie in einer API-Antwort und nie in einem Log. `p256dh` (65 Byte) und `auth` (16 Byte) sind die öffentlichen Gerätschlüssel aus `PushSubscription.toJSON()` als base64url. `agent_family` ist nur eine grobe Familie („iOS Safari“, „Desktop Chrome“, …), nie der User-Agent-String. `important_mail` und `briefing_ready` sind die Schalter je Art. `failure_count` und `next_attempt_at` steuern den Backoff; ab 10 Fehlern in Folge wird das Gerät entfernt (404/410 sofort).
 
 ## Schema-Test (`tests/db.test.ts`)
 

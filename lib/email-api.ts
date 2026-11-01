@@ -409,6 +409,30 @@ export function listEmails(db: DatabaseSync, userId: number, q: ListQuery, deps:
   return { emails: page.map((d) => buildItem(db, d, readNoul)), next_cursor, counts, accounts, auto_actions, view };
 }
 
+// ---- push worthiness (R6, ADR 0036) -----------------------------------------------------------------------------------
+
+/** Score scale is 0..3 (docs/jev-contract.md); 2 is "within 48 hours". Same value as URGENT_MIN in briefing-context.ts. */
+const PUSH_URGENT_MIN = 2;
+
+export interface PushCandidate {
+  /** Classified, not noise, not read or done, and (urgency >= 2 or open). */
+  important: boolean;
+  firstSeenAt: string;
+}
+
+/**
+ * Should this mail count towards a "wichtige Mail" push? Uses the same derivation as the list views (noise, open, seen,
+ * done), so the push never disagrees with what the app shows. null = no such mail for this user (foreign = missing).
+ */
+export function pushCandidate(db: DatabaseSync, userId: number, emailId: number, deps: ApiDeps = {}): PushCandidate | null {
+  const row = db.prepare(`${SELECT_ROWS} WHERE e.id = ? AND a.user_id = ?`).get(emailId, userId) as Row | undefined;
+  if (!row) return null;
+  const d = derive(row, deps.readNoul ?? interpretNoul);
+  const urgent = d.key.urgency !== null && d.key.urgency >= PUSH_URGENT_MIN;
+  const important = row.status === "classified" && !d.noise && !d.seen && !d.done && (urgent || d.open);
+  return { important, firstSeenAt: row.first_seen_at };
+}
+
 // ---- detail -----------------------------------------------------------------------------------------------------
 
 /** The "Spam gelesen" action of a mail: codes and time only, never the reason details. */

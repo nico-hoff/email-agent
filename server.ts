@@ -17,6 +17,8 @@ import { appPasswordStatus, selectAuthMode } from "./lib/auth.ts";
 import { openDatabase } from "./lib/db.ts";
 import { ensureDevUser } from "./lib/users.ts";
 import { createMailboxActions, type MailboxActions } from "./lib/mailbox-actions.ts";
+import { createPushNotifier, type PushNotifier } from "./lib/push-notify.ts";
+import { fetchTransport, loadPushConfig, type PushTransport } from "./lib/push.ts";
 import { join } from "node:path";
 import { startServer } from "veryfront/server";
 import { register, tryResolve } from "veryfront/extensions/contracts";
@@ -99,6 +101,9 @@ interface PipelineOptions {
   mailboxActions?: MailboxActions;
   /** Test/QA seam: the read-only port a classification retry refetches with. Default: a real ImapFlow port of the account. */
   portFactory?: (accountId: string) => ImapPort;
+  /** Test seam: replaces the push transport (never a real network call in tests). */
+  pushTransport?: PushTransport;
+  pushNotifier?: PushNotifier;
 }
 
 /**
@@ -116,10 +121,15 @@ function wirePipeline(deps: { db: StartupResult["db"]; accounts: ImapWorkersDeps
     accounts: deps.accounts,
     killSwitchFile: o.killSwitchFile ?? join(dataDirFromEnv(env, PROJECT_ROOT), KILL_SWITCH_FILE),
   });
+  // R6: Web Push. Without a valid VAPID pair the notifier is a no-op (fail-closed); nothing about the keys is logged.
+  const vapid = loadPushConfig(env);
+  const push = o.pushNotifier ?? createPushNotifier({
+    db: deps.db, config: vapid.ok ? vapid.config : undefined, transport: o.pushTransport ?? fetchTransport, log,
+  });
   const apiKey = env.OPENROUTER_API_KEY;
   if (!apiKey) {
     log("classification disabled: OPENROUTER_API_KEY not set");
-    return { actions, pipeline: undefined, onIngested: undefined };
+    return { actions, push, pipeline: undefined, onIngested: undefined };
   }
   const pipeline = createClassificationPipeline({
     db: deps.db,
@@ -131,14 +141,17 @@ function wirePipeline(deps: { db: StartupResult["db"]; accounts: ImapWorkersDeps
     }),
     accountContext: (id) => find(id)?.context,
     persistResponse: createPersistResponse((id) => find(id)?.spam_threshold ?? DEFAULT_SPAM_THRESHOLD),
-    onClassified: ({ emailId }) => actions.onClassified(emailId),
+    onClassified: async ({ emailId }) => {
+      await actions.onClassified(emailId);
+      void push.onClassified(emailId); // fire and forget: a slow push service must not hold up the pipeline (never rejects)
+    },
   });
   const onIngested: ImapWorkersDeps["onIngested"] = (emailId, input) => {
     const accountId = (deps.db.prepare("SELECT account_id FROM emails WHERE id = ?").get(emailId) as { account_id: string } | undefined)?.account_id;
     if (!accountId) return;
     return pipeline.submit({ emailId, accountId, input });
   };
-  return { actions, pipeline, onIngested };
+  return { actions, push, pipeline, onIngested };
 }
 
 /** Imap workers for a fixed account list plus the Jev classification pipeline (onIngested -> submit). Without OPENROUTER_API_KEY only ingestion runs. */
@@ -153,10 +166,12 @@ export function createWorkersWithPipeline(
   return {
     start() {
       workers.start();
+      w.push.start();
       void w.pipeline?.start().catch(() => log("pipeline start failed"));
       void w.actions.backfill().catch(() => log("mailbox action backfill failed"));
     },
     async stop() {
+      w.push.stop();
       w.pipeline?.stop();
       await workers.stop();
     },
@@ -190,10 +205,12 @@ export function createSupervisedWorkers(
   return {
     start() {
       supervisor.start();
+      w.push.start();
       void w.pipeline?.start().catch(() => log("pipeline start failed"));
       void supervisor.reconcile().then(() => w.actions.backfill()).catch(() => log("mailbox action backfill failed"));
     },
     async stop() {
+      w.push.stop();
       w.pipeline?.stop();
       await supervisor.stop();
     },

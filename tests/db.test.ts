@@ -112,6 +112,7 @@ const ALLOWLIST: Record<string, string[]> = {
     "user_id",
   ],
   user_state: ["user_id", "key", "value_json", "updated_at"],
+  push_subscriptions: ["id", "user_id", "endpoint", "p256dh", "auth", "agent_family", "important_mail", "briefing_ready", "failure_count", "next_attempt_at", "created_at", "last_success_at"],
   users: ["id", "email", "password_hash", "role", "status", "created_at", "updated_at"],
   user_sessions: ["id", "user_id", "created_at", "expires_at", "last_used_at", "revoked_at"],
   invites: ["id", "code_hash", "role", "created_by", "created_at", "expires_at", "used_at", "used_by"],
@@ -416,7 +417,7 @@ describe("002 email_status and accounts.color", () => {
     const db = openDatabase(path);
     opened.push(db);
     assert.equal((db.prepare("SELECT COUNT(*) AS n FROM emails").get() as { n: number }).n, 1);
-    assert.deepEqual((db.prepare("SELECT version FROM schema_migrations ORDER BY version").all() as { version: number }[]).map((r) => r.version), [1, 2, 3, 4, 5, 6, 7, 8]);
+    assert.deepEqual((db.prepare("SELECT version FROM schema_migrations ORDER BY version").all() as { version: number }[]).map((r) => r.version), [1, 2, 3, 4, 5, 6, 7, 8, 9]);
     db.exec(`INSERT INTO email_status (email_id,seen,updated_at) VALUES (1,1,'${T}')`);
   });
 });
@@ -689,7 +690,7 @@ describe("006 users, sessions, invites and the tenant key", () => {
   test("a database with data from 001 to 005 upgrades: everything belongs to user 1, nothing is lost, foreign keys hold", () => {
     const dir = join(tmp, "migs-001-005");
     mkdirSync(dir);
-    for (const f of readdirSync(MIGRATIONS_DIR).filter((f) => !f.startsWith("006_") && !f.startsWith("007_") && !f.startsWith("008_"))) writeFileSync(join(dir, f), readFileSync(join(MIGRATIONS_DIR, f), "utf8"));
+    for (const f of readdirSync(MIGRATIONS_DIR).filter((f) => !f.startsWith("006_") && !f.startsWith("007_") && !f.startsWith("008_") && !f.startsWith("009_"))) writeFileSync(join(dir, f), readFileSync(join(MIGRATIONS_DIR, f), "utf8"));
     const path = join(tmp, "upgrade6.db");
     const old = openDatabase(path, dir);
     seedLegacy(old);
@@ -765,6 +766,37 @@ describe("007 mail_accounts", () => {
   });
 });
 
+describe("009 push_subscriptions", () => {
+  const ins = (o: Record<string, string> = {}) => {
+    const v = { user: "1", endpoint: "'https://web.push.apple.com/abc-1'", p256dh: `'${"A".repeat(87)}'`, auth: `'${"B".repeat(22)}'`, family: "'iOS Safari'", ...o };
+    return `INSERT INTO push_subscriptions (user_id,endpoint,p256dh,auth,agent_family,created_at) VALUES (${v.user},${v.endpoint},${v.p256dh},${v.auth},${v.family},'${T}')`;
+  };
+
+  test("defaults: both kinds on, no failures; endpoint is unique; the user must exist", () => {
+    const db = fresh();
+    db.exec(ins());
+    assert.deepEqual({ ...db.prepare("SELECT important_mail, briefing_ready, failure_count, next_attempt_at, last_success_at FROM push_subscriptions").get() },
+      { important_mail: 1, briefing_ready: 1, failure_count: 0, next_attempt_at: null, last_success_at: null });
+    throwsSql(db, ins(), /UNIQUE/);
+    throwsSql(db, ins({ user: "99", endpoint: "'https://web.push.apple.com/other-endpoint'" }), /FOREIGN KEY/);
+  });
+
+  test("CHECK clauses: https endpoint, key sizes and alphabet, family text, flags, failure count", () => {
+    const db = fresh();
+    throwsSql(db, ins({ endpoint: "'http://web.push.apple.com/abc-1'" }), /CHECK/);
+    throwsSql(db, ins({ endpoint: "'https://x'" }), /CHECK/);
+    throwsSql(db, ins({ p256dh: `'${"A".repeat(86)}'` }), /CHECK/);
+    throwsSql(db, ins({ p256dh: `'${"+".repeat(87)}'` }), /CHECK/);
+    throwsSql(db, ins({ auth: `'${"B".repeat(21)}'` }), /CHECK/);
+    throwsSql(db, ins({ family: "''" }), /CHECK/);
+    throwsSql(db, ins({ family: "'Mozilla/5.0 (iPhone; CPU)'" }), /CHECK/);
+    db.exec(ins());
+    throwsSql(db, "UPDATE push_subscriptions SET important_mail = 2", /CHECK/);
+    throwsSql(db, "UPDATE push_subscriptions SET briefing_ready = -1", /CHECK/);
+    throwsSql(db, "UPDATE push_subscriptions SET failure_count = -1", /CHECK/);
+  });
+});
+
 describe("audit_log append-only triggers", () => {
   test("UPDATE and DELETE are aborted", () => {
     const db = fresh();
@@ -784,7 +816,7 @@ describe("migration runner", () => {
     const b = openDatabase(path);
     opened.push(b);
     const rows = b.prepare("SELECT version FROM schema_migrations").all() as { version: number }[];
-    assert.deepEqual(rows.map((r) => r.version), [1, 2, 3, 4, 5, 6, 7, 8]);
+    assert.deepEqual(rows.map((r) => r.version), [1, 2, 3, 4, 5, 6, 7, 8, 9]);
   });
 
   test("numeric (not lexical) order, applied once", () => {
