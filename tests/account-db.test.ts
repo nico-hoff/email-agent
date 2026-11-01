@@ -90,7 +90,7 @@ describe("validateDatabasePath / startup", () => {
     const root = mkdtempSync(join(tmpdir(), "email-agent-accdb-root-"));
     const s = startup({ env: {}, projectRoot: root });
     assert.equal(s.legacyImport.status, "no_file");
-    assert.equal(rows(s.db, "SELECT count(*) AS n FROM schema_migrations")[0].n, 9);
+    assert.equal(rows(s.db, "SELECT count(*) AS n FROM schema_migrations")[0].n, 10);
     s.db.close();
     rmSync(root, { recursive: true, force: true });
   });

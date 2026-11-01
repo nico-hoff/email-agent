@@ -299,7 +299,7 @@ describe("cursor pagination", () => {
       const first = (await call(f.file, "?view=all&limit=3")).body;
       // a new, most urgent mail arrives, and one of the already delivered rows is marked done
       f.db.prepare("INSERT INTO emails (id, account_id, message_id, sender, subject, received_at, first_seen_at) VALUES (99,'a1','m99','s@x.example','new',?,?)").run(day(26), T);
-      f.db.prepare("INSERT INTO classifications (id, email_id, question_set_version, model_requested, model_reported, status, attempts, created_at, updated_at) VALUES (99,99,?,?,?,'classified',1,?,?)").run(QV, "m", "m", T, T);
+      f.db.prepare("INSERT INTO classifications (id, email_id, question_set_version, model_requested, model_reported, status, attempts, created_at, updated_at) VALUES (99,99,?,?,?,'classified',1,?,?)").run(QV, "typesafe/jev-1.13", "m", T, T);
       f.db.prepare("INSERT INTO classification_answers (classification_id, question_key, type, answer_json) VALUES (99,'urgency','score','{\"value\":3}')").run();
       f.db.prepare("INSERT INTO email_status (email_id, seen, done, updated_at) VALUES (?,0,1,?)").run(first.emails[0].id, T);
       const second = (await call(f.file, `?view=all&limit=50&cursor=${first.next_cursor}`)).body;

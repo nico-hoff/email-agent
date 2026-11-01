@@ -767,3 +767,26 @@ main { display: block; min-width: 0; }
   .sync-icon-active { animation-duration: 3s; }
   .sync-bar > span { transition: none; }
 }
+
+/* ---- R3: Einstellungen (Profil): Postfach-Aktionen, Modellwahl, Berechtigungen, Bestätigungsdialog ---- */
+.btn-danger { border-color: transparent; background: var(--c-spam); color: var(--accent-text); font-weight: 650; }
+.notice-warn { margin: 0 0 8px; padding: 12px; border-radius: 12px; background: var(--warn-bg); color: var(--warn-fg); }
+.stop-block { margin-top: 4px; }
+.stop-block .hint { margin: 0 0 8px; }
+.panel a.btn { display: flex; align-items: center; justify-content: center; text-decoration: none; margin-top: 8px; }
+.model-list { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 12px; }
+.model-row { display: grid; gap: 4px; }
+.model-row .choice { flex: none; width: 100%; }
+.model-row .hint { margin: 0; }
+.dialog-backdrop {
+  position: fixed; inset: 0; z-index: 50; display: flex; align-items: flex-end; justify-content: center;
+  background: rgb(10 14 20 / 0.55); padding: 16px; overflow-y: auto;
+}
+.dialog {
+  box-sizing: border-box; width: 100%; max-width: 480px; margin: auto; padding: 18px 16px 16px; border-radius: 16px;
+  background: var(--surface); color: var(--text); box-shadow: var(--shadow); display: grid; gap: 12px;
+}
+.dialog-title { margin: 0; font-size: 18px; line-height: 1.3; }
+.dialog-body p { margin: 0 0 8px; }
+.dialog-list { list-style: disc; margin: 0; padding-left: 20px; display: grid; gap: 6px; font-size: 15px; }
+@media (min-width: 640px) { .dialog-backdrop { align-items: center; } }

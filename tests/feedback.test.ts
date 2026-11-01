@@ -161,7 +161,7 @@ describe("recordFeedback", () => {
     const { db, add } = setup();
     const id = add("s@x.test");
     db.prepare(`INSERT INTO classifications (id, email_id, question_set_version, model_requested, model_reported, status, attempts, created_at, updated_at)
-      VALUES (7, ?, 'email-classification-v1', 'm', 'm', 'classified', 1, ?, ?)`).run(id, T, T);
+      VALUES (7, ?, 'email-classification-v1', 'typesafe/jev-1.13', 'm', 'classified', 1, ?, ?)`).run(id, T, T);
     db.prepare(`INSERT INTO classifications (id, email_id, question_set_version, model_requested, status, attempts, created_at, updated_at)
       VALUES (8, ?, 'email-classification-v2', 'm', 'pending', 0, ?, ?)`).run(id, T, T);
     recordFeedback(db, 1, { emailId: id, kind: "spam_correct", ts: T });

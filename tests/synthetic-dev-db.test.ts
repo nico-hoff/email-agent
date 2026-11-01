@@ -211,7 +211,7 @@ describe("answers", () => {
     live.prepare("INSERT INTO emails (id, account_id, message_id, sender, subject, received_at, first_seen_at) VALUES (1,'a','m','s','s','t','t')").run();
     live.prepare("INSERT INTO classifications (id, email_id, question_set_version, model_requested, status, created_at, updated_at) VALUES (1,1,'v','m','pending','t','t')").run();
     createPersistResponse(() => DEFAULT_SPAM_THRESHOLD)({
-      db: live, classificationId: 1, emailId: 1, accountId: "a", latencyMs: 1, attempts: 1, traceId: "t", now: NOW,
+      db: live, classificationId: 1, emailId: 1, accountId: "a", model: "typesafe/jev-1.13", latencyMs: 1, attempts: 1, traceId: "t", now: NOW,
       response: { answers: rawAnswers(over), model: "m" } as never,
     });
 

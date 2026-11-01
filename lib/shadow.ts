@@ -37,6 +37,7 @@ export function computeShadowQuarantine(
   spamThreshold: number,
   interpret: NoulInterpreter = interpretNoul,
   questionSetVersion?: string,
+  model?: string,
 ): ShadowQuarantine {
   const by = new Map(answers.map((a) => [a.key, a]));
   const num = (k: string): number | null => {
@@ -58,7 +59,7 @@ export function computeShadowQuarantine(
 
   const read = (k: string): NoulReading => {
     const a = by.get(k);
-    return a && a.type === "noul" && inputs[k as "is_spam"] !== null ? interpret(a, questionSetVersion) : "unmapped";
+    return a && a.type === "noul" && inputs[k as "is_spam"] !== null ? interpret(a, questionSetVersion, model) : "unmapped";
   };
   const spam = read("is_spam");
   const reply = read("needs_my_reply");

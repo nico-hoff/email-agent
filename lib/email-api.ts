@@ -207,7 +207,7 @@ function derive(row: Row, readNoul: NoulInterpreter): Derived {
   const needs = num(row.needs_my_reply);
   const needsReading = needs === null
     ? null
-    : readNoul({ key: "needs_my_reply", type: "noul", value: needs }, row.question_set_version ?? undefined);
+    : readNoul({ key: "needs_my_reply", type: "noul", value: needs }, row.question_set_version ?? undefined, row.model_requested ?? undefined);
   const providerSpam = row.spam_mailbox !== null && row.folder !== null && row.folder === row.spam_mailbox;
   const seen = row.seen === 1;
   const done = row.done === 1;
@@ -294,10 +294,10 @@ function buildItem(db: DatabaseSync, d: Derived, readNoul: NoulInterpreter): Ema
       if (a.type === "noul" && typeof entry.value === "number") {
         // Metadata only: the reading under the calibration of this classification's question set.
         const version = r.question_set_version ?? undefined;
-        const reading = readNoul({ key: a.question_key, type: "noul", value: entry.value }, version);
+        const reading = readNoul({ key: a.question_key, type: "noul", value: entry.value }, version, r.model_requested ?? undefined);
         entry.reading = reading;
-        entry.threshold = reading === "unmapped" ? null : noulThreshold(a.question_key, version);
-        entry.calibration_version = reading === "unmapped" ? null : (calibrationFor(version)?.version ?? null);
+        entry.threshold = reading === "unmapped" ? null : noulThreshold(a.question_key, version, r.model_requested ?? undefined);
+        entry.calibration_version = reading === "unmapped" ? null : (calibrationFor(version, r.model_requested ?? undefined)?.version ?? null);
       }
       answers.set(a.question_key, entry);
     }

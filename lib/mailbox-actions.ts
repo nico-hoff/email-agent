@@ -5,6 +5,7 @@ import { existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { type AccountConfig, type AutoActionMode, autoActionMode } from "./accounts-config.ts";
+import { liveActionsLast24h } from "./auto-actions-settings.ts";
 import { BACKFILL_LIMIT, BACKFILL_WINDOW_DAYS, DAILY_ACTION_LIMIT } from "./constants.ts";
 import { upsertSeen } from "./email-status.ts";
 import { createImapWritePort, ImapWriteError, type ImapWritePort } from "./imap-write.ts";
@@ -12,6 +13,7 @@ import type { NormalizedAnswer } from "./jev-response.ts";
 import { decideSpamSeen } from "./mailbox-rules.ts";
 import { senderRuleHit } from "./sender-rules.ts";
 import { accountUserId } from "./tenant.ts";
+import { userStopped } from "./user-settings.ts";
 
 export { DAILY_ACTION_LIMIT };
 
@@ -19,7 +21,11 @@ export interface MailboxActionsOptions {
   db: DatabaseSync;
   /** Accounts file content. An account that is missing here or disabled never gets an action (mode off). */
   accounts: AccountConfig[];
-  /** Global kill switch: while this file exists, nothing is planned and nothing is written (also not by undo). */
+  /**
+   * Global kill switch: while this file exists, nothing is planned and nothing is written (also not by undo).
+   * Besides it, every user has an emergency stop in the app (user_settings.auto_actions_stopped_at): it stops the same things for
+   * that user's accounts. Both are read before every action.
+   */
   killSwitchFile: string;
   /** Synthetic dev mode: the mode is dry_run for every account that is not configured `off`, and no port is created. */
   forceDryRun?: boolean;
@@ -30,7 +36,7 @@ export interface MailboxActionsOptions {
 }
 
 export type EvaluateResult =
-  | { outcome: "imported" | "planned" | "done" | "exists" | "off" | "kill_switch" | "no_action" | "not_classified" | "no_location" | "limit_reached" | "not_found" }
+  | { outcome: "imported" | "planned" | "done" | "exists" | "off" | "kill_switch" | "no_action" | "not_classified" | "no_location" | "limit_reached" | "not_found" | "user_stop" }
   | { outcome: "failed"; code: string };
 
 export type UndoResult = { ok: true; mode: "dry_run" | "live" } | { ok: false; code: string };
@@ -61,16 +67,23 @@ export function createMailboxActions(opts: MailboxActionsOptions): MailboxAction
   const { db } = opts;
   const now = opts.now ?? (() => new Date());
   const dailyLimit = opts.dailyLimit ?? DAILY_ACTION_LIMIT;
-  const byId = new Map(opts.accounts.map((a) => [a.id, a]));
   const writePortFor = opts.writePortFor ?? ((id: string) => {
-    const a = byId.get(id);
+    const a = opts.accounts.find((x) => x.id === id);
     return a ? createImapWritePort({ host: a.host, port: a.port, tls: a.tls, user: a.user, password: a.password }) : undefined;
   });
 
   const killed = () => existsSync(opts.killSwitchFile);
+  /** The per-user emergency stop of the account's owner; unreadable = stopped. */
+  const stoppedFor = (accountId: string): boolean => {
+    try {
+      return userStopped(db, accountUserId(db, accountId));
+    } catch {
+      return true;
+    }
+  };
 
   function modeFor(accountId: string): AutoActionMode {
-    const a = byId.get(accountId);
+    const a = opts.accounts.find((x) => x.id === accountId);
     if (opts.forceDryRun) return a && autoActionMode(a, "spam_seen") === "off" ? "off" : "dry_run";
     if (!a || !a.enabled) return "off";
     return autoActionMode(a, "spam_seen");
@@ -94,10 +107,10 @@ export function createMailboxActions(opts: MailboxActionsOptions): MailboxAction
     db.prepare("SELECT id, mode, status, reason_json FROM mailbox_actions WHERE email_id = ? AND rule = 'spam_seen'")
       .get(emailId) as ActionRow | undefined;
 
-  function latestAnswers(emailId: number): { answers: NormalizedAnswer[]; version: string } | undefined {
+  function latestAnswers(emailId: number): { answers: NormalizedAnswer[]; version: string; model: string } | undefined {
     const c = db.prepare(
-      "SELECT id, question_set_version FROM classifications WHERE email_id = ? AND status = 'classified' ORDER BY id DESC LIMIT 1",
-    ).get(emailId) as { id: number; question_set_version: string } | undefined;
+      "SELECT id, question_set_version, model_requested FROM classifications WHERE email_id = ? AND status = 'classified' ORDER BY id DESC LIMIT 1",
+    ).get(emailId) as { id: number; question_set_version: string; model_requested: string } | undefined;
     if (!c) return undefined;
     const answers: NormalizedAnswer[] = [];
     const rows = db.prepare("SELECT question_key, type, answer_json FROM classification_answers WHERE classification_id = ?")
@@ -111,16 +124,7 @@ export function createMailboxActions(opts: MailboxActionsOptions): MailboxAction
         // an unreadable answer counts as missing (fail-closed)
       }
     }
-    return { answers, version: c.question_set_version };
-  }
-
-  function liveCountToday(accountId: string, ts: Date): number {
-    const since = new Date(ts.getTime() - 86_400_000).toISOString();
-    return (db.prepare(
-      `SELECT COUNT(*) AS n FROM mailbox_actions m JOIN emails e ON e.id = m.email_id
-       WHERE e.account_id = ? AND m.mode = 'live' AND m.rule <> 'undo' AND m.created_at >= ?
-         AND COALESCE(json_extract(m.reason_json, '$.source'), '') <> 'tombstone'`,
-    ).get(accountId, since) as { n: number }).n;
+    return { answers, version: c.question_set_version, model: c.model_requested };
   }
 
   /** Live write for an existing action row; records the result. */
@@ -162,6 +166,7 @@ export function createMailboxActions(opts: MailboxActionsOptions): MailboxAction
     const mode = modeFor(accountId);
     if (mode === "off") return { outcome: "off" };
     if (killed()) return { outcome: "kill_switch" };
+    if (stoppedFor(accountId)) return { outcome: "user_stop" };
 
     const existing = existingAction(emailId);
     // A finished, failed or undone row is final; a planned row is only picked up again once the account is live
@@ -177,6 +182,7 @@ export function createMailboxActions(opts: MailboxActionsOptions): MailboxAction
     const decision = decideSpamSeen({
       answers: cls.answers,
       questionSetVersion: cls.version,
+      model: cls.model,
       inProviderSpam: acct?.spam_mailbox != null && acct.spam_mailbox === loc.folder,
       seen,
       ...senderRuleHit(db, accountUserId(db, accountId), mail.sender, accountId),
@@ -211,7 +217,7 @@ export function createMailboxActions(opts: MailboxActionsOptions): MailboxAction
     }
 
     // live
-    if (liveCountToday(accountId, ts) >= dailyLimit) return { outcome: "limit_reached" };
+    if (liveActionsLast24h(db, accountId, ts) >= dailyLimit) return { outcome: "limit_reached" };
     let actionId: number;
     const reason = JSON.stringify({ rule_reason: decision.reason, question_set_version: cls.version });
     if (existing) {
@@ -258,6 +264,7 @@ export function createMailboxActions(opts: MailboxActionsOptions): MailboxAction
     }
 
     if (killed()) return { ok: false, code: "kill_switch" };
+    if (stoppedFor(accountId)) return { ok: false, code: "user_stop" };
     const loc = activeLocation(emailId);
     if (!loc) return { ok: false, code: "no_location" };
     const port = writePortFor(accountId);

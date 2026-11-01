@@ -3,6 +3,7 @@
 // once, from state, and is never part of a list.
 import { UndoToast } from "./review.tsx";
 import { AccountsSection, type AccountsSectionProps } from "./accounts-manager.tsx";
+import { SettingsSections, type SettingsSectionProps } from "./settings-manager.tsx";
 import { formatWhen, PROFILE_ERROR_TEXT, type CreatedInvite, type OpenInvite, type Profile, type ProfileReason } from "../lib/profile-client.ts";
 
 const noop = (): void => {};
@@ -26,6 +27,8 @@ export interface ProfileViewProps {
   timeZone?: string;
   /** The accounts section (R2); absent = not shown (render tests of the other sections). */
   accounts?: AccountsSectionProps;
+  /** The settings sections (R3); absent = not shown. */
+  settings?: SettingsSectionProps;
 }
 
 export function reasonText(reason: ProfileReason): string {
@@ -129,6 +132,7 @@ export function ProfileView(p: ProfileViewProps): React.JSX.Element {
           <>
             <AccountSection profile={p.profile} />
             {p.accounts !== undefined && <AccountsSection {...p.accounts} />}
+            {p.settings !== undefined && <SettingsSections {...p.settings} />}
             <SessionSection profile={p.profile} busy={p.busy} onLogout={p.onLogout} onLogoutAll={p.onLogoutAll} />
             {p.profile.managed && p.profile.role === "admin" && <InviteSection {...p} />}
           </>

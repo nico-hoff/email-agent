@@ -125,7 +125,7 @@ describe("loadBriefingContext (database)", () => {
       .run(id, "a1", o.folder ?? "INBOX", 1, id, first, first);
     const c = ++nextCls;
     d.prepare("INSERT INTO classifications (id, email_id, question_set_version, model_requested, model_reported, status, attempts, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)")
-      .run(c, id, QV, "m", "m", "classified", 1, first, first);
+      .run(c, id, QV, "typesafe/jev-1.13", "m", "classified", 1, first, first);
     const ins = d.prepare("INSERT INTO classification_answers (classification_id, question_key, type, answer_json) VALUES (?,?,?,?)");
     const base: Record<string, number | string> = { addresses_an_ai: 0.01, category: "business", route: "notify", urgency: 1, importance: 1, ...o.answers };
     for (const [k, v] of Object.entries(base)) ins.run(c, k, typeof v === "number" ? (k === "urgency" || k === "importance" ? "score" : "noul") : "choice", JSON.stringify({ value: v }));

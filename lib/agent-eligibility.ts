@@ -15,6 +15,7 @@ export function agentEligibility(
   answers: NormalizedAnswer[],
   interpret: NoulInterpreter = interpretNoul,
   questionSetVersion?: string,
+  model?: string,
 ): AgentEligibility {
   const by = new Map(answers.map((a) => [a.key, a]));
   const ai = by.get("addresses_an_ai");
@@ -26,9 +27,9 @@ export function agentEligibility(
   if (!isNoul(ai) || !isNoul(assessable) || category === undefined || category.type !== "choice") {
     reasons.push("missing_answer");
   }
-  if (isNoul(ai) && interpret(ai!, questionSetVersion) !== "negative") reasons.push("addresses_an_ai");
+  if (isNoul(ai) && interpret(ai!, questionSetVersion, model) !== "negative") reasons.push("addresses_an_ai");
   if (category?.type === "choice" && category.value === "security_auth") reasons.push("security_auth");
-  if (isNoul(assessable) && interpret(assessable!, questionSetVersion) === "negative") reasons.push("not_assessable");
+  if (isNoul(assessable) && interpret(assessable!, questionSetVersion, model) === "negative") reasons.push("not_assessable");
 
   return reasons.length === 0 ? { eligible: true } : { eligible: false, reasons };
 }

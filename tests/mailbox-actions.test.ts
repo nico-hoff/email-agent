@@ -228,7 +228,7 @@ describe("rules in the executor", () => {
     const t = setup([account("a", "dry_run")]);
     const id = addMail(t.db, "a", { spam: 0.1 });
     const c = t.db.prepare("INSERT INTO classifications (email_id, question_set_version, model_requested, model_reported, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?)")
-      .run(id, "email-classification-v1", "other-model", "other-model", "classified", T0.toISOString(), T0.toISOString());
+      .run(id, "email-classification-v2", "typesafe/jev-1.13", "typesafe/jev-1.13-r2", "classified", T0.toISOString(), T0.toISOString());
     t.db.prepare("INSERT INTO classification_answers (classification_id, question_key, type, answer_json) VALUES (?,?,?,?)")
       .run(Number(c.lastInsertRowid), "is_spam", "noul", JSON.stringify({ value: 0.99 }));
     assert.equal((await t.actions.evaluate(id)).outcome, "planned");
@@ -450,5 +450,57 @@ describe("sender rules (M5, H17)", () => {
     assert.equal((await t.actions.evaluate(addMail(t.db, "a", { spam: 0.2, category: "security_auth" }))).outcome, "no_action");
     deactivateRule(t.db, 1, r.rule.id, T0.toISOString());
     assert.equal((await t.actions.evaluate(addMail(t.db, "a", { spam: 0.2, category: "personal" }))).outcome, "no_action");
+  });
+});
+
+describe("per-user emergency stop (R3, ADR 0025 Teil 1)", () => {
+  const stopUser = async (db: DatabaseSync, userId: number, on: boolean) => {
+    const { setUserStop } = await import("../lib/user-settings.ts");
+    setUserStop(db, userId, on, T0);
+  };
+
+  test("while the user's stop is on nothing is planned or written, also not by undo or backfill; resuming works", async () => {
+    const t = setup([account("a", "live"), account("b", "dry_run")]);
+    const a = addMail(t.db, "a");
+    const b = addMail(t.db, "b");
+    await stopUser(t.db, 1, true);
+    assert.equal((await t.actions.evaluate(a)).outcome, "user_stop");
+    assert.equal((await t.actions.evaluate(b)).outcome, "user_stop");
+    assert.deepEqual(rows(t.db), []);
+    assert.deepEqual(t.calls, []);
+    assert.deepEqual(t.factoryCalls, []);
+    await t.actions.backfill();
+    assert.deepEqual(rows(t.db), []);
+    await stopUser(t.db, 1, false);
+    assert.equal((await t.actions.evaluate(a)).outcome, "done");
+    assert.equal(t.calls.length, 1);
+    await stopUser(t.db, 1, true);
+    const u = await t.actions.undoSeen(1, a);
+    assert.deepEqual(u, { ok: false, code: "user_stop" });
+    assert.equal(t.calls.length, 1, "no removeSeen while stopped");
+  });
+
+  test("the stop of one user does not stop another user's account; the global file still stops everyone", async () => {
+    const t = setup([account("a", "live"), account("b", "live")]);
+    t.db.exec(`INSERT INTO users (id,email,password_hash,role,status,created_at,updated_at) VALUES (2,'b@x.test','${"h".repeat(40)}','user','active','t','t')`);
+    t.db.exec("UPDATE accounts SET user_id = 2 WHERE id = 'b'");
+    const a = addMail(t.db, "a");
+    const b = addMail(t.db, "b");
+    await stopUser(t.db, 2, true);
+    assert.equal((await t.actions.evaluate(b)).outcome, "user_stop");
+    assert.equal((await t.actions.evaluate(a)).outcome, "done");
+    await stopUser(t.db, 2, false);
+    t.kill();
+    assert.equal((await t.actions.evaluate(b)).outcome, "kill_switch");
+  });
+
+  test("the account list is read live: an account that appears after start gets its mode", async () => {
+    const accounts: AccountConfig[] = [];
+    const t = setup([account("a", "live")]);
+    const fresh = createMailboxActions({ db: t.db, accounts, killSwitchFile: t.killSwitchFile, now: () => T0, writePortFor: () => fakePort().port });
+    const id = addMail(t.db, "a");
+    assert.equal((await fresh.evaluate(id)).outcome, "off");
+    accounts.push(account("a", "live"));
+    assert.equal((await fresh.evaluate(id)).outcome, "done");
   });
 });

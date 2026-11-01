@@ -57,6 +57,7 @@ Auth-Modus (`selectAuthMode`, `lib/auth.ts`): `--synthetic` → `synthetic`; `AU
 - `lib/initial-import.ts` + `workers/imap-worker.ts`: **Erst-Import** (ADR 0043): einmal je Konto die neuesten ≤ 50 Mails (14 Tage, UIDs ≤ Checkpoint) lesen und klassifizieren; Fortschritt in `account_sync` (`lib/account-sync.ts`), API `GET /api/accounts/:id/sync`, Live-Karte `components/sync-card.tsx`. Importierte Mails (`emails.origin = 'import'`) lösen keine Postfach-Aktionen aus. Simulation ohne Netz: `scripts/sync-sim.ts`.
 
 ### 4.3 Klassifikation (Jev)
+- `lib/classifier-models.ts` (Allowlist `typesafe/jev-1.13` Standard, `openai/gpt-6-luna-decisions`; statische Kosten), `lib/user-settings.ts` (Tabelle `user_settings`: Berechtigung `classifier_choice`, Modellwahl, Not-Aus pro Nutzer), `lib/auto-actions-settings.ts` + `lib/settings-api.ts` (Profil-Einstellungen: Modus „Spam gelesen“ je Konto, Not-Aus, Tageslimit-Zähler), `components/settings-manager.tsx`. Die Pipeline wählt den Client je Konto nach dem Modell des Besitzers (`modelFor`; Jev: `lib/jev.ts`, Luna: `lib/decisions-client.ts`); `classifications.model_requested` hält es fest, ein Wechsel klassifiziert nichts neu. Schwellen gelten je (Fragenset, Modell) in `config/noul-calibration.ts`; ein Modell ohne Eintrag liest alle noul-Antworten als `unmapped`. ADR 0041, 0044.
 - `lib/jev.ts`: Client für `systemOneCreate` (`@openrouter/sdk`), SDK-Retries aus, eigener Backoff (`lib/retry-policy.ts`), globaler Concurrency-Limiter (`lib/limiter.ts`).
 - `lib/jev-questions.ts`: versionierte Fragensets `email-classification-v1` (Standard) und `-v2` (bereit, unkalibriert); `buildState` mit Allowlist (nur strukturierter Kontext, Body/Betreff als `untrusted_*`, gekürzt auf 1 200 Zeichen).
 - `lib/jev-response.ts`: Normalisierung der Antworten; `interpretNoul(answer, questionSetVersion)` über `config/noul-calibration.ts` (`lib/noul-calibration.ts` validiert). Fehlende Version/Schwelle → `unmapped`.
@@ -96,6 +97,7 @@ Auth-Modus (`selectAuthMode`, `lib/auth.ts`): `--synthetic` → `synthetic`; `AU
 | `GET /api/actions` | Trockenlauf/ausgeführte Aktionen |
 | `GET /api/senders/hitl`, `POST …/hitl/dismiss`, `GET|POST /api/senders/rules`, `POST …/rules/:id/deactivate` | Absender |
 | `POST /api/briefing` | SSE-Briefing |
+| `GET /api/settings`, `POST /api/settings/spam-seen`, `/stop`, `/classifier`, `/permissions` | Profil-Einstellungen (R3), siehe `docs/accounts-contract.md` |
 
 ## 5. Datenmodell
 

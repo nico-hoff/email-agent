@@ -3,6 +3,7 @@
 // file stops the process with a clear code and never falls back to made-up values.
 import { z } from "zod";
 import calibrationFile from "../config/noul-calibration.ts";
+import { DEFAULT_CLASSIFIER } from "./classifier-models.ts";
 
 export type NoulCalibrationErrorCode = "noul_calibration_invalid" | "noul_calibration_mismatch";
 
@@ -19,6 +20,8 @@ export class NoulCalibrationError extends Error {
 const calibrationSchema = z.strictObject({
   version: z.string().min(1),
   created: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  /** Classifier model the thresholds were measured for (ADR 0041). Thresholds are per (question set, model). */
+  model: z.string().min(1),
   question_set_version: z.string().min(1),
   rule: z.string().min(1),
   basis: z.array(z.string().min(1)).min(1),
@@ -50,36 +53,41 @@ export function assertCalibrationMatchesQuestions(
   }
 }
 
-/** Every shipped calibration, one per question set version (v1 stays version "1"; later sets get their own entry). */
+/** Every shipped calibration, one per (question set version, model); v1/v2 entries are the Jev entries (ADR 0041). */
 export function parseNoulCalibrations(raw: unknown): NoulCalibration[] {
   if (!Array.isArray(raw) || raw.length === 0) throw new NoulCalibrationError("noul_calibration_invalid", "(root)");
   const list = raw.map((entry) => parseNoulCalibration(entry));
-  const sets = new Set(list.map((c) => c.question_set_version));
+  const pairs = new Set(list.map((c) => `${c.question_set_version}\u0000${c.model}`));
   const versions = new Set(list.map((c) => c.version));
-  if (sets.size !== list.length || versions.size !== list.length) {
-    throw new NoulCalibrationError("noul_calibration_invalid", "duplicate question_set_version or version");
+  if (pairs.size !== list.length || versions.size !== list.length) {
+    throw new NoulCalibrationError("noul_calibration_invalid", "duplicate (question_set_version, model) or version");
   }
   return list;
 }
 
 export const NOUL_CALIBRATIONS: readonly Readonly<NoulCalibration>[] = Object.freeze(parseNoulCalibrations(calibrationFile));
 
-/** Calibration entry of a question set version, or null (unknown or missing version: unmapped, fail-closed). */
+/**
+ * Calibration entry of (question set version, model), or null (unknown version or a model without calibration: unmapped,
+ * fail-closed). A caller that does not know the model reads as Jev: the stored rows of the first releases are all Jev.
+ */
 export function calibrationFor(
   questionSetVersion: string | undefined,
+  model: string = DEFAULT_CLASSIFIER,
   cals: readonly NoulCalibration[] = NOUL_CALIBRATIONS,
 ): NoulCalibration | null {
   if (questionSetVersion === undefined) return null;
-  return cals.find((c) => c.question_set_version === questionSetVersion) ?? null;
+  return cals.find((c) => c.question_set_version === questionSetVersion && c.model === model) ?? null;
 }
 
 /** Threshold for a question under a question set version, or null (unmapped). */
 export function noulThreshold(
   key: string,
   questionSetVersion: string | undefined,
+  model: string = DEFAULT_CLASSIFIER,
   cals: readonly NoulCalibration[] = NOUL_CALIBRATIONS,
 ): number | null {
-  const cal = calibrationFor(questionSetVersion, cals);
+  const cal = calibrationFor(questionSetVersion, model, cals);
   if (cal === null) return null;
   // Map instead of obj[key]: the Veryfront API loader rejects reads with a dynamic key.
   return new Map(Object.entries(cal.thresholds)).get(key) ?? null;

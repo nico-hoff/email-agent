@@ -34,12 +34,12 @@ export function readEmailContext(db: DatabaseSync, userId: number, emailId: numb
   if (!email) return { ok: false, code: "email_not_found" };
 
   const cls = db.prepare(
-    "SELECT id, question_set_version FROM classifications WHERE email_id = ? AND status = 'classified' ORDER BY id DESC LIMIT 1",
-  ).get(emailId) as { id: number; question_set_version: string } | undefined;
+    "SELECT id, question_set_version, model_requested FROM classifications WHERE email_id = ? AND status = 'classified' ORDER BY id DESC LIMIT 1",
+  ).get(emailId) as { id: number; question_set_version: string; model_requested: string } | undefined;
   if (!cls) return { ok: false, code: "not_classified" };
 
   const answers = loadAnswers(db, cls.id);
-  if (!agentEligibility(answers, interpret ?? interpretNoul, cls.question_set_version).eligible) return { ok: false, code: "not_eligible" };
+  if (!agentEligibility(answers, interpret ?? interpretNoul, cls.question_set_version, cls.model_requested).eligible) return { ok: false, code: "not_eligible" };
 
   const category = answers.find((a) => a.key === "category");
   return {

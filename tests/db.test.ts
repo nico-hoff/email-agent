@@ -113,6 +113,7 @@ const ALLOWLIST: Record<string, string[]> = {
   ],
   user_state: ["user_id", "key", "value_json", "updated_at"],
   push_subscriptions: ["id", "user_id", "endpoint", "p256dh", "auth", "agent_family", "important_mail", "briefing_ready", "failure_count", "next_attempt_at", "created_at", "last_success_at"],
+  user_settings: ["user_id", "classifier_choice", "classifier_model", "auto_actions_stopped_at", "updated_at"],
   users: ["id", "email", "password_hash", "role", "status", "created_at", "updated_at"],
   user_sessions: ["id", "user_id", "created_at", "expires_at", "last_used_at", "revoked_at"],
   invites: ["id", "code_hash", "role", "created_by", "created_at", "expires_at", "used_at", "used_by"],
@@ -417,7 +418,7 @@ describe("002 email_status and accounts.color", () => {
     const db = openDatabase(path);
     opened.push(db);
     assert.equal((db.prepare("SELECT COUNT(*) AS n FROM emails").get() as { n: number }).n, 1);
-    assert.deepEqual((db.prepare("SELECT version FROM schema_migrations ORDER BY version").all() as { version: number }[]).map((r) => r.version), [1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    assert.deepEqual((db.prepare("SELECT version FROM schema_migrations ORDER BY version").all() as { version: number }[]).map((r) => r.version), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
     db.exec(`INSERT INTO email_status (email_id,seen,updated_at) VALUES (1,1,'${T}')`);
   });
 });
@@ -690,7 +691,7 @@ describe("006 users, sessions, invites and the tenant key", () => {
   test("a database with data from 001 to 005 upgrades: everything belongs to user 1, nothing is lost, foreign keys hold", () => {
     const dir = join(tmp, "migs-001-005");
     mkdirSync(dir);
-    for (const f of readdirSync(MIGRATIONS_DIR).filter((f) => !f.startsWith("006_") && !f.startsWith("007_") && !f.startsWith("008_") && !f.startsWith("009_"))) writeFileSync(join(dir, f), readFileSync(join(MIGRATIONS_DIR, f), "utf8"));
+    for (const f of readdirSync(MIGRATIONS_DIR).filter((f) => !f.startsWith("006_") && !f.startsWith("007_") && !f.startsWith("008_") && !f.startsWith("009_") && !f.startsWith("010_"))) writeFileSync(join(dir, f), readFileSync(join(MIGRATIONS_DIR, f), "utf8"));
     const path = join(tmp, "upgrade6.db");
     const old = openDatabase(path, dir);
     seedLegacy(old);
@@ -807,6 +808,29 @@ describe("audit_log append-only triggers", () => {
   });
 });
 
+describe("010 user_settings", () => {
+  const user2 = (db: DatabaseSync) => db.exec(`INSERT INTO users (id,email,password_hash,role,status,created_at,updated_at) VALUES (2,'b@x.test','${"h".repeat(40)}','user','active','${T}','${T}')`);
+
+  test("defaults: no permission, no model, no stop; one row per user; user must exist", () => {
+    const db = fresh();
+    user2(db);
+    db.exec(`INSERT INTO user_settings (user_id, updated_at) VALUES (2, '${T}')`);
+    assert.deepEqual({ ...db.prepare("SELECT classifier_choice, classifier_model, auto_actions_stopped_at FROM user_settings").get() }, { classifier_choice: 0, classifier_model: null, auto_actions_stopped_at: null });
+    throwsSql(db, `INSERT INTO user_settings (user_id, updated_at) VALUES (2, '${T}')`, /UNIQUE|PRIMARY KEY/);
+    throwsSql(db, `INSERT INTO user_settings (user_id, updated_at) VALUES (99, '${T}')`, /FOREIGN KEY/);
+  });
+
+  test("CHECK clauses: permission is 0 or 1, the model name has a safe form", () => {
+    const db = fresh();
+    user2(db);
+    db.exec(`INSERT INTO user_settings (user_id, updated_at) VALUES (2, '${T}')`);
+    throwsSql(db, "UPDATE user_settings SET classifier_choice = 2", /CHECK/);
+    throwsSql(db, "UPDATE user_settings SET classifier_model = 'a b'", /CHECK/);
+    throwsSql(db, "UPDATE user_settings SET classifier_model = 'X'", /CHECK/);
+    db.exec("UPDATE user_settings SET classifier_model = 'typesafe/jev-1.13', classifier_choice = 1");
+  });
+});
+
 describe("migration runner", () => {
   test("idempotent: reopening applies nothing twice", () => {
     const path = join(tmp, "idem.db");
@@ -816,7 +840,7 @@ describe("migration runner", () => {
     const b = openDatabase(path);
     opened.push(b);
     const rows = b.prepare("SELECT version FROM schema_migrations").all() as { version: number }[];
-    assert.deepEqual(rows.map((r) => r.version), [1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    assert.deepEqual(rows.map((r) => r.version), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
   });
 
   test("numeric (not lexical) order, applied once", () => {

@@ -13,6 +13,8 @@ erDiagram
   users ||--o{ sender_rules : "Regeln je Nutzer"
   users ||--o{ user_state : "Zustand je Nutzer"
   users ||--o{ push_subscriptions : "Push-Geräte (009)"
+
+  users ||--o| user_settings : "Einstellungen und Berechtigungen (010)"
   users |o--o{ audit_log : "optional"
   accounts ||--o{ mailbox_state : "Checkpoint je Ordner"
   accounts ||--o| worker_status : "Betriebszustand"
@@ -701,6 +703,20 @@ CREATE INDEX push_subscriptions_user ON push_subscriptions (user_id);
 ```
 
 `endpoint` ist die Push-URL des Browsers und damit geheimnisähnlich (wer sie samt Schlüsseln kennt, kann Pushes an das Gerät senden): sie erscheint nie in einer API-Antwort und nie in einem Log. `p256dh` (65 Byte) und `auth` (16 Byte) sind die öffentlichen Gerätschlüssel aus `PushSubscription.toJSON()` als base64url. `agent_family` ist nur eine grobe Familie („iOS Safari“, „Desktop Chrome“, …), nie der User-Agent-String. `important_mail` und `briefing_ready` sind die Schalter je Art. `failure_count` und `next_attempt_at` steuern den Backoff; ab 10 Fehlern in Folge wird das Gerät entfernt (404/410 sofort).
+
+## DDL (`db/migrations/010_user_settings.sql`)
+
+```sql
+CREATE TABLE user_settings (
+  user_id                 INTEGER PRIMARY KEY REFERENCES users (id),
+  classifier_choice       INTEGER NOT NULL DEFAULT 0 CHECK (classifier_choice IN (0, 1)),
+  classifier_model        TEXT CHECK (classifier_model IS NULL OR (length(classifier_model) BETWEEN 3 AND 64 AND classifier_model NOT GLOB '*[^a-z0-9./_-]*')),
+  auto_actions_stopped_at TEXT,
+  updated_at              TEXT NOT NULL
+);
+```
+
+`user_settings` hält je Nutzer höchstens eine Zeile (angelegt beim ersten Schreiben; keine Zeile = Standard: keine Berechtigung, Not-Aus aus, Modell Jev). `classifier_choice` ist die Berechtigung „Klassifikationsmodell wählen“ (nur ein Admin setzt sie, ADR 0041). `classifier_model` ist die Wahl aus der festen Allowlist im Code (`lib/classifier-models.ts`); die Datenbank prüft nur die Form, die Allowlist prüft der Code. `auto_actions_stopped_at` ist der Not-Aus des Nutzers (Zeitstempel = aktiv; Postfach-Aktionen des Nutzers pausieren, ADR 0025). Nur Zeitstempel, Schalter und ein Modellname; keine Mailinhalte.
 
 ## Schema-Test (`tests/db.test.ts`)
 

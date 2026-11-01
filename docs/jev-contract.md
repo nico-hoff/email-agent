@@ -114,6 +114,21 @@ Grenzen und Folgen:
 - Shadow-Kandidaten bleiben aus, weil `is_assessable` unmapped bleibt. D15 (`security_auth` nie Kandidat) gilt unverändert.
 - Alte v1-Klassifikationen behalten ihre v1-Lesart (die Version steht je Klassifikation).
 
+## Kalibrierung v2, Luna Decisions
+
+Version 3, 2026-11-01, Fragenset `email-classification-v2`, Modell `openai/gpt-6-luna-decisions` (ADR 0041). Gleiche Konfigurationsdatei `config/noul-calibration.ts`; der Schlüssel ist (Fragenset, Modell). Die Einträge „1“ und „2“ sind die Jev-Einträge (`typesafe/jev-1.13`). Regel wie bei Jev: `positive` wenn Rohwert >= Schwelle, sonst `negative`; jede Antwort eines Modells **ohne** Eintrag für das Fragenset bleibt `unmapped` (fail-closed).
+
+Datenbasis: dieselbe Stichprobe wie bei Jev (Seed 7, `triage` + `sinabis`, balanciert); Schwellen nur auf `calib` (150 Aufrufe) gewählt, gemessen auf `test` (200 Aufrufe), dazu das feste Set v2 (29 Aufrufe). Regeln wie bei Version 2, Zahlen in `docs/insights-models.md` (Abschnitt „Kalibrierung Luna Decisions auf v2“).
+
+| Frage | Schwelle | Begründung |
+| --- | --- | --- |
+| `is_spam` | 0.85 | Höchste Schwelle (Raster 0.05) mit Precision 1.0 und Recall >= 0.90 auf calib (0.933; bei 0.90 nur 0.867). Negative calib max 0.10; liegt über dem Maximum der echten INBOX-Mails des v1-Samples (0.65, gleicher Fragetext). Precision vor Recall (ADR 0007). |
+| `is_phishing_or_scam` | 0.90 | Größter negativer calib-Wert 0.79 plus 0.10, auf 0.05 aufgerundet. Auf test bleibt ein negativer Fall bei 0.93 (False Positive), alle positiven Fälle >= 0.96. |
+| `addresses_an_ai` | 0.30 | Unverändert von Jev (bewusst niedrig für die Agent-Sperre D18). Auf HF keine positiven Fälle (negative max 0.00); festes Set: 3 positive Fälle bei 1.00, 24 negative bei 0.00. |
+| `needs_my_reply` | 0.50 | Recall zuerst: kleinster positiver calib-Wert 0.64 minus 0.10, auf das 0.05-Raster abgerundet. Wie bei Jev trennt die Frage nicht zwischen `reply` und `forward`/`flag` (Precision gegen die lockere Etikettierung 0.58 calib, 0.50 test). |
+
+Nicht kalibriert (bleiben `unmapped`): `is_assessable`.
+
 ## State: Feedback-Zähler in `sender_history` (T55, H21)
 
 `sender_history` ist ein Objekt mit nur endlichen Zahlen. Erlaubte Schlüssel (`SENDER_HISTORY_KEYS` in `lib/jev-questions.ts`): `mails_seen_from_sender`, `days_since_first_seen` und neu `user_marked_spam`, `user_marked_not_spam` (Nicos Urteile aus `senders.marked_spam` / `marked_not_spam`, je Mail das letzte Urteil). Regeln:

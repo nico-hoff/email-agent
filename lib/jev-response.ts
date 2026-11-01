@@ -93,16 +93,18 @@ export function normalizeAnswers(
 }
 
 /** Reads a noul answer; the question set version is passed along by every caller that knows it. */
-export type NoulInterpreter = (answer: NormalizedAnswer, questionSetVersion?: string) => NoulReading;
+export type NoulInterpreter = (answer: NormalizedAnswer, questionSetVersion?: string, model?: string) => NoulReading;
 
 /**
  * D13/O8: rule from config/noul-calibration.ts (documented in docs/jev-contract.md, section Kalibrierung):
  * positive if raw value >= threshold, else negative. Fail-closed (unmapped) for a missing or other question set
- * version, questions without a threshold, and anything that is not a finite noul number.
+ * version, a model without calibration, questions without a threshold, and anything that is not a finite noul number.
  */
-export function interpretNoul(answer: NormalizedAnswer, questionSetVersion?: string): NoulReading {
+export function interpretNoul(answer: NormalizedAnswer, questionSetVersion?: string, model?: string): NoulReading {
   if (answer.type !== "noul" || typeof answer.value !== "number" || !Number.isFinite(answer.value)) return "unmapped";
-  const threshold = noulThreshold(answer.key, questionSetVersion);
+  // The thresholds are per (question set, model); a model without a calibration entry reads as unmapped (ADR 0041).
+  // No model given = Jev (first releases stored only Jev rows).
+  const threshold = noulThreshold(answer.key, questionSetVersion, model);
   if (threshold === null) return "unmapped";
   return answer.value >= threshold ? "positive" : "negative";
 }

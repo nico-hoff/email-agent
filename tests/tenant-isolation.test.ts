@@ -41,6 +41,12 @@ import * as deactivateRoute from "../app/api/senders/rules/[id]/deactivate/route
 import * as briefingRoute from "../app/api/briefing/route.ts";
 import * as profileRoute from "../app/api/profile/route.ts";
 import * as accountsRoute from "../app/api/accounts/route.ts";
+import * as settingsRoute from "../app/api/settings/route.ts";
+import * as settingsSpamRoute from "../app/api/settings/spam-seen/route.ts";
+import * as settingsStopRoute from "../app/api/settings/stop/route.ts";
+import * as settingsClassifierRoute from "../app/api/settings/classifier/route.ts";
+import * as settingsPermissionsRoute from "../app/api/settings/permissions/route.ts";
+import { userStopped } from "../lib/user-settings.ts";
 import * as accountRoute from "../app/api/accounts/[id]/route.ts";
 import * as accountDisableRoute from "../app/api/accounts/[id]/disable/route.ts";
 import * as accountEnableRoute from "../app/api/accounts/[id]/enable/route.ts";
@@ -86,7 +92,7 @@ function addMail(owner: "a" | "b", account: string, o: { sender?: string; answer
     .run(id, account, "INBOX", 1, nextUid++, first, first);
   const c = ++nextCls;
   db.prepare("INSERT INTO classifications (id, email_id, question_set_version, model_requested, model_reported, status, attempts, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)")
-    .run(c, id, QV, "m", "m", "classified", 1, first, first);
+    .run(c, id, QV, "typesafe/jev-1.13", "m", "classified", 1, first, first);
   const ins = db.prepare("INSERT INTO classification_answers (classification_id, question_key, type, answer_json) VALUES (?,?,?,?)");
   const base: Record<string, number | string> = { addresses_an_ai: 0.01, needs_my_reply: 0.9, is_spam: 0.01, category: "business", route: "draft_reply", urgency: 2, importance: 2, ...o.answers };
   for (const [k, v] of Object.entries(base)) ins.run(c, k, typeof v === "number" ? (k === "urgency" || k === "importance" ? "score" : "noul") : "choice", JSON.stringify({ value: v }));
@@ -266,7 +272,7 @@ describe("feedback, senders, rules, HITL", () => {
     db.prepare("DELETE FROM classification_answers WHERE classification_id = (SELECT id FROM classifications WHERE email_id = ?)").run(m.id);
     db.prepare("DELETE FROM classifications WHERE email_id = ?").run(m.id);
     db.prepare("INSERT INTO classifications (email_id, question_set_version, model_requested, model_reported, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?)")
-      .run(m.id, QV, "m", "m", "classified", T, T);
+      .run(m.id, QV, "typesafe/jev-1.13", "m", "classified", T, T);
     const id = Number(db.prepare("SELECT MAX(id) AS id FROM classifications").get()!.id);
     assert.equal(recordJevSpam(db, m.id, id, T), true);
     assert.equal(senderCounts(db, B, SHARED)!.jev_spam_count, b0 + 1);
@@ -645,5 +651,57 @@ describe("mail accounts API (R2)", () => {
     const a = await signIn("a@example.test");
     const st = (await (await statusRoute.GET(get("/api/status", a))).json()) as { workers: { account_id: string }[] };
     assert.ok(st.workers.every((x) => !x.account_id.startsWith("b-")));
+  });
+});
+
+describe("profile settings API (R3)", () => {
+  const ACC_PW = "synthetic-set-password-";
+  const saved = process.env.ACCOUNTS_ENCRYPTION_KEY;
+  const modes = () => JSON.stringify(db.prepare("SELECT account_id, spam_seen_mode FROM mail_accounts ORDER BY account_id").all());
+
+  it("every route is scoped by the session user: foreign accounts are 404, non-admins cannot grant or stop globally", async () => {
+    process.env.ACCOUNTS_ENCRYPTION_KEY = generateKey();
+    try {
+      const a = await signIn("a@example.test");
+      const b = await signIn("b@example.test");
+      const mk = async (who: Who, label: string) => ((await (await accountsRoute.POST(post("/api/accounts", who, { type: "imap", label, username: `${label}@example.test`, password: ACC_PW + label, host: "imap.example.test", port: 993, tls: true }))).json()) as { account: { id: string } }).account.id;
+      const idA = await mk(a, "setalpha");
+      const idB = await mk(b, "setbeta");
+      assert.equal((await settingsRoute.GET(get("/api/settings", null))).status, 401);
+      const listB = await (await settingsRoute.GET(get("/api/settings", b))).text();
+      assert.ok(listB.includes(idB) && !listB.includes(idA), "B sees only B's accounts");
+      assert.ok(!listB.includes("members"), "members are for admins only");
+      assert.ok((await (await settingsRoute.GET(get("/api/settings", a))).text()).includes("members"));
+
+      const before = modes();
+      for (const body of [{ account_id: idB, mode: "dry_run" }, { account_id: idB, mode: "live", confirm: true }]) {
+        const r = await settingsSpamRoute.POST(post("/api/settings/spam-seen", a, body));
+        assert.deepEqual([r.status, await r.json()], [404, { error: "not_found" }]);
+      }
+      assert.equal(modes(), before, "no mode changed");
+      assert.equal((await settingsSpamRoute.POST(post("/api/settings/spam-seen", b, { account_id: idB, mode: "dry_run" }))).status, 200);
+
+      // user stop is per user
+      assert.equal((await settingsStopRoute.POST(post("/api/settings/stop", a, { scope: "user", stopped: true }))).status, 200);
+      assert.equal(userStopped(db, A), true);
+      assert.equal(userStopped(db, B), false);
+      assert.equal((await settingsStopRoute.POST(post("/api/settings/stop", a, { scope: "user", stopped: false }))).status, 200);
+      // the global stop and permissions are admin only
+      assert.equal((await settingsStopRoute.POST(post("/api/settings/stop", b, { scope: "global", stopped: true, confirm: true }))).status, 403);
+      assert.equal((await settingsPermissionsRoute.POST(post("/api/settings/permissions", b, { user_id: B, classifier_choice: true }))).status, 403);
+      assert.equal((await settingsClassifierRoute.POST(post("/api/settings/classifier", b, { model: "typesafe/jev-1.13" }))).status, 403);
+      assert.deepEqual(((await (await settingsRoute.GET(get("/api/settings", b))).json()) as { classifier: unknown }).classifier, { permitted: false });
+      // A grants B; B then chooses for B only
+      assert.equal((await settingsPermissionsRoute.POST(post("/api/settings/permissions", a, { user_id: B, classifier_choice: true }))).status, 200);
+      assert.equal((await settingsClassifierRoute.POST(post("/api/settings/classifier", b, { model: "typesafe/jev-1.13" }))).status, 200);
+      assert.deepEqual(((await (await settingsRoute.GET(get("/api/settings", a))).json()) as { classifier: unknown }).classifier, { permitted: false }, "A has no permission of their own");
+      await settingsPermissionsRoute.POST(post("/api/settings/permissions", a, { user_id: B, classifier_choice: false }));
+      // audit rows name the actor's user id and carry codes only
+      const rowsA = db.prepare("SELECT action, details_json, user_id FROM audit_log WHERE action IN ('spam_seen_mode_changed','user_stop_set','classifier_choice_granted','classifier_model_changed')").all();
+      assert.ok(rowsA.length >= 4);
+      assert.ok(!JSON.stringify(rowsA).includes("example.test"));
+    } finally {
+      if (saved === undefined) delete process.env.ACCOUNTS_ENCRYPTION_KEY; else process.env.ACCOUNTS_ENCRYPTION_KEY = saved;
+    }
   });
 });

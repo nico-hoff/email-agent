@@ -1,6 +1,6 @@
 # Modellvergleich: Jev gegen `openai/gpt-6-luna-decisions` (Qualität x Kosten)
 
-Stand 2026-10-31. Live-Aufrufe nach ADR 0028, nur synthetische Inhalte. Roh-Responses und Mailtexte liegen nicht im Repo; unten stehen nur Aggregate. Die Produktion bleibt bei Jev; ein Wechsel bräuchte eine ADR und Nicos Freigabe.
+Stand 2026-10-31. Live-Aufrufe nach ADR 0028, nur synthetische Inhalte. Roh-Responses und Mailtexte liegen nicht im Repo; unten stehen nur Aggregate. Die Produktion bleibt bei Jev; seit ADR 0041 und R3 kann ein Nutzer mit der Berechtigung `classifier_choice` pro Nutzer Luna Decisions wählen (Kalibrierung siehe letzter Abschnitt).
 
 ## Setup
 
@@ -65,3 +65,26 @@ Einziger konkreter Vorteil von Luna: schärfer getrennte, besser kalibrierte nou
 - `topic` wurde wie in der Probe einzeln gefragt, nicht zusammen mit den neun anderen Fragen (v3 existiert nicht); Kosten und Qualität im Verbund sind offen.
 - Kosten laut `usage.cost` (Jev) bzw. Preisliste (Luna: Eingabe-Tokens x 1e-7, vom Aufruf bestätigt). Preise und Modellversion (`...-20261006`) können sich ändern; die Decisions-API ist `alpha`.
 - Latenz mit je zwei parallelen Aufrufen pro Modell und einem zweiten Agenten, der parallel Jev-Evals fährt; nur Größenordnung.
+
+## Kalibrierung Luna Decisions auf v2 (R3, ADR 0041)
+
+Stand 2026-11-01. Live-Aufrufe nach ADR 0028, nur synthetische Inhalte, nur Aggregate. Werkzeug: `scripts/calibrate-model.ts` (`node --env-file=<Datei> scripts/calibrate-model.ts --confirm-live`; schreibt nur Zahlen nach `data/eval-runs/`, gitignored). Methode wie `docs/insights.md` (R7): dieselbe Stichprobe (Seed 7, `triage` + `sinabis`, balanciert), Schwellen **nur auf `calib`** (150 Aufrufe), Bericht auf `test` (200 Aufrufe), dazu das feste Set v2 (29 Aufrufe). Insgesamt **379 Aufrufe** (Budget 400), 0 Fehler; Kosten laut `usage.cost` calib 0,0284 USD, test 0,0380 USD, festes Set 0,0052 USD.
+
+Gewählte Schwellen (Eintrag „3“ in `config/noul-calibration.ts`, Begründung in `docs/jev-contract.md`, Abschnitt „Kalibrierung v2, Luna Decisions“): `is_spam` 0.85, `is_phishing_or_scam` 0.90, `addresses_an_ai` 0.30, `needs_my_reply` 0.50.
+
+| Frage | Schwelle | calib (Recall / FP) | test (Recall / FP) | festes Set (Recall / FP) |
+| --- | --- | --- | --- | --- |
+| `is_spam` | 0.85 | 28 von 30 / 0 von 30 | 39 von 40 / 0 von 40 | 3 von 3 / 0 von 12 |
+| `is_phishing_or_scam` | 0.90 | 30 von 30 / 0 von 30 | 40 von 40 / 1 von 40 | 6 von 6 / 0 von 15 |
+| `addresses_an_ai` | 0.30 | keine positiven Fälle / 0 von 30 | keine positiven Fälle / 0 von 40 | 3 von 3 / 0 von 24 |
+| `needs_my_reply` | 0.50 | 48 von 48 / 35 von 72 | 54 von 55 / 55 von 105 | 4 von 4 / 0 von 13 |
+
+Befunde:
+- Lunas Werte sind schärfer als Jevs: Negative liegen fast immer bei 0 bis 0.1, Positive bei 0.9 bis 1. Deshalb liegen die Schwellen höher als bei Jev (`is_spam` 0.85 gegen 0.70, `is_phishing_or_scam` 0.90 gegen 0.70). Eine Jev-Schwelle auf Luna anzuwenden wäre falsch; das ist der Grund für die Kalibrierung je (Fragenset, Modell).
+- `is_spam`: bei 0.90 fällt der Recall auf calib auf 0.867, bei 0.85 liegt er bei 0.933; Precision 1.0 auf allen drei Mengen. Die Schwelle liegt über dem Maximum der echten INBOX-Mails des v1-Samples (0.65).
+- `is_phishing_or_scam`: ein negativer Fall auf calib (0.79) bestimmt die Schwelle; auf test gibt es einen weiteren negativen Fall bei 0.93 (ein False Positive, auch bei 0.70). Für Postfachaktionen ist die Frage nicht maßgeblich.
+- `needs_my_reply`: wie bei Jev ein „Anfrage an mich“-Signal, keine Antwortpflicht. Die vielen „False Positives“ sind Mails mit Aktion `forward`/`flag` im Datensatz (Rohwert ~0.97); gegen die strenge Etikettierung trennt die Frage sauber (festes Set 0 FP). `category`: Accuracy 58 von 60 (calib), 77 von 80 (test), 20 von 20 (festes Set).
+- Grenzen wie in diesem Dokument oben: leichte synthetische Daten (die Negative für Spam sind leicht, kein Newsletter), ein Seed, kleine Fallzahlen, `addresses_an_ai` ohne positive HF-Fälle, `is_assessable` unkalibriert (bleibt `unmapped`). Der Test mit echten Mails ist ein Nico-Schritt.
+
+Kosten je 1 000 Mails für die Anzeige in der App (statische Zahlen in `lib/classifier-models.ts`, Quelle: Tabelle „Kosten und Latenz“, Suite `hf-v2`): Jev 0,059 USD, Luna Decisions 0,192 USD (rund 3,3-mal so viel).
+

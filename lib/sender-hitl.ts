@@ -94,14 +94,14 @@ export function sampleEmailIds(db: DatabaseSync, userId: number, match: RuleMatc
     ? "lower(e.sender) = ?"
     : "substr(lower(e.sender), instr(lower(e.sender), '@') + 1) = ?";
   const rows = db.prepare(
-    `SELECT e.id AS id, c.question_set_version AS version, a.answer_json AS answer
+    `SELECT e.id AS id, c.question_set_version AS version, c.model_requested AS model, a.answer_json AS answer
      FROM emails e
      JOIN accounts acc ON acc.id = e.account_id
      JOIN classifications c ON c.id = (SELECT MAX(id) FROM classifications WHERE email_id = e.id AND status = 'classified')
      JOIN classification_answers a ON a.classification_id = c.id AND a.question_key = 'is_spam' AND a.type = 'noul'
      WHERE acc.user_id = ? AND ${where}
      ORDER BY e.received_at DESC, e.id DESC LIMIT 200`,
-  ).all(userId, value) as { id: number; version: string; answer: string }[];
+  ).all(userId, value) as { id: number; version: string; model: string; answer: string }[];
   const ids: number[] = [];
   for (const r of rows) {
     let v: unknown;
@@ -111,7 +111,7 @@ export function sampleEmailIds(db: DatabaseSync, userId: number, match: RuleMatc
       continue;
     }
     if (typeof v !== "number") continue;
-    if (interpretNoul({ key: "is_spam", type: "noul", value: v }, r.version) === "positive") ids.push(r.id);
+    if (interpretNoul({ key: "is_spam", type: "noul", value: v }, r.version, r.model) === "positive") ids.push(r.id);
     if (ids.length >= limit) break;
   }
   return ids;

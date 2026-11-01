@@ -38,7 +38,7 @@ function setup(opts: { limit?: number; synthetic?: boolean; fetchThrows?: boolea
       .run(id, "a1", "INBOX", 1, 100 + id, T, T);
     const c = ++cls;
     db.prepare("INSERT INTO classifications (id, email_id, question_set_version, model_requested, model_reported, status, attempts, created_at, updated_at) VALUES (?,?,?,?,?,'classified',1,?,?)")
-      .run(c, id, "email-classification-v1", "m", "m", T, T);
+      .run(c, id, "email-classification-v1", "typesafe/jev-1.13", "m", T, T);
     for (const [k, v] of Object.entries(a)) {
       db.prepare("INSERT INTO classification_answers (classification_id, question_key, type, answer_json) VALUES (?,?,?,?)")
         .run(c, k, typeof v === "number" ? "noul" : "choice", JSON.stringify({ value: v }));

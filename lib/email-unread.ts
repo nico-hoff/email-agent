@@ -19,7 +19,7 @@ export interface UnreadDeps {
 
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "cache-control": "no-store" } });
 
-const STATUS_BY_CODE = new Map<string, number>([["not_found", 404], ["kill_switch", 409], ["account_unavailable", 503]]);
+const STATUS_BY_CODE = new Map<string, number>([["not_found", 404], ["kill_switch", 409], ["user_stop", 409], ["account_unavailable", 503]]);
 
 /** Order: session (401), rate limit (429), CSRF (403), id (404), then the undo. */
 export async function handleUnread(request: Request, rawId: unknown, deps: UnreadDeps): Promise<Response> {

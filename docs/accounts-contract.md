@@ -49,3 +49,17 @@ Erlaubt: DNS-Namen und öffentliche IP-Literale. Abgelehnt: URLs, Ports, Leerzei
 
 ## Datenschutz
 Es werden keine Mailinhalte berührt. Der Test wählt keinen Ordner aus und lädt nichts. `context` ist ein vom Nutzer geschriebener Kurztext (wie in der Legacy-Datei) und geht als Hinweis in die Bewertung; er soll keine Mailinhalte enthalten.
+
+## Einstellungen im Profil (R3, ADR 0025 Teil 1, 0041, 0044)
+
+Alle `POST`-Routen: Sitzung, Rate-Limit, CSRF (`guardMutation`); Nutzerbezug aus der Sitzung; ein fremdes Konto ist `404`. Antworten enthalten nur Schalter, Zähler, Ids und Codes.
+
+| Route | Zweck |
+|---|---|
+| `GET /api/settings` | `stop` (`user_stopped_at`, `global_active`, `can_toggle_global`), `daily_limit`, `accounts[]` (`id`, `label`, `color`, `enabled`, `managed`, `spam_seen_mode`, `actions_24h`), `classifier` (`{permitted:false}` oder `{permitted:true, model, models[]}` mit `selectable`, `relative_cost`, `usd_per_1000`), nur Admins: `members[]` |
+| `POST /api/settings/spam-seen` | `{ account_id, mode: off|dry_run|live, confirm? }`. `live` ohne `confirm: true` ist `400 confirmation_required`; Konto ohne Zugangsdaten `409 not_managed` |
+| `POST /api/settings/stop` | `{ scope: user|global, stopped, confirm? }`. `global` nur Admin (`403`), mit `confirm: true`; legt die Datei `auto-actions.disabled` an oder entfernt sie |
+| `POST /api/settings/classifier` | `{ model }`; ohne Berechtigung `403`, unbekannt `400 invalid_model`, nicht kalibriert `409 not_calibrated` |
+| `POST /api/settings/permissions` | Admin: `{ user_id, classifier_choice }`; unbekannter Nutzer `404` |
+
+Neue Konten starten mit `spam_seen_mode = off`. Der Modus wirkt im Server nach dem nächsten Supervisor-Takt (bis 15 s).

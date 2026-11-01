@@ -10,6 +10,7 @@ import { accountUserId } from "./tenant.ts";
 import { backoffMs, classifyFailure } from "./retry-policy.ts";
 import { interpretNoul, normalizeAnswers, type NormalizedAnswer } from "./jev-response.ts";
 import { assertCalibrationMatchesQuestions, calibrationFor, NoulCalibrationError } from "./noul-calibration.ts";
+import { DEFAULT_CLASSIFIER, isClassifierModel, LUNA_CLASSIFIER } from "./classifier-models.ts";
 import { computeShadowQuarantine, type ShadowQuarantine } from "./shadow.ts";
 
 // Start-up check (O8): the calibration must belong to the question set this pipeline asks.
@@ -39,10 +40,10 @@ export function createPersistResponse(spamThresholdFor: (accountId: string) => n
   return (ctx: ClassifiedContext): void => {
     const n = normalizeAnswers(ctx.response.answers, QUESTIONS);
     if (!n.ok) throw new ResponseRejectedError(`invalid_response_${n.code}`);
-    persistNormalizedAnswers(ctx, n.answers, spamThresholdFor(ctx.accountId), "pipeline", QUESTION_SET_VERSION);
+    persistNormalizedAnswers(ctx, n.answers, spamThresholdFor(ctx.accountId), "pipeline", QUESTION_SET_VERSION, ctx.model);
     // E7: Jev's spam verdicts per sender feed the HITL question. Same transaction as the answers.
     const spam = n.answers.find((a) => a.key === "is_spam");
-    if (spam && interpretNoul(spam, QUESTION_SET_VERSION) === "positive") {
+    if (spam && interpretNoul(spam, QUESTION_SET_VERSION, ctx.model) === "positive") {
       recordJevSpam(ctx.db, ctx.emailId, ctx.classificationId, ctx.now.toISOString());
     }
   };
@@ -58,6 +59,7 @@ export function persistNormalizedAnswers(
   spamThreshold: number,
   actor: "pipeline" | "eval",
   questionSetVersion: string,
+  model: string = DEFAULT_CLASSIFIER,
 ): ShadowQuarantine {
   const ins = ctx.db.prepare(
     "INSERT INTO classification_answers (classification_id, question_key, type, answer_json, probabilities_json) VALUES (?, ?, ?, ?, ?)",
@@ -66,7 +68,7 @@ export function persistNormalizedAnswers(
     ins.run(ctx.classificationId, a.key, a.type, JSON.stringify({ value: a.value }),
       a.probabilities ? JSON.stringify(a.probabilities) : null);
   }
-  const shadow = computeShadowQuarantine(answers, spamThreshold, undefined, questionSetVersion);
+  const shadow = computeShadowQuarantine(answers, spamThreshold, undefined, questionSetVersion, model);
   ins.run(ctx.classificationId, "shadow_quarantine", "derived", JSON.stringify(shadow), null);
   ctx.db.prepare(
     `INSERT INTO audit_log (occurred_at, trace_id, actor, action, account_id, email_id, details_json)
@@ -102,6 +104,8 @@ export interface ClassifiedContext {
   classificationId: number;
   emailId: number;
   accountId: string;
+  /** The model this classification was requested from (classifications.model_requested). */
+  model: string;
   response: DecisionsResponse;
   latencyMs: number;
   attempts: number;
@@ -112,7 +116,12 @@ export interface ClassifiedContext {
 export interface PipelineOptions {
   db: DatabaseSync;
   clock?: SchedulerClock;
+  /** Jev (System One): the default classifier. */
   jev: JevClient;
+  /** Client for `openai/gpt-6-luna-decisions` (lib/decisions-client.ts). Absent = that model falls back to Jev. */
+  decisions?: JevClient;
+  /** The classifier model of the account's owner (ADR 0041). Absent = Jev. Only allowlisted models with a client are used. */
+  modelFor?: (accountId: string) => string;
   /** Creates a read-only IMAP port for a retry refetch. The pipeline connects and closes it. */
   portFactory: (accountId: string) => ImapPort;
   persistResponse?: (ctx: ClassifiedContext) => void;
@@ -140,10 +149,23 @@ interface Row {
   email_id: number;
   account_id: string;
   attempts: number;
+  model: string;
 }
 
 export function createClassificationPipeline(opts: PipelineOptions): ClassificationPipeline {
-  const { db, jev } = opts;
+  const { db } = opts;
+  const clientFor = (model: string): JevClient | undefined =>
+    model === JEV_MODEL ? opts.jev : model === LUNA_CLASSIFIER ? opts.decisions : undefined;
+  /** Model for a new classification: the owner's choice if it is on the allowlist and has a client, else Jev. */
+  const chooseModel = (accountId: string): string => {
+    let m: string = JEV_MODEL;
+    try {
+      m = opts.modelFor?.(accountId) ?? JEV_MODEL;
+    } catch {
+      m = JEV_MODEL;
+    }
+    return isClassifierModel(m) && clientFor(m) !== undefined ? m : JEV_MODEL;
+  };
   const clock = opts.clock ?? systemClock;
   const cache = new Map<number, TransientInput>();
   let paused = false;
@@ -237,7 +259,13 @@ export function createClassificationPipeline(opts: PipelineOptions): Classificat
       input = r;
     }
     const started = clock.now().getTime();
-    const result = await jev.classify(buildRequest(row.account_id, input));
+    const client = clientFor(row.model);
+    if (!client) {
+      setStatus(row.id, "failed", { failureCode: "model_unavailable", attempts: row.attempts });
+      audit("classification_failed", traceId, row.account_id, row.email_id, { failure_code: "model_unavailable" });
+      return;
+    }
+    const result = await client.classify(buildRequest(row.account_id, input));
     const latencyMs = Math.max(0, clock.now().getTime() - started);
     const attempts = row.attempts + 1;
 
@@ -249,7 +277,7 @@ export function createClassificationPipeline(opts: PipelineOptions): Classificat
              failure_code = NULL, next_attempt_at = NULL, updated_at = ? WHERE id = ?`,
         ).run(result.response.model, latencyMs, attempts, iso(), row.id);
         opts.persistResponse?.({
-          db, classificationId: row.id, emailId: row.email_id, accountId: row.account_id,
+          db, classificationId: row.id, emailId: row.email_id, accountId: row.account_id, model: row.model,
           response: result.response, latencyMs, attempts, traceId, now: clock.now(),
         });
         db.exec("COMMIT");
@@ -291,7 +319,7 @@ export function createClassificationPipeline(opts: PipelineOptions): Classificat
   async function runDue(): Promise<void> {
     if (paused) return;
     const rows = db.prepare(
-      `SELECT c.id, c.email_id, c.attempts, e.account_id FROM classifications c JOIN emails e ON e.id = c.email_id
+      `SELECT c.id, c.email_id, c.attempts, c.model_requested AS model, e.account_id FROM classifications c JOIN emails e ON e.id = c.email_id
        WHERE c.status = 'pending' OR (c.status = 'retry_wait' AND c.next_attempt_at <= ?)
        ORDER BY c.id`,
     ).all(iso()) as unknown as Row[];
@@ -305,14 +333,15 @@ export function createClassificationPipeline(opts: PipelineOptions): Classificat
     submit({ emailId, accountId, input }) {
       return enqueue(async () => {
         const ts = iso();
+        const model = chooseModel(accountId);
         db.prepare(
           `INSERT OR IGNORE INTO classifications
              (email_id, question_set_version, model_requested, status, attempts, created_at, updated_at)
            VALUES (?, ?, ?, 'pending', 0, ?, ?)`,
-        ).run(emailId, QUESTION_SET_VERSION, JEV_MODEL, ts, ts);
+        ).run(emailId, QUESTION_SET_VERSION, model, ts, ts);
         const r = db.prepare(
-          "SELECT id, email_id, attempts FROM classifications WHERE email_id = ? AND question_set_version = ? AND model_requested = ?",
-        ).get(emailId, QUESTION_SET_VERSION, JEV_MODEL) as unknown as Omit<Row, "account_id">;
+          "SELECT id, email_id, attempts, model_requested AS model FROM classifications WHERE email_id = ? AND question_set_version = ? AND model_requested = ?",
+        ).get(emailId, QUESTION_SET_VERSION, model) as unknown as Omit<Row, "account_id">;
         const status = db.prepare("SELECT status FROM classifications WHERE id = ?").get(r.id) as { status: string };
         if (status.status !== "pending") return;
         cache.set(r.id, input);

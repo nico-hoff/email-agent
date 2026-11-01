@@ -45,3 +45,12 @@ Stand 2026-10-27. Alles gegen Fakes getestet; es gab keine Verbindung zu einem e
 - **Wer den Port erzeugt:** nur `lib/mailbox-actions.ts` (Quelltext-Test über das ganze Repo). Routen und Worker benutzen den Executor, nie den Port.
 - **Offen aus Abschnitt 1:** ob der `source`-Zweig von `fetch` `BODY.PEEK` nutzt, wurde nicht geprüft und ist für M7a unerheblich, weil der Lesepfad ohnehin in EXAMINE (`readOnly: true`) arbeitet und das Postfach nichts ändern darf. Vor dem ersten `live`-Schritt gegen ein echtes Postfach beobachten (Abschnitt 5).
 - **Executor und Regel:** `lib/mailbox-rules.ts` (reine Funktion, Schutz zuerst, dann „Spam gelesen“) und `lib/mailbox-actions.ts` (Modus je Konto, Not-Aus, Tageslimit, Idempotenz, Undo). Siehe README, Abschnitt „Automatische Aktionen“.
+
+## Not-Aus-Semantik (R3, ADR 0016, 0025, 0044)
+
+Zwei Stufen, beide werden **vor jeder Aktion** gelesen (`lib/mailbox-actions.ts`):
+
+1. **Global:** die Datei `auto-actions.disabled` neben der Datenbank. Solange sie existiert, wird nichts geplant und nichts geschrieben, auch kein Rückgängigmachen am Server. Die App zeigt sie allen Nutzern an (nur lesend); Admins können sie nach Bestätigung anlegen und entfernen. Die Datei bleibt der Not-Aus von außen (ohne App, ohne Datenbank).
+2. **Pro Nutzer:** `user_settings.auto_actions_stopped_at`. Gleiche Wirkung für die Konten dieses Nutzers (Ergebnis `user_stop`; Undo am Server liefert `409 user_stop`). Das Zurückstellen auf „ungelesen“ im Trockenlauf (nur App-Status) bleibt möglich. Ein nicht lesbarer Zustand zählt als gestoppt.
+
+Der Backfill beim Start bricht beim globalen Stop ab; beim Nutzer-Stop überspringt er nur dessen Mails. Das Tageslimit (200 Live-Aktionen je Konto in 24 Stunden) bleibt unverändert und wird in der App je Konto angezeigt. `live` setzt nur der Nutzer in der App nach Bestätigung (`confirm: true`), nie ein Agent und nie ein Standardwert.

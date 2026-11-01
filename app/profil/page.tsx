@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ProfileView, reasonText } from '../../components/profile.tsx'
 import { accountsErrorText, type AccountEditor } from '../../components/accounts-manager.tsx'
+import type { SettingsConfirm } from '../../components/settings-manager.tsx'
 import { mutationDeps } from '../../components/hooks.ts'
 import {
   fetchInvites,
@@ -27,6 +28,18 @@ import {
   type AccountsData,
 } from '../../lib/accounts-client.ts'
 import { fetchSync, isActivePhase, postSyncRestart, RESTART_ERROR_TEXT, SYNC_POLL_MS, type SyncData } from '../../lib/sync-client.ts'
+import {
+  fetchSettings,
+  postClassifierChoice,
+  postClassifierModel,
+  postGlobalStop,
+  postSpamSeenMode,
+  postUserStop,
+  SETTINGS_ERROR_TEXT,
+  type SettingsData,
+  type SettingsResult,
+  type SpamSeenMode,
+} from '../../lib/settings-client.ts'
 
 // Shell only: account data, invitations and the one-time invite code arrive through client-side /api calls and live in
 // component state; nothing is written to browser storage.
@@ -49,6 +62,8 @@ export default function Profil(): React.JSX.Element {
   const [syncRestarting, setSyncRestarting] = useState<string | null>(null)
   const [syncRestartError, setSyncRestartError] = useState<Record<string, string>>({})
   const [syncTick, setSyncTick] = useState(0)
+  const [settings, setSettings] = useState<SettingsData | null>(null)
+  const [confirm, setConfirm] = useState<SettingsConfirm>(null)
   const generation = useRef(0)
   const syncsRef = useRef<Record<string, SyncData>>({})
 
@@ -60,10 +75,12 @@ export default function Profil(): React.JSX.Element {
       const list = p.managed && p.role === 'admin' ? await fetchInvites(fetch) : []
       if (mine !== generation.current) return
       const acc = await fetchAccounts(fetch).catch(() => null)
+      const set = await fetchSettings(fetch).catch(() => null)
       if (mine !== generation.current) return
       setProfile(p)
       setInvites(list)
       setAccounts(acc)
+      setSettings(set)
       setError(null)
     } catch (e) {
       if (mine !== generation.current) return
@@ -214,6 +231,41 @@ export default function Profil(): React.JSX.Element {
     })
   }, [reloadAccounts])
 
+  const reloadSettings = useCallback((): void => {
+    void fetchSettings(fetch).then(setSettings).catch(() => {})
+  }, [])
+
+  // Runs one settings change, then reloads the data. A failure shows the text of its reason.
+  const runSettings = useCallback((run: Promise<SettingsResult>, done: string): void => {
+    setBusy(true)
+    void run.then((res) => {
+      setBusy(false)
+      setConfirm(null)
+      if (!res.ok) {
+        setNotice({ text: SETTINGS_ERROR_TEXT[res.reason], error: true })
+      } else {
+        setNotice({ text: done })
+      }
+      reloadSettings()
+    })
+  }, [reloadSettings])
+
+  const changeMode = useCallback((accountId: string, mode: SpamSeenMode): void => {
+    if (mode === 'live') {
+      // Never switched on directly: the dialog explains what happens on the server first.
+      const label = settings?.accounts.find((a) => a.id === accountId)?.label ?? accountId
+      setConfirm({ kind: 'live', accountId, label })
+      return
+    }
+    runSettings(postSpamSeenMode(accountId, mode, false, mutationDeps), 'Gespeichert.')
+  }, [settings, runSettings])
+
+  const acceptConfirm = useCallback((): void => {
+    if (!confirm) return
+    if (confirm.kind === 'live') runSettings(postSpamSeenMode(confirm.accountId, 'live', true, mutationDeps), 'Spam wird jetzt auf dem Server als gelesen markiert.')
+    else runSettings(postGlobalStop(confirm.stopped, mutationDeps), confirm.stopped ? 'Globaler Not-Aus eingeschaltet.' : 'Globaler Not-Aus aufgehoben.')
+  }, [confirm, runSettings])
+
   const patchForm = useCallback((patch: Partial<Omit<AccountForm, 'touched'>>): void => {
     setEditor((e) => (e ? { ...e, form: applyPatch(e.form, patch) } : e))
   }, [])
@@ -261,6 +313,19 @@ export default function Profil(): React.JSX.Element {
         syncRestarting,
         syncRestartError: Object.fromEntries(Object.entries(syncRestartError).filter(([, v]) => v !== '')),
         onSyncRestart: restartSync,
+      }}
+      settings={{
+        data: settings,
+        busy,
+        confirm,
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        onMode: changeMode,
+        onUserStop: (stopped) => runSettings(postUserStop(stopped, mutationDeps), stopped ? 'Not-Aus eingeschaltet. Es passiert nichts mehr am Postfach.' : 'Aktionen wieder erlaubt.'),
+        onGlobalStop: (stopped) => setConfirm({ kind: 'global', stopped }),
+        onConfirm: acceptConfirm,
+        onCancelConfirm: () => setConfirm(null),
+        onModel: (model) => runSettings(postClassifierModel(model, mutationDeps), 'Modell gespeichert. Es gilt für neue Mails.'),
+        onChoice: (userId, granted) => runSettings(postClassifierChoice(userId, granted, mutationDeps), granted ? 'Modellwahl freigegeben.' : 'Modellwahl entzogen.'),
       }}
     />
   )

@@ -16,10 +16,12 @@ const V1 = QUESTION_SET_VERSION_V1;
 const V2 = QUESTION_SET_VERSION_V2;
 const cal1 = calibrationFor(V1)!;
 const cal2 = calibrationFor(V2)!;
+const LUNA = "openai/gpt-6-luna-decisions";
+const cal3 = calibrationFor(V2, LUNA)!;
 
 describe("config/noul-calibration.ts", () => {
   it("has one entry per question set: v1 unchanged (version 1), v2 new (version 2)", () => {
-    assert.equal(NOUL_CALIBRATIONS.length, 2);
+    assert.equal(NOUL_CALIBRATIONS.length, 3);
     assert.equal(cal1.version, "1");
     assert.equal(cal1.created, "2026-10-27");
     assert.deepEqual(cal1.thresholds, { is_spam: 0.8, is_phishing_or_scam: 0.5, addresses_an_ai: 0.3 });
@@ -27,6 +29,14 @@ describe("config/noul-calibration.ts", () => {
     assert.equal(cal2.created, "2026-10-31");
     assert.deepEqual(cal2.thresholds, { is_spam: 0.7, is_phishing_or_scam: 0.7, addresses_an_ai: 0.3, needs_my_reply: 0.5 });
     assert.ok(cal1.basis.length >= 2 && cal2.basis.length >= 2);
+  });
+
+  it("entries 1 and 2 are the Jev entries; entry 3 is Luna Decisions on v2 (ADR 0041)", () => {
+    assert.deepEqual([cal1.model, cal2.model, cal3.model], ["typesafe/jev-1.13", "typesafe/jev-1.13", LUNA]);
+    assert.equal(cal3.version, "3");
+    assert.equal(cal3.created, "2026-11-01");
+    assert.deepEqual(cal3.thresholds, { is_spam: 0.85, is_phishing_or_scam: 0.9, addresses_an_ai: 0.3, needs_my_reply: 0.5 });
+    assert.equal(calibrationFor(V1, LUNA), null, "no Luna calibration for v1: fail-closed");
   });
 
   it("the default question set has a calibration", () => {
@@ -43,7 +53,7 @@ describe("config/noul-calibration.ts", () => {
     return doc.slice(start, next < 0 ? undefined : next);
   };
 
-  for (const [cal, heading] of [[cal1, "Kalibrierung"], [cal2, "Kalibrierung v2"]] as const) {
+  for (const [cal, heading] of [[cal1, "Kalibrierung"], [cal2, "Kalibrierung v2"], [cal3, "Kalibrierung v2, Luna Decisions"]] as const) {
     it(`matches docs/jev-contract.md (section ${heading}: version, date and every value)`, () => {
       const section = sectionOf(heading);
       assert.ok(section.includes(`Version ${cal.version}`), "version");
@@ -183,7 +193,7 @@ describe("calibration v2 (R7)", () => {
     for (const raw of [[], {}, null, [v1, v1]]) {
       assert.throws(() => parseNoulCalibrations(raw), (e: unknown) => e instanceof NoulCalibrationError && e.code === "noul_calibration_invalid");
     }
-    assert.equal(parseNoulCalibrations(structuredClone(shippedConfig)).length, 2);
+    assert.equal(parseNoulCalibrations(structuredClone(shippedConfig)).length, 3);
   });
   it("every v2 threshold belongs to a noul question of v2", () => {
     const noulKeys = new Set(Object.entries(questionsFor(V2)).filter(([, q]) => q.type === "noul").map(([k]) => k));

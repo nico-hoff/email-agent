@@ -25,6 +25,8 @@ export interface RuleInput {
   answers: NormalizedAnswer[];
   /** Question set version of that run; the calibration is looked up per version. */
   questionSetVersion: string;
+  /** Model of that run (classifications.model_requested); the calibration is per (version, model). Absent = Jev. */
+  model?: string;
   /** The mail's active location is the provider's spam folder (accounts.spam_mailbox). */
   inProviderSpam: boolean;
   /** Provider \Seen flag as last read. */
@@ -57,7 +59,7 @@ export function decideSpamSeen(i: RuleInput): RuleDecision {
 
   const interpret = i.interpret ?? interpretNoul;
   const spam = i.answers.find((a) => a.key === "is_spam");
-  const reading = spam ? interpret(spam, i.questionSetVersion) : "unmapped";
+  const reading = spam ? interpret(spam, i.questionSetVersion, i.model) : "unmapped";
   if (reading === "positive") return { action: "mark_seen", reason: "jev_spam" };
   // Nico said "junk" about this sender; the mail is marked read even if Jev is unsure or says no (undo is one tap).
   if (i.blacklisted === true) return { action: "mark_seen", reason: "blacklisted" };

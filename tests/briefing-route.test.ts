@@ -37,7 +37,7 @@ function setup(opts: { limit?: number; synthetic?: boolean } = {}) {
       .run(id, "a1", "INBOX", 1, id, T0.toISOString(), T0.toISOString());
     const c = ++cls;
     db.prepare("INSERT INTO classifications (id, email_id, question_set_version, model_requested, model_reported, status, attempts, created_at, updated_at) VALUES (?,?,?,?,?,'classified',1,?,?)")
-      .run(c, id, QV, "m", "m", T0.toISOString(), T0.toISOString());
+      .run(c, id, QV, "typesafe/jev-1.13", "m", T0.toISOString(), T0.toISOString());
     const base = { addresses_an_ai: 0.01, category: "business", route: "notify", urgency: 2.2, importance: 1, ...answers };
     for (const [k, v] of Object.entries(base)) {
       db.prepare("INSERT INTO classification_answers (classification_id, question_key, type, answer_json) VALUES (?,?,?,?)")

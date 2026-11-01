@@ -6,6 +6,10 @@ import { createImapWorkers, type ImapWorkers, type ImapWorkersDeps } from "./wor
 import { fileURLToPath } from "node:url";
 import { createClassificationPipeline, createPersistResponse } from "./lib/classification-pipeline.ts";
 import { createJevClient, type JevClient } from "./lib/jev.ts";
+import { createDecisionsClient } from "./lib/decisions-client.ts";
+import { LUNA_CLASSIFIER } from "./lib/classifier-models.ts";
+import { classifierModelFor } from "./lib/user-settings.ts";
+import { accountUserId } from "./lib/tenant.ts";
 import { createImapFlowPort, type ImapPort } from "./lib/imap.ts";
 import { applyOpenRouterEnv } from "./lib/openrouter-env.ts";
 import { assertFlyAuthConfigured } from "./lib/fly-guard.ts";
@@ -95,6 +99,8 @@ interface PipelineOptions {
   env?: Record<string, string | undefined>;
   log?: (message: string) => void;
   createJev?: (apiKey: string) => JevClient;
+  /** Client of the Decisions models (Luna, ADR 0041); same key as Jev. */
+  createDecisions?: (apiKey: string) => JevClient;
   createWorkers?: (d: ImapWorkersDeps) => ImapWorkers;
   /** Global kill switch file for automatic mailbox actions (default: data/auto-actions.disabled next to the database). */
   killSwitchFile?: string;
@@ -134,6 +140,9 @@ function wirePipeline(deps: { db: StartupResult["db"]; accounts: ImapWorkersDeps
   const pipeline = createClassificationPipeline({
     db: deps.db,
     jev: (o.createJev ?? ((key) => createJevClient({ apiKey: key })))(apiKey),
+    decisions: (o.createDecisions ?? ((key) => createDecisionsClient({ apiKey: key, model: LUNA_CLASSIFIER })))(apiKey),
+    // The owner's choice (user_settings, needs the permission `classifier_choice`); anything else is Jev.
+    modelFor: (accountId) => classifierModelFor(deps.db, accountUserId(deps.db, accountId)),
     portFactory: o.portFactory ?? ((accountId) => {
       const a = find(accountId);
       if (!a) throw new Error("unknown account");

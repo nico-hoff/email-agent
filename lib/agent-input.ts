@@ -84,13 +84,13 @@ export async function buildAgentInput(deps: AgentInputDeps, emailId: number): Pr
   if (!email) return { ok: false, code: "email_not_found" };
 
   const cls = deps.db.prepare(
-    "SELECT id, question_set_version FROM classifications WHERE email_id = ? AND status = 'classified' ORDER BY id DESC LIMIT 1",
-  ).get(emailId) as { id: number; question_set_version: string } | undefined;
+    "SELECT id, question_set_version, model_requested FROM classifications WHERE email_id = ? AND status = 'classified' ORDER BY id DESC LIMIT 1",
+  ).get(emailId) as { id: number; question_set_version: string; model_requested: string } | undefined;
   if (!cls) return { ok: false, code: "not_classified" };
 
   const interpret = deps.interpret ?? interpretNoul;
   const answers = loadAnswers(deps.db, cls.id);
-  const gate = agentEligibility(answers, interpret, cls.question_set_version);
+  const gate = agentEligibility(answers, interpret, cls.question_set_version, cls.model_requested);
   if (!gate.eligible) return { ok: false, code: "not_eligible", reasons: gate.reasons };
 
   const loc = deps.db.prepare(
@@ -122,7 +122,7 @@ export async function buildAgentInput(deps: AgentInputDeps, emailId: number): Pr
       subject: email.subject,
       excerpt: { trust: "untrusted", text: excerpt.slice(0, AGENT_EXCERPT_MAX_CHARS) },
       category: String(by.get("category")!.value),
-      needs_my_reply: reply && reply.type === "noul" ? interpret(reply, cls.question_set_version) : "unmapped",
+      needs_my_reply: reply && reply.type === "noul" ? interpret(reply, cls.question_set_version, cls.model_requested) : "unmapped",
     },
   };
 }

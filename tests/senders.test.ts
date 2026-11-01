@@ -140,7 +140,7 @@ describe("jev_spam_count", () => {
     const persist = createPersistResponse(() => 0.9);
     // v2 is never persisted by the pipeline today; the guard still has to hold if it was
     db.exec("BEGIN");
-    persist({ db, classificationId: row.id, emailId, accountId: "a", response: { ...fixture(), answers: answersWith(0.99) } as never, latencyMs: 0, attempts: 1, traceId: "t", now: T0 });
+    persist({ db, classificationId: row.id, emailId, accountId: "a", model: "typesafe/jev-1.13", response: { ...fixture(), answers: answersWith(0.99) } as never, latencyMs: 0, attempts: 1, traceId: "t", now: T0 });
     db.exec("COMMIT");
     assert.equal(senderCounts(db, 1, "s@example.test")?.jev_spam_count, 1);
   });
