@@ -4,6 +4,8 @@
 import { ACCOUNTS_ERROR_TEXT, COLOR_CHOICES, formType, GOOGLE_DEFAULTS, TEST_RESULT_TEXT, workerText, type AccountForm, type AccountItem, type AccountsData } from "../lib/accounts-client.ts";
 import { hostPlaceholder } from "../lib/mail-provider-hints.ts";
 import { formatWhen } from "../lib/profile-client.ts";
+import { showSyncCard, type SyncData } from "../lib/sync-client.ts";
+import { SyncCard } from "./sync-card.tsx";
 
 const noop = (): void => {};
 
@@ -29,6 +31,14 @@ export interface AccountsSectionProps {
   onCancel?: () => void;
   onTest?: (id: string) => void;
   onEnabled?: (id: string, enabled: boolean) => void;
+  /** Initial import (ADR 0043): last known progress per account id, the ids that were seen running on this page, restart state. */
+  sync?: Record<string, SyncData>;
+  syncSawActive?: Record<string, boolean>;
+  syncRestarting?: string | null;
+  syncRestartError?: Record<string, string>;
+  /** Clock for "finished recently" (tests pass a fixed value). */
+  nowMs?: number;
+  onSyncRestart?: (id: string) => void;
 }
 
 export function testText(code: string): string {
@@ -156,6 +166,12 @@ function Row(p: AccountsSectionProps & { a: AccountItem }): React.JSX.Element {
       {a.managed && <p className="hint">{a.username} · {a.host}:{a.port}{a.secret_set_at !== null ? ` · Passwort gespeichert seit ${formatWhen(a.secret_set_at, p.timeZone)}` : ""}</p>}
       {!a.managed && <p className="hint">Keine gespeicherten Zugangsdaten. Dieses Konto lässt sich hier nur ansehen.</p>}
       {result !== undefined && <p className={result === "ok" || result === "synthetic_no_network" ? "hint hint-info" : "notice notice-inline notice-error"} role="status" data-testid="test-result">{testText(result)}</p>}
+      {a.managed && p.sync?.[a.id] !== undefined && showSyncCard(p.sync[a.id], p.syncSawActive?.[a.id] === true, p.nowMs ?? Date.now()) && (
+        <SyncCard
+          sync={p.sync[a.id]!} label={a.label} restarting={p.syncRestarting === a.id} restartError={p.syncRestartError?.[a.id] ?? null}
+          onRestart={() => (p.onSyncRestart ?? noop)(a.id)}
+        />
+      )}
       {a.managed && (
         <div className="acct-actions">
           <button type="button" className="btn" disabled={p.busy || p.testing !== null} onClick={() => (p.onTest ?? noop)(a.id)}>

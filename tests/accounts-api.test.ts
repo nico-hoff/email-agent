@@ -7,7 +7,7 @@ import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { generateKey } from "../lib/account-secrets.ts";
 import {
-  handleAccountCreate, handleAccountEnabled, handleAccountsList, handleAccountTest, handleAccountUpdate, type AccountsApiDeps,
+  handleAccountCreate, handleAccountEnabled, handleAccountSync, handleAccountSyncRestart, handleAccountsList, handleAccountTest, handleAccountUpdate, type AccountsApiDeps,
 } from "../lib/accounts-api.ts";
 import { createAuthContext, createLoginLimiter, createMutationLimiter, handleLogin, handleSession } from "../lib/auth-runtime.ts";
 import type { TestConnector } from "../lib/connection-test.ts";
@@ -197,3 +197,31 @@ describe("accounts API", () => {
     assert.equal(s.db.prepare("SELECT COUNT(*) AS n FROM accounts").get()!.n, 0);
   });
 });
+
+describe("initial import API (ADR 0043)", () => {
+  it("a new account starts queued; the progress is readable at once; restart only from done/failed and rate-limited", async () => {
+    const s = await setup({ testLimit: 2 });
+    const created = await handleAccountCreate(post(s, "/api/accounts", body), s.deps);
+    const id = ((await created.json()) as { account: { id: string } }).account.id;
+    const first = (await handleAccountSync(get(s, `/api/accounts/${id}/sync`), id, s.deps).json()) as { sync: { phase: string; total: number; feed: unknown[]; error_code: string | null } };
+    assert.deepEqual([first.sync.phase, first.sync.total, first.sync.feed.length, first.sync.error_code], ["queued", 0, 0, null]);
+    assert.equal((await handleAccountSyncRestart(post(s, `/api/accounts/${id}/sync/restart`), id, s.deps)).status, 409, "not while queued");
+    s.db.exec("UPDATE account_sync SET phase = 'failed', error_code = 'imap_auth'");
+    const ok = await handleAccountSyncRestart(post(s, `/api/accounts/${id}/sync/restart`), id, s.deps);
+    assert.deepEqual([ok.status, await ok.json()], [200, { ok: true, phase: "queued" }]);
+    const row = s.db.prepare("SELECT phase, error_code, runs FROM account_sync").get() as { phase: string; error_code: string | null; runs: number };
+    assert.deepEqual({ ...row }, { phase: "queued", error_code: null, runs: 2 });
+    s.db.exec("UPDATE account_sync SET phase = 'done'");
+    const limited = await handleAccountSyncRestart(post(s, `/api/accounts/${id}/sync/restart`), id, s.deps);
+    assert.equal(limited.status, 429, "third restart within the budget");
+    assert.ok(limited.headers.get("retry-after"));
+  });
+
+  it("an account without a sync row (demo data) answers with sync: null", async () => {
+    const s = await setup();
+    s.db.exec("INSERT INTO accounts (id, label, host, port, mailbox, user_id) VALUES ('demo','Demo','h',993,'INBOX',1)");
+    assert.deepEqual(await handleAccountSync(get(s, "/api/accounts/demo/sync"), "demo", s.deps).json(), { sync: null });
+    assert.equal(handleAccountSync(get(s, "/api/accounts/nope/sync"), "nope", s.deps).status, 404);
+  });
+});
+

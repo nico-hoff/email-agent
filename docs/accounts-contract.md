@@ -16,7 +16,10 @@ Quelle: ADR 0023 (Entscheidung) und 0035 (Umsetzung), Schema in `docs/erd.md` (M
 | Rotation | Neuen Schlüssel erzeugen, `ACCOUNTS_ENCRYPTION_KEY=<neu>` und `ACCOUNTS_ENCRYPTION_KEY_OLD=<alt>` setzen, `npm run accounts:rekey` (eine Transaktion, alles oder nichts), danach `_OLD` entfernen und neu starten. |
 
 ## Worker und Supervisor
-Der Supervisor (`lib/account-supervisor.ts`) läuft im Server-Prozess und liest alle 15 s die DB: aktivierte, entschlüsselbare Konten aller Nutzer → ein Worker je Konto. Neu/aktiviert: Start. Deaktiviert/entfernt: Stopp, Status `disabled`. Geänderte Verbindungsdaten (Host, Port, TLS, Benutzer, Passwort, Ordner): Neustart nur dieses Workers. Label, Farbe, Kontext, Schwelle, Modus wirken ohne Neustart. Synthetischer Modus: keine Worker.
+Der Supervisor (`lib/account-supervisor.ts`) läuft im Server-Prozess und liest alle 5 s die DB: aktivierte, entschlüsselbare Konten aller Nutzer → ein Worker je Konto. Neu/aktiviert: Start. Deaktiviert/entfernt: Stopp, Status `disabled`. Geänderte Verbindungsdaten (Host, Port, TLS, Benutzer, Passwort, Ordner): Neustart nur dieses Workers. Label, Farbe, Kontext, Schwelle, Modus wirken ohne Neustart. Synthetischer Modus: keine Worker.
+
+## Erst-Import (ADR 0043)
+Ein neues Konto bekommt in der Anlegen-Transaktion die Zeile `account_sync` (`queued`); ältere Konten beim ersten Workerstart. Der Worker liest nach dem Baseline-Checkpoint genau einmal die neuesten bis zu 50 Mails (Obergrenze 200) der letzten 14 Tage aus dem Posteingang mit UIDs `<=` Checkpoint (lesend, Inhalt nur im Speicher), klassifiziert sie über die normale Pipeline und meldet Zähler und Phase in `account_sync`. Importierte Mails (`emails.origin = 'import'`) lösen keine automatische Postfach-Aktion aus und zählen nicht als „neu seit dem letzten Öffnen“. Antworten und Tabelle enthalten nur Zähler, Phasen und Codes (`imap_auth`, `imap_error`, `no_range`, `classify_timeout`).
 
 ## Import der Legacy-Datei
 `npm run accounts:import` oder automatisch beim Start (Datei vorhanden **und** Schlüssel gesetzt, Marker fehlt). Konten gehören Nutzer 1, Geheimnisse werden verschlüsselt, `spam_seen_mode` bleibt (fehlend `dry_run`), Typ `google` bei Host `imap.gmail.com`. Marker `user_state (1, 'accounts_import')` in derselben Transaktion; danach wird die Datei nie wieder geöffnet. Ausgaben nennen nur Anzahl und Codes. Ohne Schlüssel: nichts gelesen, kein Marker (Hinweis im Log). Die Datei kann nach erfolgreichem Import gelöscht werden.
@@ -29,6 +32,9 @@ Der Supervisor (`lib/account-supervisor.ts`) läuft im Server-Prozess und liest 
 | `POST /api/accounts/:id` | ändern; `password` leer/fehlend = behalten; Typ unveränderlich |
 | `POST /api/accounts/:id/disable`, `/enable` | Betrieb ein/aus |
 | `POST /api/accounts/:id/test` | Verbindungstest (nur LIST, schreibgeschützter Port, 15 s, 10 je 10 min). Antwort `{ ok, code }` mit `ok|auth_failed|tls_failed|host_unreachable|timeout|mailbox_missing|connect_failed`; synthetisch `synthetic_no_network` |
+
+| `GET /api/accounts/:id/sync` | Erst-Import (ADR 0043): `{ sync: { phase, total, fetched, classified, failed, error_code, runs, started_at, updated_at, finished_at, feed } }`; `feed` = bis zu 10 zuletzt bewertete importierte Mails als Listenobjekte (wie `/api/emails`). Konto ohne Import: `{ sync: null }` |
+| `POST /api/accounts/:id/sync/restart` | Import erneut starten; nur aus `done`/`failed` (sonst `409 not_restartable`), gleiches Rate-Limit wie der Verbindungstest. Antwort `{ ok, phase: "queued" }` |
 
 Fehlercodes: `invalid_body` (400, mit Feldnamen), `invalid_host`, `host_not_allowed`, `invalid_secret` (400), `not_found` (404), `not_managed`, `secret_unreadable` (409), `no_encryption_key` (503), `rate_limited` (429).
 

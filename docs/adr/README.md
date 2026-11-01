@@ -42,6 +42,7 @@ Neue ADR: nächste freie Nummer, Vorlage unten, Eintrag in dieser Tabelle, im se
 | [0035](0035-mail-accounts-implementation.md) | Postfächer in der App: Umsetzung (Schnitt, Krypto, Supervisor, Import, SSRF) | angenommen |
 | [0041](0041-classifier-model-per-user.md) | Klassifikationsmodell (System One) pro Nutzer wählbar, Schwellen je Modell, Premium vorbereitet | angenommen |
 | [0042](0042-staging-environment.md) | Staging auf Nicos Mac: echte Postfächer, eigene DB, Tailnet (neben QA, prod, preview) | angenommen |
+| [0043](0043-initial-import.md) | Erst-Import: neueste Mails (50, 14 Tage) beim ersten Verbinden, Live-Fortschritt, keine Auto-Aktionen für Importiertes | angenommen |
 
 ## Vorlage
 

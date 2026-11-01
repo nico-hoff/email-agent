@@ -54,6 +54,7 @@ Auth-Modus (`selectAuthMode`, `lib/auth.ts`): `--synthetic` → `synthetic`; `AU
 - `workers/imap-worker.ts`: ein Worker je Konto, IDLE auf INBOX + Polling aller beobachteten Ordner, Watchdog, Backoff, Status in `worker_status`.
 - `lib/ingest.ts`: idempotentes Anlegen von `emails` und `email_locations` (UIDVALIDITY je Ordner), Ordnerwechsel als Audit.
 - `lib/email-status.ts`: `\Seen` bekannter UIDs neu lesen (letzte 30 Tage, Blöcke à 200).
+- `lib/initial-import.ts` + `workers/imap-worker.ts`: **Erst-Import** (ADR 0043): einmal je Konto die neuesten ≤ 50 Mails (14 Tage, UIDs ≤ Checkpoint) lesen und klassifizieren; Fortschritt in `account_sync` (`lib/account-sync.ts`), API `GET /api/accounts/:id/sync`, Live-Karte `components/sync-card.tsx`. Importierte Mails (`emails.origin = 'import'`) lösen keine Postfach-Aktionen aus. Simulation ohne Netz: `scripts/sync-sim.ts`.
 
 ### 4.3 Klassifikation (Jev)
 - `lib/jev.ts`: Client für `systemOneCreate` (`@openrouter/sdk`), SDK-Retries aus, eigener Backoff (`lib/retry-policy.ts`), globaler Concurrency-Limiter (`lib/limiter.ts`).
@@ -98,7 +99,7 @@ Auth-Modus (`selectAuthMode`, `lib/auth.ts`): `--synthetic` → `synthetic`; `AU
 
 ## 5. Datenmodell
 
-Quelle der Wahrheit: `docs/erd.md` (ERD + DDL je Migration, Schema-Test vergleicht wörtlich). Migrationen `db/migrations/001`–`006`. **Mandantenregel (ADR 0033):** `accounts`, `senders`, `sender_rules`, `user_state` tragen `user_id`; alle anderen Tabellen gehören einem Nutzer über die FK-Kette zu `accounts`, und jede Abfrage joint bis `accounts.user_id` und filtert danach (fremde ID = 404). `tests/tenant-isolation.test.ts` prüft jede Datenfunktion und Route mit zwei Nutzern.
+Quelle der Wahrheit: `docs/erd.md` (ERD + DDL je Migration, Schema-Test vergleicht wörtlich). Migrationen `db/migrations/001`–`008`. **Mandantenregel (ADR 0033):** `accounts`, `senders`, `sender_rules`, `user_state` tragen `user_id`; alle anderen Tabellen gehören einem Nutzer über die FK-Kette zu `accounts`, und jede Abfrage joint bis `accounts.user_id` und filtert danach (fremde ID = 404). `tests/tenant-isolation.test.ts` prüft jede Datenfunktion und Route mit zwei Nutzern.
 
 
 | Tabelle | Inhalt |
@@ -106,6 +107,7 @@ Quelle der Wahrheit: `docs/erd.md` (ERD + DDL je Migration, Schema-Test vergleic
 | `users`, `user_sessions`, `invites` | Nutzer (scrypt-Hash, Rolle, Status), Sitzungen (SHA-256 des Tokens, widerrufbar), Einladungen (nur Hash des Codes) |
 | `accounts` | Konto-ID, `user_id`, Label, Farbe, Host/Port/Ordner (keine Zugangsdaten) |
 | `mailbox_state`, `worker_status` | UID-Checkpoint je Ordner, Worker-Zustand |
+| `account_sync` | Fortschritt des Erst-Imports je Konto (Phase, Zähler, Code; 008) |
 | `emails`, `email_locations` | Metadaten (Absender, Betreff, Zeit), Ort je Ordner/UIDVALIDITY |
 | `classifications`, `classification_answers` | Jev-Lauf je Mail/Fragenset/Modell, normalisierte Antworten |
 | `email_status` | `seen` (Provider), `done` (Nico) |

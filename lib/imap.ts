@@ -94,6 +94,11 @@ export interface ImapPort {
   fetchMessageByUid(folder: string, uid: number): Promise<RawMessage | null>;
   /** Read-only FETCH of FLAGS for known UIDs (no body). Optional for fakes. */
   fetchFlags?(folder: string, uids: number[]): Promise<{ uid: number; seen: boolean }[]>;
+  /**
+   * Read-only SEARCH (initial import, ADR 0043): UIDs <= `maxUid` received since `since` (day granularity, server side).
+   * Optional for fakes; a port without it makes the import finish with zero mails.
+   */
+  searchUids?(folder: string, o: { since: Date; maxUid: number }): Promise<number[]>;
   /** Selects the folder read-only so that the connection IDLEs on it (call again after polling other folders). */
   watch(folder: string): Promise<void>;
   /** Read-only IMAP LIST: folder paths plus special-use flag (e.g. "\\Junk"). Optional for fakes. */
@@ -151,7 +156,7 @@ export interface ImapConnectionConfig {
 const MAX_SOURCE_BYTES = 2 * 1024 * 1024;
 const SOCKET_TIMEOUT_MS = 10 * 60 * 1000;
 
-type FlowClient = Pick<ImapFlow, "connect" | "logout" | "close" | "getMailboxLock" | "fetch" | "fetchOne" | "on" | "list"> & {
+type FlowClient = Pick<ImapFlow, "connect" | "logout" | "close" | "getMailboxLock" | "fetch" | "fetchOne" | "on" | "list" | "search"> & {
   mailbox: ImapFlow["mailbox"];
 };
 
@@ -232,6 +237,13 @@ export function createImapFlowPort(
           { uid: true },
         );
         return m && m.source ? { uid: m.uid, source: m.source } : null;
+      }),
+    searchUids: (folder, o) =>
+      withLock(folder, async () => {
+        if (o.maxUid < 1) return [];
+        // SEARCH in an EXAMINEd mailbox: reads UIDs only. `since` matches the internal (received) date.
+        const found = await client.search({ since: o.since, uid: `1:${o.maxUid}` }, { uid: true });
+        return Array.isArray(found) ? found.filter((u) => u <= o.maxUid).sort((a, b) => a - b) : [];
       }),
     async listFolders() {
       // LIST is a read-only command; no mailbox is selected or changed.

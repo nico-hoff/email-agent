@@ -45,6 +45,8 @@ import * as accountRoute from "../app/api/accounts/[id]/route.ts";
 import * as accountDisableRoute from "../app/api/accounts/[id]/disable/route.ts";
 import * as accountEnableRoute from "../app/api/accounts/[id]/enable/route.ts";
 import * as accountTestRoute from "../app/api/accounts/[id]/test/route.ts";
+import * as accountSyncRoute from "../app/api/accounts/[id]/sync/route.ts";
+import * as accountSyncRestartRoute from "../app/api/accounts/[id]/sync/restart/route.ts";
 import { generateKey, loadKeyring } from "../lib/account-secrets.ts";
 import { loadWorkerAccounts } from "../lib/mail-accounts.ts";
 
@@ -607,6 +609,27 @@ describe("mail accounts API (R2)", () => {
       assert.equal((await accountEnableRoute.POST(post(`/api/accounts/${idA}/enable`, a), ctxParams(idA))).status, 200);
       assert.equal((await accountRoute.POST(post(`/api/accounts/${idA}`, b, { label: "x" }), ctxParams(idA))).status, 404);
       assert.equal((db.prepare("SELECT label FROM accounts WHERE id = ?").get(idB) as { label: string }).label, "beta");
+
+      // initial import (ADR 0043): the progress and the restart are scoped like the rest; a foreign id is 404 and changes nothing
+      const syncOf = async (who: Who | null, id: string) => accountSyncRoute.GET(get(`/api/accounts/${id}/sync`, who), ctxParams(id));
+      const own = await syncOf(a, idA);
+      assert.equal(own.status, 200);
+      assert.equal(((await own.json()) as { sync: { phase: string } }).sync.phase, "queued");
+      assert.equal((await syncOf(a, idB)).status, 404);
+      assert.deepEqual(await (await syncOf(a, idB)).json(), { error: "not_found" });
+      assert.equal((await syncOf(a, "a_0000000000000000")).status, 404);
+      assert.equal((await syncOf(null, idA)).status, 401);
+      db.exec(`UPDATE account_sync SET phase = 'done' WHERE account_id IN ('${idA}', '${idB}')`);
+      const syncState = () => JSON.stringify(db.prepare("SELECT * FROM account_sync ORDER BY account_id").all());
+      const beforeSync = syncState();
+      const foreign = await accountSyncRestartRoute.POST(post(`/api/accounts/${idB}/sync/restart`, a), ctxParams(idB));
+      assert.deepEqual([foreign.status, await foreign.json()], [404, { error: "not_found" }]);
+      assert.equal(syncState(), beforeSync, "a foreign restart changes nothing");
+      const restarted = await accountSyncRestartRoute.POST(post(`/api/accounts/${idA}/sync/restart`, a), ctxParams(idA));
+      assert.equal(restarted.status, 200);
+      const again = await accountSyncRestartRoute.POST(post(`/api/accounts/${idA}/sync/restart`, a), ctxParams(idA));
+      assert.equal(again.status, 409, "not while queued or running");
+      assert.equal((db.prepare("SELECT phase FROM account_sync WHERE account_id = ?").get(idB) as { phase: string }).phase, "done");
 
       // the worker side sees both users' accounts, each with its own secret
       const ring = loadKeyring(process.env);

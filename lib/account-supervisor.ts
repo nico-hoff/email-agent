@@ -9,7 +9,7 @@ import type { AccountConfig } from "./accounts-config.ts";
 import { loadKeyring } from "./account-secrets.ts";
 import { loadWorkerAccounts, markDisabledWorkers, markWorkerConnecting, markWorkerPaused, markWorkersBlocked } from "./mail-accounts.ts";
 
-export const SUPERVISOR_INTERVAL_MS = 15_000;
+export const SUPERVISOR_INTERVAL_MS = 5_000;
 
 export interface SupervisedWorker { stop(): Promise<void> }
 

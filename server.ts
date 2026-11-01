@@ -6,7 +6,7 @@ import { createImapWorkers, type ImapWorkers, type ImapWorkersDeps } from "./wor
 import { fileURLToPath } from "node:url";
 import { createClassificationPipeline, createPersistResponse } from "./lib/classification-pipeline.ts";
 import { createJevClient, type JevClient } from "./lib/jev.ts";
-import { createImapFlowPort } from "./lib/imap.ts";
+import { createImapFlowPort, type ImapPort } from "./lib/imap.ts";
 import { applyOpenRouterEnv } from "./lib/openrouter-env.ts";
 import { assertFlyAuthConfigured } from "./lib/fly-guard.ts";
 import { findStyleScanHazards } from "./lib/dev-hazards.ts";
@@ -97,6 +97,8 @@ interface PipelineOptions {
   /** Global kill switch file for automatic mailbox actions (default: data/auto-actions.disabled next to the database). */
   killSwitchFile?: string;
   mailboxActions?: MailboxActions;
+  /** Test/QA seam: the read-only port a classification retry refetches with. Default: a real ImapFlow port of the account. */
+  portFactory?: (accountId: string) => ImapPort;
 }
 
 /**
@@ -122,11 +124,11 @@ function wirePipeline(deps: { db: StartupResult["db"]; accounts: ImapWorkersDeps
   const pipeline = createClassificationPipeline({
     db: deps.db,
     jev: (o.createJev ?? ((key) => createJevClient({ apiKey: key })))(apiKey),
-    portFactory: (accountId) => {
+    portFactory: o.portFactory ?? ((accountId) => {
       const a = find(accountId);
       if (!a) throw new Error("unknown account");
       return createImapFlowPort({ host: a.host, port: a.port, tls: a.tls, user: a.user, password: a.password });
-    },
+    }),
     accountContext: (id) => find(id)?.context,
     persistResponse: createPersistResponse((id) => find(id)?.spam_threshold ?? DEFAULT_SPAM_THRESHOLD),
     onClassified: ({ emailId }) => actions.onClassified(emailId),

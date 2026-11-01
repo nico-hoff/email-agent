@@ -224,6 +224,8 @@ export function createMailAccount(
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'off', ?, ?)`,
     ).run(id, userId, input.type, tls ? 1 : 0, input.username, sealed.ciphertext, sealed.nonce, sealed.tag, sealed.keyId, ts, input.context ?? "", ts, ts);
     setWorkerState(db, id, "connecting", null, now);
+    // Initial import (ADR 0043): queued from the start, so the app can show the progress right after saving.
+    db.prepare("INSERT INTO account_sync (account_id, user_id, phase, updated_at) VALUES (?, ?, 'queued', ?)").run(id, userId, ts);
     auditEvent(db, "account_created", userId, id, now, { type: input.type });
     db.exec("COMMIT");
   } catch (err) {

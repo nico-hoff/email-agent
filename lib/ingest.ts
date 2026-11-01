@@ -12,6 +12,8 @@ export interface IngestInput {
   traceId: string;
   /** Provider flag \Seen of this copy; undefined = unknown, nothing is stored. */
   seen?: boolean | undefined;
+  /** "import" = initial import (ADR 0043): no automatic mailbox actions, not "new since last open". Default "live". */
+  origin?: "live" | "import";
 }
 
 /** Idempotent ingest of one mail location in a single transaction. Persists metadata only. */
@@ -44,10 +46,10 @@ export function ingestMail(db: DatabaseSync, i: IngestInput): { emailId: number;
     if (emailId === undefined) {
       const res = db
         .prepare(
-          `INSERT INTO emails (account_id, message_id, sender, subject, received_at, first_seen_at)
-           VALUES (?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO emails (account_id, message_id, sender, subject, received_at, first_seen_at, origin)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
         )
-        .run(accountId, meta.messageId, meta.sender, meta.subject, meta.receivedAt, ts);
+        .run(accountId, meta.messageId, meta.sender, meta.subject, meta.receivedAt, ts, i.origin ?? "live");
       emailId = Number(res.lastInsertRowid);
       recordSenderMail(db, accountUserId(db, accountId), meta.sender, meta.dmarc, ts);
     } else {

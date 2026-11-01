@@ -15,6 +15,7 @@ erDiagram
   users |o--o{ audit_log : "optional"
   accounts ||--o{ mailbox_state : "Checkpoint je Ordner"
   accounts ||--o| worker_status : "Betriebszustand"
+  accounts ||--o| account_sync : "Erst-Import-Fortschritt (008)"
   accounts ||--o| mail_accounts : "Zugangsdaten verschlüsselt (007)"
   accounts ||--o{ emails : empfaengt
   emails ||--|{ email_locations : "liegt in Ordner"
@@ -93,6 +94,20 @@ erDiagram
     integer last_uid
     text updated_at
   }
+  account_sync {
+    text account_id PK, FK
+    integer user_id FK
+    text phase
+    integer total
+    integer fetched
+    integer classified
+    integer failed_count
+    text error_code
+    integer runs
+    text started_at
+    text updated_at
+    text finished_at
+  }
   worker_status {
     text account_id PK, FK
     text state
@@ -109,6 +124,7 @@ erDiagram
     text subject
     text received_at
     text first_seen_at
+    text origin
   }
   email_status {
     integer email_id PK, FK
@@ -259,6 +275,7 @@ Mermaid kann zusammengesetzte Eindeutigkeit nicht gruppieren. Maßgeblich sind d
 25. **Postfächer in der DB (007, ADR 0023).** `accounts` bleibt Mandantenwurzel und Metadatentabelle (Label, Farbe, Host, Port, Ordner, `enabled`, `user_id`). `mail_accounts` ist 1:1 dazu (`account_id` ist PK, zusammengesetzter FK `(account_id, user_id) → accounts (id, user_id)`, damit Konto und Nutzer nicht auseinanderlaufen) und trägt Typ, TLS, Benutzername, das verschlüsselte Passwort (`secret_ciphertext`, `secret_nonce` 12 Byte, `secret_tag` 16 Byte als getrennte BLOBs, AAD `account_id|user_id`), `key_id`, den kurzen Kontext-Text des Nutzers, die Spam-Schwelle und `spam_seen_mode`. Konten ohne Zeile in `mail_accounts` (Demo-/Synthetikdaten, Konten vor dem Import) werden von Workern nie gestartet. Die Spam-Schwelle liegt damit in der DB (frühere Regel „kein `spam_threshold` im Schema“ entfällt; sie ist eine Einstellung, kein Mailinhalt); der Schema-Test prüft weiter, dass keine Inhaltsspalten existieren.
 26. **Neue Konten starten mit `spam_seen_mode = 'off'`** (ADR 0025). Importierte Konten behalten den Wert der Konten-Datei, fehlend gilt `dry_run` wie bisher. Konto-IDs erzeugt der Server (`a_` plus 16 Hexzeichen), sie sind nie frei wählbar. Der einmalige Import der Konten-Datei wird als `user_state (1, 'accounts_import')` vermerkt; danach wird die Datei nie wieder gelesen.
 
+27. **Erst-Import (008, ADR 0043).** `account_sync` (1:1 zu `accounts`, `account_id` PK, zusammengesetzter FK `(account_id, user_id) → accounts (id, user_id)`) hält den Fortschritt des einmaligen Erst-Imports je Konto: `phase` (`queued`, `connecting`, `fetching`, `classifying`, `done`, `failed`), Zähler `total`, `fetched`, `classified`, `failed_count`, einen kurzen `error_code`, die Zahl der Läufe (`runs`, steigt bei „Erneut importieren“) und Zeitstempel. Nur Zähler und Codes, nie Mailinhalt. Der Worker im Serverprozess schreibt, Routen lesen (kein gemeinsamer Speicher). `emails.origin` (`live` | `import`) markiert importierte Mails: sie werden klassifiziert, lösen aber keine automatische Postfach-Aktion aus und zählen nicht als „neu seit dem letzten Öffnen“. Der Import liest nur UIDs ≤ Checkpoint (`mailbox_state.last_uid`), der Live-Pfad nur UIDs > Checkpoint: die Bereiche sind disjunkt.
 ## Verbindungs-Pragmas (nicht Teil der Migration, bei jeder Verbindung setzen)
 
 ```text
@@ -622,6 +639,30 @@ CREATE INDEX mail_accounts_user ON mail_accounts (user_id);
 ```
 
 `mail_accounts.type` ist `imap` oder `google` (Voreinstellung `imap.gmail.com:993`); die Spalten `secret_*` sind das AES-256-GCM-Ergebnis des Zugangspassworts (siehe `docs/accounts-contract.md`), `key_id` die ersten 16 Hexzeichen von SHA-256 des Schlüssels. `last_test_code` ist nur eine kurze Fehlerklasse (`ok`, `auth_failed`, …), nie eine Server-Antwort.
+
+## DDL (`db/migrations/008_account_sync.sql`)
+
+```sql
+CREATE TABLE account_sync (
+  account_id  TEXT PRIMARY KEY,
+  user_id     INTEGER NOT NULL,
+  phase       TEXT NOT NULL CHECK (phase IN ('queued', 'connecting', 'fetching', 'classifying', 'done', 'failed')),
+  total       INTEGER NOT NULL DEFAULT 0 CHECK (total >= 0),
+  fetched     INTEGER NOT NULL DEFAULT 0 CHECK (fetched >= 0),
+  classified  INTEGER NOT NULL DEFAULT 0 CHECK (classified >= 0),
+  failed_count INTEGER NOT NULL DEFAULT 0 CHECK (failed_count >= 0),
+  error_code  TEXT CHECK (error_code IS NULL OR (length(error_code) BETWEEN 1 AND 32 AND error_code NOT GLOB '*[^a-z_]*')),
+  runs        INTEGER NOT NULL DEFAULT 1 CHECK (runs >= 1),
+  started_at  TEXT,
+  updated_at  TEXT NOT NULL,
+  finished_at TEXT,
+  FOREIGN KEY (account_id, user_id) REFERENCES accounts (id, user_id)
+);
+CREATE INDEX account_sync_user ON account_sync (user_id);
+ALTER TABLE emails ADD COLUMN origin TEXT NOT NULL DEFAULT 'live' CHECK (origin IN ('live', 'import'));
+```
+
+`account_sync.error_code` ist nur ein kurzer Code (`imap_auth`, `imap_error`, `no_range`, `classify_timeout`), nie eine Server-Antwort. `emails.origin` ist `import` nur für Mails, die der Erst-Import als Erstes gesehen hat.
 
 ## Schema-Test (`tests/db.test.ts`)
 

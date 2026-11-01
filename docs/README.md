@@ -40,6 +40,7 @@ Neuere Handover ersetzen ältere; immer das mit dem jüngsten Datum lesen.
 | `docs/fly-deploy.md` | fly.io: Konfiguration, Schritte, Kosten, Backup, Not-Aus |
 | `docs/github-environments.md` | GitHub Environments `prod`/`preview`, Secrets, Workflows (ADR 0024) |
 | `docs/qa/R4.md` | QA-Paket R4: Prod-Pipeline |
+| `docs/qa/initial-import.md` | QA-Paket Erst-Import (ADR 0043): Live-Karte, iPhone-Checkliste für Staging |
 | `docs/LOCAL_DEV_MAC.md` | lokal auf dem Mac, Live-Betrieb, Live-Proben |
 | `docs/accounts.example.json` | Beispiel Konten-Datei (echte nie lesen/committen) |
 

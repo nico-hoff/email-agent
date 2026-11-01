@@ -26,6 +26,7 @@ import {
   type AccountForm,
   type AccountsData,
 } from '../../lib/accounts-client.ts'
+import { fetchSync, isActivePhase, postSyncRestart, RESTART_ERROR_TEXT, SYNC_POLL_MS, type SyncData } from '../../lib/sync-client.ts'
 
 // Shell only: account data, invitations and the one-time invite code arrive through client-side /api calls and live in
 // component state; nothing is written to browser storage.
@@ -43,7 +44,13 @@ export default function Profil(): React.JSX.Element {
   const [formError, setFormError] = useState<string | null>(null)
   const [testing, setTesting] = useState<string | null>(null)
   const [testResults, setTestResults] = useState<Record<string, string>>({})
+  const [syncs, setSyncs] = useState<Record<string, SyncData>>({})
+  const [sawActive, setSawActive] = useState<Record<string, boolean>>({})
+  const [syncRestarting, setSyncRestarting] = useState<string | null>(null)
+  const [syncRestartError, setSyncRestartError] = useState<Record<string, string>>({})
+  const [syncTick, setSyncTick] = useState(0)
   const generation = useRef(0)
+  const syncsRef = useRef<Record<string, SyncData>>({})
 
   const load = useCallback(async (): Promise<void> => {
     const mine = ++generation.current
@@ -79,6 +86,62 @@ export default function Profil(): React.JSX.Element {
     const t = setTimeout(() => setNotice(null), notice.error ? 8000 : 5000)
     return () => clearTimeout(t)
   }, [notice])
+
+  // Initial import (ADR 0043): ask for the progress of every own account once, then every 1.5 s while one is active.
+  const managedIds = accounts ? accounts.accounts.filter((a) => a.managed && a.enabled).map((a) => a.id).join(',') : ''
+  useEffect(() => {
+    if (managedIds === '') return
+    let stop = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const ids = managedIds.split(',')
+    const poll = async (): Promise<void> => {
+      let anyActive = false
+      if (!document.hidden) {
+        for (const id of ids) {
+          const known = syncsRef.current[id]
+          if (known && !isActivePhase(known.phase)) continue
+          try {
+            const s = await fetchSync(fetch, id)
+            if (stop || !s) continue
+            syncsRef.current = { ...syncsRef.current, [id]: s }
+            setSyncs(syncsRef.current)
+            if (isActivePhase(s.phase)) {
+              anyActive = true
+              setSawActive((m) => (m[id] ? m : { ...m, [id]: true }))
+            }
+          } catch {
+            anyActive = true // a failed request is retried at the next tick
+          }
+        }
+      } else {
+        anyActive = true
+      }
+      if (!stop && anyActive) timer = setTimeout(() => void poll(), SYNC_POLL_MS)
+    }
+    void poll()
+    return () => {
+      stop = true
+      if (timer) clearTimeout(timer)
+    }
+  }, [managedIds, syncTick])
+
+  const restartSync = useCallback((id: string): void => {
+    setSyncRestarting(id)
+    setSyncRestartError((m) => ({ ...m, [id]: '' }))
+    void postSyncRestart(id, mutationDeps).then((res) => {
+      setSyncRestarting(null)
+      if (!res.ok) {
+        setSyncRestartError((m) => ({ ...m, [id]: RESTART_ERROR_TEXT[res.reason] }))
+        return
+      }
+      // forget the old state so the poll fetches the queued one, and mark it as seen running
+      const { [id]: _gone, ...rest } = syncsRef.current
+      syncsRef.current = rest
+      setSyncs(rest)
+      setSawActive((m) => ({ ...m, [id]: true }))
+      setSyncTick((t) => t + 1)
+    })
+  }, [])
 
   const signOut = useCallback((everywhere: boolean): void => {
     setBusy(true)
@@ -193,6 +256,11 @@ export default function Profil(): React.JSX.Element {
         onCancel: () => setEditor(null),
         onTest: testAccount,
         onEnabled: toggleAccount,
+        sync: syncs,
+        syncSawActive: sawActive,
+        syncRestarting,
+        syncRestartError: Object.fromEntries(Object.entries(syncRestartError).filter(([, v]) => v !== '')),
+        onSyncRestart: restartSync,
       }}
     />
   )

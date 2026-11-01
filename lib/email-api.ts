@@ -431,6 +431,13 @@ export interface EmailDetail extends EmailItem {
   locations: { folder: string; is_active: boolean; first_seen_at: string; last_seen_at: string }[];
 }
 
+/** The list item of one mail (tenant-scoped); the shape of /api/emails. */
+export function getEmailItem(db: DatabaseSync, userId: number, id: number, deps: ApiDeps = {}): EmailItem | null {
+  const readNoul = deps.readNoul ?? interpretNoul;
+  const row = db.prepare(`${SELECT_ROWS} WHERE e.id = ? AND a.user_id = ?`).get(id, userId) as unknown as Row | undefined;
+  return row ? buildItem(db, derive(row, readNoul), readNoul) : null;
+}
+
 export function getEmailDetail(db: DatabaseSync, userId: number, id: number, deps: ApiDeps = {}): EmailDetail | null {
   const readNoul = deps.readNoul ?? interpretNoul;
   const row = db.prepare(`${SELECT_ROWS} WHERE e.id = ? AND a.user_id = ?`).get(id, userId) as unknown as Row | undefined;

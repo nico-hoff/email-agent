@@ -170,7 +170,7 @@ const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "obj
 function countNew(db: DatabaseSync, userId: number, since: string): number {
   const row = db.prepare(
     `SELECT COUNT(*) AS n FROM emails e JOIN accounts acc ON acc.id = e.account_id
-     WHERE acc.user_id = ? AND e.first_seen_at > ?
+     WHERE acc.user_id = ? AND e.first_seen_at > ? AND e.origin = 'live'
        AND COALESCE((
          SELECT json_extract(a.answer_json, '$.value') FROM classification_answers a
          WHERE a.classification_id = (SELECT MAX(id) FROM classifications WHERE email_id = e.id) AND a.question_key = 'category'

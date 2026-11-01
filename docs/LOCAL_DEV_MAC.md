@@ -65,6 +65,10 @@ tailscale serve --bg --https=8443 3200             # einmalig, zweites Terminal
 # iPhone: https://<rechner>.<tailnet>.ts.net:8443 → anmelden → Profil → Konten → E-Mail, IMAP-Passwort, IMAP-Server → Verbindung testen
 ```
 
+**Was du nach dem Speichern eines Kontos siehst (ADR 0043, Erst-Import):** unter dem Konto erscheint die Karte „Erst-Import“. Stufen: „Verbinde mit dem Postfach“ → „Lese Mails (37/50)“ → „System One klassifiziert (21/50)“ → „Fertig“, dazu eine Liste der Mails, die System One gerade bewertet hat (Betreff, Absender, Badges wie Spam, Wichtig, Offen). Gelesen werden nur die neuesten höchstens 50 Mails der letzten 14 Tage aus dem Posteingang; nichts wird verändert (Auto-Aktionen für diese Mails gibt es nie). Dauer: Lesen Sekunden, Bewerten grob 1–3 Sekunden je Mail, also bei 50 Mails ein bis zwei Minuten. Am Ende „Zu den Mails“. Bei abgelehnter Anmeldung steht dort „Erneut versuchen“, nachdem du unter „Bearbeiten“ das Passwort korrigiert hast. Die Jev-Aufrufe laufen über den Staging-OpenRouter-Schlüssel (Limit gesetzt) und enthalten echte Betreffs und Auszüge deines Postfachs: das ist dein Einsatz, kein Agent startet das.
+
+Ohne Postfach ansehen (nur Fake-Postfach und Fake-Jev, kein Netz): `node scripts/sync-sim.ts --port 3410`, dann `http://127.0.0.1:3410`, Anmeldung `qa@synthetic.invalid` / `qqqqqq`, Profil → Konto hinzufügen (beliebige Angaben, Server `imap.example.test`).
+
 Voraussetzung: `ACCOUNTS_ENCRYPTION_KEY` in `.env.local` (sonst lassen sich keine Postfächer speichern; das Skript warnt). Abschalten: `tailscale serve --https=8443 off`.
 
 ## 3. Echtbetrieb (nur auf Nicos Auftrag)

@@ -7,6 +7,8 @@ import { loadKeyring } from "./account-secrets.ts";
 import { type AuthContext, createMutationLimiter, defaultAuthContext, defaultMutationLimiter, guardMutation, requireUser } from "./auth-runtime.ts";
 import { PROJECT_ROOT } from "./constants.ts";
 import { defaultConnector, testConnectionDetailed, type TestConnector } from "./connection-test.ts";
+import { readSync, restartSync, syncView } from "./account-sync.ts";
+import { ownsAccount } from "./tenant.ts";
 import { openDatabase } from "./db.ts";
 import {
   allowPrivateHosts, createAccountBody, createMailAccount, getAccountView, listAccountViews, loadConnection, recordTestResult,
@@ -150,5 +152,36 @@ export async function handleAccountTest(request: Request, id: string, deps: Acco
     recordTestResult(db, gate.userId, id, code, deps.now?.());
     const stored = code === "ok" && spamMailbox !== null && setDetectedSpamMailbox(db, gate.userId, id, spamMailbox);
     return json({ ok: code === "ok", code, ...(stored ? { spam_mailbox: spamMailbox } : {}) });
+  });
+}
+
+/** GET /api/accounts/:id/sync: progress of the initial import (counts, phase) plus the latest processed mails. Own accounts only. */
+export function handleAccountSync(request: Request, id: string, deps: AccountsApiDeps): Response {
+  const who = requireUser(request, deps.auth);
+  if (!who.ok) return who.response;
+  return withDb(deps, (db) => {
+    if (!ownsAccount(db, who.userId, id)) return json({ error: "not_found" }, 404);
+    return json({ sync: syncView(db, who.userId, id) });
+  });
+}
+
+/** POST /api/accounts/:id/sync/restart: runs the import again; only when the last run is done or failed. */
+export async function handleAccountSyncRestart(request: Request, id: string, deps: AccountsApiDeps): Promise<Response> {
+  const gate = guardMutation(request, deps.auth, deps.limiter);
+  if (!gate.ok) return gate.response;
+  const owned = withDb(deps, (db) => json({ found: readSync(db, id)?.user_id === gate.userId }));
+  if (owned.status !== 200) return owned;
+  if (!((await owned.json()) as { found: boolean }).found) return json({ error: "not_found" }, 404);
+  const lim = deps.testLimiter.check(gate.login);
+  if (!lim.allowed) {
+    return new Response(JSON.stringify({ error: "rate_limited" }), {
+      status: 429,
+      headers: { "content-type": "application/json", "retry-after": String(Math.ceil(lim.retryAfterMs / 1000)), "cache-control": "no-store" },
+    });
+  }
+  return withDb(deps, (db) => {
+    if (!restartSync(db, id, deps.now?.() ?? new Date())) return json({ error: "not_restartable" }, 409);
+    const row = readSync(db, id);
+    return json({ ok: true, phase: row?.phase ?? "queued" });
   });
 }

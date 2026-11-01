@@ -1,7 +1,12 @@
 import type { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import type { AccountConfig } from "../lib/accounts-config.ts";
-import { IMAP_BACKOFF_MAX_MS, IMAP_BACKOFF_MIN_MS, POLL_INTERVAL_MS, WATCHDOG_STALE_MS } from "../lib/constants.ts";
+import {
+  IMAP_BACKOFF_MAX_MS, IMAP_BACKOFF_MIN_MS, IMPORT_CLASSIFY_WAIT_MS, IMPORT_WATCH_MS, IMPORT_WINDOW_DAYS, POLL_INTERVAL_MS, WATCHDOG_STALE_MS,
+} from "../lib/constants.ts";
+import { ensureSync, readSync, updateSync, ACTIVE_PHASES } from "../lib/account-sync.ts";
+import { clampImportCount, importCounts, runFetchPhase } from "../lib/initial-import.ts";
+import { accountUserId } from "../lib/tenant.ts";
 import {
   advanceCheckpoint,
   createImapFlowPort,
@@ -35,6 +40,8 @@ export interface ImapWorkersDeps {
   onIngested?: (emailId: number, input: TransientInput) => void | Promise<void>;
   clock?: Clock;
   random?: () => number;
+  /** Initial import (ADR 0043). false = off; otherwise the bounds (defaults in lib/constants.ts). */
+  initialImport?: false | { count?: number; windowDays?: number };
 }
 
 export interface ImapWorkers {
@@ -64,6 +71,11 @@ class AccountWorker {
   private timers = new Set<unknown>();
   private attempt = 0;
   private lastOkAt = 0;
+  /** Initial import: true while a fetch phase or the classification watcher of this worker runs. */
+  private importing = false;
+  private importQueue: [number, TransientInput][] = [];
+  private pumping = false;
+  private watchHandle: unknown = null;
 
   constructor(account: AccountConfig, deps: ImapWorkersDeps) {
     this.account = account;
@@ -73,12 +85,137 @@ class AccountWorker {
   }
 
   start(): void {
+    this.prepareImport();
     void this.connect();
   }
 
   async stop(): Promise<void> {
     this.stopped = true;
+    if (this.watchHandle !== null) this.clock.clearTimeout(this.watchHandle);
+    this.watchHandle = null;
+    this.importQueue = [];
     await this.teardown();
+  }
+
+  // ---- initial import (ADR 0043) ----
+  private importOn(): boolean {
+    return this.deps.initialImport !== false;
+  }
+  private syncNow(): Date {
+    return new Date(this.clock.now());
+  }
+  /** Exactly once per account: the row exists from the first start on (also for accounts from before the import). */
+  private prepareImport(): void {
+    if (!this.importOn()) return;
+    try {
+      ensureSync(this.deps.db, this.account.id, accountUserId(this.deps.db, this.account.id), this.syncNow());
+    } catch {
+      // an account without an owner row has no import; the worker itself is not affected
+    }
+  }
+  private syncPhaseOnConnect(): void {
+    if (!this.importOn()) return;
+    const row = readSync(this.deps.db, this.account.id);
+    if (row && (row.phase === "queued" || row.phase === "connecting" || row.phase === "fetching")) {
+      updateSync(this.deps.db, this.account.id, { phase: "connecting" }, this.syncNow());
+    }
+  }
+  private syncError(code: string | null, failed = false): void {
+    if (!this.importOn()) return;
+    const row = readSync(this.deps.db, this.account.id);
+    if (!row || !ACTIVE_PHASES.includes(row.phase)) return;
+    updateSync(this.deps.db, this.account.id, failed ? { phase: "failed", error_code: code } : { error_code: code }, this.syncNow());
+  }
+
+  private pump(): void {
+    if (this.pumping) return;
+    this.pumping = true;
+    void (async () => {
+      try {
+        for (let item = this.importQueue.shift(); item !== undefined && !this.stopped; item = this.importQueue.shift()) {
+          try {
+            await this.deps.onIngested?.(item[0], item[1]);
+          } catch {
+            // a consumer failure must not break the import
+          }
+        }
+      } finally {
+        this.pumping = false;
+      }
+    })();
+  }
+
+  private async initialImport(port: ImapPort, gen: number): Promise<void> {
+    if (!this.importOn() || this.importing || this.stopped) return;
+    this.prepareImport();
+    const { db } = this.deps;
+    const row = readSync(db, this.account.id);
+    if (!row || !ACTIVE_PHASES.includes(row.phase)) return;
+    const cfg = this.deps.initialImport || {};
+    const userId = row.user_id;
+    this.importing = true;
+    this.audit("initial_import_started", { run: row.runs });
+    try {
+      const res = await runFetchPhase({
+        db, port, accountId: this.account.id, folder: this.account.mailbox, userId, now: () => this.syncNow(),
+        count: clampImportCount(cfg.count), windowDays: cfg.windowDays ?? IMPORT_WINDOW_DAYS,
+        submit: this.deps.onIngested ? (id, input) => { this.importQueue.push([id, input]); this.pump(); } : undefined,
+        alive: () => !this.stopped && gen === this.generation,
+      });
+      if (res.kind === "stopped") {
+        this.importQueue = [];
+        this.importing = false;
+        return;
+      }
+      if (res.kind !== "ok" || res.selected.length === 0 || !this.deps.onIngested) {
+        this.finishImport(res.kind === "ok" ? null : "no_range");
+        return;
+      }
+      updateSync(db, this.account.id, { phase: "classifying" }, this.syncNow());
+      this.watchClassification(res.uidValidity, res.selected, this.clock.now() + IMPORT_CLASSIFY_WAIT_MS);
+    } catch (err) {
+      this.importQueue = [];
+      this.importing = false;
+      throw err;
+    }
+  }
+
+  private finishImport(code: string | null): void {
+    const { db } = this.deps;
+    const counts = readSync(db, this.account.id);
+    updateSync(db, this.account.id, { phase: "done", error_code: code }, this.syncNow());
+    this.audit("initial_import_finished", { total: counts?.total ?? 0, classified: counts?.classified ?? 0, failed: counts?.failed_count ?? 0, ...(code ? { code } : {}) });
+    this.importing = false;
+  }
+
+  /** Detached from the IMAP queue and the port: only reads the database. Ends when every selected mail has a final status. */
+  private watchClassification(uidValidity: number, uids: number[], deadline: number): void {
+    const tick = (): void => {
+      this.watchHandle = null;
+      if (this.stopped) return;
+      try {
+        const c = importCounts(this.deps.db, this.account.id, this.account.mailbox, uidValidity, uids);
+        updateSync(this.deps.db, this.account.id, { classified: c.classified, failed_count: c.failed }, this.syncNow());
+        if (c.classified + c.failed >= uids.length) return this.finishImport(null);
+        if (this.clock.now() >= deadline) return this.finishImport("classify_timeout");
+      } catch {
+        // a read problem is retried at the next tick
+      }
+      this.watchHandle = this.clock.setTimeout(tick, IMPORT_WATCH_MS);
+    };
+    this.watchHandle = this.clock.setTimeout(tick, 0);
+  }
+
+  private scheduleImportWatch(gen: number): void {
+    if (!this.importOn()) return;
+    this.timer(() => {
+      if (gen !== this.generation) return;
+      const port = this.port;
+      if (port && !this.importing && readSync(this.deps.db, this.account.id)?.phase === "queued") {
+        this.run(gen, () => this.initialImport(port, gen));
+      }
+      this.scheduleImportWatch(gen);
+    }, IMPORT_WATCH_MS);
   }
 
   // ---- state & audit (codes only, never details) ----
@@ -133,6 +270,7 @@ class AccountWorker {
     if (this.stopped) return;
     const gen = ++this.generation;
     this.setState("connecting");
+    this.syncPhaseOnConnect();
     const port = (this.deps.createPort ?? defaultPort)(this.account);
     this.port = port;
     this.queue = Promise.resolve();
@@ -156,10 +294,12 @@ class AccountWorker {
       this.audit("worker_connected");
       this.run(gen, async () => {
         await this.syncAll(port);
+        await this.initialImport(port, gen);
         await port.watch(this.account.mailbox);
         this.lastOkAt = this.clock.now();
       });
       this.schedulePoll(gen);
+      this.scheduleImportWatch(gen);
       this.scheduleWatchdog(gen);
     } catch (err) {
       await this.handleError(gen, err);
@@ -182,6 +322,7 @@ class AccountWorker {
     if (gen !== this.generation || this.stopped) return;
     await this.teardown();
     this.setState("paused", "imap_auth");
+    this.syncError("imap_auth", true);
     this.audit("worker_paused", { code: "imap_auth" });
   }
 
@@ -191,6 +332,7 @@ class AccountWorker {
     const base = Math.min(IMAP_BACKOFF_MAX_MS, IMAP_BACKOFF_MIN_MS * 2 ** this.attempt);
     const delay = Math.min(IMAP_BACKOFF_MAX_MS, Math.round(base * (0.5 + 0.5 * this.random())));
     this.attempt++;
+    this.syncError("imap_error");
     this.setState("backoff", code === "imap_closed" || code === "imap_error" ? code : "imap_error");
     this.audit(auditAction, { code, delay_ms: delay, attempt: this.attempt });
     this.timer(() => void this.connect(), delay);

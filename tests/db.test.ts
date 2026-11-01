@@ -62,7 +62,11 @@ const ALLOWLIST: Record<string, string[]> = {
     "last_poll_at",
     "updated_at",
   ],
-  emails: ["id", "account_id", "message_id", "sender", "subject", "received_at", "first_seen_at"],
+  emails: ["id", "account_id", "message_id", "sender", "subject", "received_at", "first_seen_at", "origin"],
+  account_sync: [
+    "account_id", "user_id", "phase", "total", "fetched", "classified", "failed_count", "error_code", "runs", "started_at", "updated_at",
+    "finished_at",
+  ],
   email_locations: [
     "id",
     "email_id",
@@ -412,7 +416,7 @@ describe("002 email_status and accounts.color", () => {
     const db = openDatabase(path);
     opened.push(db);
     assert.equal((db.prepare("SELECT COUNT(*) AS n FROM emails").get() as { n: number }).n, 1);
-    assert.deepEqual((db.prepare("SELECT version FROM schema_migrations ORDER BY version").all() as { version: number }[]).map((r) => r.version), [1, 2, 3, 4, 5, 6, 7]);
+    assert.deepEqual((db.prepare("SELECT version FROM schema_migrations ORDER BY version").all() as { version: number }[]).map((r) => r.version), [1, 2, 3, 4, 5, 6, 7, 8]);
     db.exec(`INSERT INTO email_status (email_id,seen,updated_at) VALUES (1,1,'${T}')`);
   });
 });
@@ -685,7 +689,7 @@ describe("006 users, sessions, invites and the tenant key", () => {
   test("a database with data from 001 to 005 upgrades: everything belongs to user 1, nothing is lost, foreign keys hold", () => {
     const dir = join(tmp, "migs-001-005");
     mkdirSync(dir);
-    for (const f of readdirSync(MIGRATIONS_DIR).filter((f) => !f.startsWith("006_") && !f.startsWith("007_"))) writeFileSync(join(dir, f), readFileSync(join(MIGRATIONS_DIR, f), "utf8"));
+    for (const f of readdirSync(MIGRATIONS_DIR).filter((f) => !f.startsWith("006_") && !f.startsWith("007_") && !f.startsWith("008_"))) writeFileSync(join(dir, f), readFileSync(join(MIGRATIONS_DIR, f), "utf8"));
     const path = join(tmp, "upgrade6.db");
     const old = openDatabase(path, dir);
     seedLegacy(old);
@@ -780,7 +784,7 @@ describe("migration runner", () => {
     const b = openDatabase(path);
     opened.push(b);
     const rows = b.prepare("SELECT version FROM schema_migrations").all() as { version: number }[];
-    assert.deepEqual(rows.map((r) => r.version), [1, 2, 3, 4, 5, 6, 7]);
+    assert.deepEqual(rows.map((r) => r.version), [1, 2, 3, 4, 5, 6, 7, 8]);
   });
 
   test("numeric (not lexical) order, applied once", () => {

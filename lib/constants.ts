@@ -45,3 +45,11 @@ export const DAILY_ACTION_LIMIT = 200;
 /** One-time pass over already classified mails at start-up: newest first, only recent mails. */
 export const BACKFILL_LIMIT = 1000;
 export const BACKFILL_WINDOW_DAYS = 14;
+/** Initial import (ADR 0043): newest mails of the INBOX received within the window, default and hard maximum count. */
+export const IMPORT_DEFAULT_COUNT = 50;
+export const IMPORT_MAX_COUNT = 200;
+export const IMPORT_WINDOW_DAYS = 14;
+/** The worker looks for a queued import (restart, new account) this often, and updates the classification progress this often. */
+export const IMPORT_WATCH_MS = 2_000;
+/** After this the worker stops waiting for the classifier and closes the import; the pipeline keeps working on the rest. */
+export const IMPORT_CLASSIFY_WAIT_MS = 30 * 60_000;

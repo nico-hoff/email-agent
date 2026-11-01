@@ -307,6 +307,15 @@ export async function runSmoke(options: { log?: (line: string) => void } = {}): 
       const r = await post(`/api/accounts/${newAccount}/disable`);
       return { status: r.status, ok: r.status === 200 && json<{ account: { enabled: boolean } }>(r.text).account.enabled === false };
     });
+    await step("GET /api/accounts/:id/sync shows the queued initial import (no content)", async () => {
+      const r = await get(`/api/accounts/${newAccount}/sync`);
+      const b = r.status === 200 ? json<{ sync: { phase: string; total: number; feed: unknown[] } }>(r.text) : null;
+      return { status: r.status, ok: b?.sync.phase === "queued" && b.sync.total === 0 && b.sync.feed.length === 0 };
+    });
+    await step("GET /api/accounts/unknown/sync is 404", async () => {
+      const r = await get("/api/accounts/a_0000000000000000/sync");
+      return { status: r.status, ok: r.status === 404 };
+    });
     await step("POST /api/accounts/unknown/test is 404", async () => {
       const r = await post("/api/accounts/a_0000000000000000/test");
       return { status: r.status, ok: r.status === 404 };

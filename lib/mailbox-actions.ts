@@ -30,7 +30,7 @@ export interface MailboxActionsOptions {
 }
 
 export type EvaluateResult =
-  | { outcome: "planned" | "done" | "exists" | "off" | "kill_switch" | "no_action" | "not_classified" | "no_location" | "limit_reached" | "not_found" }
+  | { outcome: "imported" | "planned" | "done" | "exists" | "off" | "kill_switch" | "no_action" | "not_classified" | "no_location" | "limit_reached" | "not_found" }
   | { outcome: "failed"; code: string };
 
 export type UndoResult = { ok: true; mode: "dry_run" | "live" } | { ok: false; code: string };
@@ -154,8 +154,10 @@ export function createMailboxActions(opts: MailboxActionsOptions): MailboxAction
   }
 
   async function evaluateNow(emailId: number): Promise<EvaluateResult> {
-    const mail = db.prepare("SELECT account_id, sender FROM emails WHERE id = ?").get(emailId) as { account_id: string; sender: string } | undefined;
+    const mail = db.prepare("SELECT account_id, sender, origin FROM emails WHERE id = ?").get(emailId) as { account_id: string; sender: string; origin: string } | undefined;
     if (!mail) return { outcome: "not_found" };
+    // Initial import (ADR 0043): old mails are only classified, never acted on, in no mode.
+    if (mail.origin === "import") return { outcome: "imported" };
     const accountId = mail.account_id;
     const mode = modeFor(accountId);
     if (mode === "off") return { outcome: "off" };
@@ -311,7 +313,7 @@ export function createMailboxActions(opts: MailboxActionsOptions): MailboxAction
     const since = new Date(now().getTime() - BACKFILL_WINDOW_DAYS * 86_400_000).toISOString();
     const candidates = db.prepare(
       `SELECT e.id FROM emails e
-       WHERE e.first_seen_at >= ?
+       WHERE e.first_seen_at >= ? AND e.origin = 'live'
          AND EXISTS (SELECT 1 FROM classifications c WHERE c.email_id = e.id AND c.status = 'classified')
          AND (NOT EXISTS (SELECT 1 FROM mailbox_actions m WHERE m.email_id = e.id AND m.rule = 'spam_seen')
               OR EXISTS (SELECT 1 FROM mailbox_actions m WHERE m.email_id = e.id AND m.rule = 'spam_seen' AND m.status = 'planned'
