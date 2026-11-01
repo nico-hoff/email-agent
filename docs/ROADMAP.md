@@ -18,10 +18,10 @@
 
 | Nr. | Meilenstein | Inhalt | Wer | Stand |
 |---|---|---|---|---|
-| R6 | Web-Push | VAPID, Abo pro Gerät, „wichtige Mail“ und „Briefing bereit“, nur Minimal-Metadaten | 🤖 | 🟡 Backend + Service Worker auf `dev` (`docs/qa/R6.md`); UI-Schalter offen |
+| R6 | Web-Push | VAPID, Abo pro Gerät, „wichtige Mail“ und „Briefing bereit“, nur Minimal-Metadaten | 🤖 | ✅ `dev` (`docs/qa/R6.md`); 👤 VAPID-Schlüssel, Test am iPhone |
 | R7 | Kalibrierung v2 | Live-Proben und Evals mit synthetischen Daten (ADR 0028), Schwellen v2, `insights.md` | 🤖 | ✅ `dev` (`docs/qa/R7.md`, v2 Standard, ADR 0032) |
-| R8 | Themen | Fragenset v3 mit `topic`-Choice (Alltagsthemen + eigene Liste), Probe, Eval, Profil → Themen, App-Ordner in der UI (Plan v5 M4) | 🤖 | 🟡 Probe ✅ (`docs/insights-topics.md`); Backend v3 in Arbeit, UI offen |
-| R9 | Quarantäne und Papierkorb | Schreibport `move`, Quarantäne-Ordner, Aufräumen nach X Tagen (Standard 14), YOLO-Modus, Undo, Einstellungen (Plan v5 M7) | 🤖, Scharfschalten 👤 | 🟡 in Arbeit |
+| R8 | Themen | Fragenset v3 mit `topic`-Choice (Alltagsthemen + eigene Liste), Probe, Eval, Profil → Themen, App-Ordner in der UI (Plan v5 M4) | 🤖 | ✅ `dev` (`docs/qa/R8.md`, Fragenset v3 hinter Schalter `topics_enabled`, Eval-Gate grün, ADR 0037) |
+| R9 | Quarantäne und Papierkorb | Schreibport `move`, Quarantäne-Ordner, Aufräumen nach X Tagen (Standard 14), YOLO-Modus, Undo, Einstellungen (Plan v5 M7) | 🤖, Scharfschalten 👤 | ✅ `dev` (`docs/qa/R9.md`, alles aus; Scharfschalten 👤, ADR 0038) |
 | R11 | Follow-ups und Erinnerungen | Tabelle `follow_ups`, Worker-Durchlauf, Web-Push, Agent-Tool `create_follow_up` mit Gate, UI „Erinnerungen“ (ADR 0030 Stufe 1) | 🤖 | ⏳ |
 | R12 | Nutzer-Gedächtnis | `user_memories` + FTS5, Tools `add_memory`/`search_memory` mit Gate (Jev), Profil „Was der Agent über mich weiß“ (ADR 0031) | 🤖 | ⏳ |
 | R10 | UI-Feinschliff | im QA-Loop mit Nico iterieren (Kopfzeile, Badges, Absender-Fragen, Profil-Flows) | 🤖 + 👤 | ⏳ |

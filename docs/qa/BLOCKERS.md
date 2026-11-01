@@ -45,10 +45,17 @@
 | B17 | Hermes-Dienst `ai.hermes.gateway-clemens` nutzt jetzt Node 25 statt Intel-Node 24 | Intel-`node@24` wurde entfernt | prüfen, ob er läuft; sonst arm64-`node@24` installieren und die plist anpassen |
 | B18 | Rosetta bleibt | nicht sauber entfernbar; x86-Apps: AusweisApp, PDF Expert, Slack, Spectacle, TG Pro, Disk Inventory X, Spek, eDEX-UI | nur Info |
 
-## Meilensteine mit offenem Rest
+## Meilensteine: was nach der Umsetzung bei Nico liegt
 
-| Meilenstein | Stand | Grund | Schritt |
-|---|---|---|---|
-| R6 Web-Push | Backend auf `dev`, UI-Schalter offen | Agenten-Arbeit, kein Nico-Blocker | Agenten: UI-Schritt; Nico danach: VAPID-Schlüssel (B2), PWA auf dem Homescreen, Test-Push |
-| R8 Themen | Backend im Worktree, UI offen | Subagenten am Nutzungslimit (bis 14:30) | Agenten fortsetzen; Nico: Themen im QA-Loop prüfen |
-| R9 Quarantäne/Papierkorb | in Arbeit | wie R8 | Agenten fortsetzen; Nico: Scharfschalten nur selbst, erst nach Trockenlauf in Staging |
+Alle Meilensteine R1, R2, R3, R4, R6, R7, R8, R9 sind auf `dev` umgesetzt (QA-Pakete `docs/qa/R<n>.md`). Offen sind nur Schritte, die Agenten nicht tun dürfen:
+
+| Meilenstein | Schritt von Nico | Warum nur Nico |
+|---|---|---|
+| R1–R4 | QA-Loop am iPhone (QA-Server bzw. Preview), dann „go“ für `main` (B5) | Prod-Deploy nur nach „go“ (ADR 0021) |
+| R2 | eigenes Postfach in Staging anlegen und testen (B9) | echte Postfächer (ADR 0028) |
+| R3 | „Spam als gelesen“ pro Konto auf „an“, erst nach Trockenlauf (B10, B11) | Scharfschalten nur der Nutzer (ADR 0025) |
+| R4 | Environments, Secrets, Workflows (B1–B4) | Secret-Werte |
+| R6 | `npm run push:keys` → `.env.local` (mit echter `mailto:`-Adresse) und GitHub-Secrets; PWA auf dem Homescreen installieren, „Auf diesem Gerät aktivieren“, „Test senden“ | Secrets; echtes Gerät |
+| R7 | Spam-Schwelle 0,70 an echten Mails prüfen (B10) | echte Mails |
+| R8 | „Themen sortieren“ in Staging einschalten, eigene Themen anlegen, Treffer prüfen | Bewertung an echten Mails |
+| R9 | Quarantäne im Trockenlauf beobachten; beim ersten „an“ prüfen, ob der Anbieter MOVE und UIDPLUS kann und wie sein Papierkorb heißt; YOLO nur bewusst | Scharfschalten nur der Nutzer; nur gegen Fakes getestet |
