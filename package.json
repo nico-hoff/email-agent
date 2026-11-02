@@ -33,7 +33,7 @@
     ]
   },
   "dependencies": {
-    "@openrouter/sdk": "^1.5.8",
+    "@openrouter/sdk": "^1.5.26",
     "@types/mailparser": "^3.9.0",
     "imapflow": "^2.9.1",
     "mailparser": "^3.12.4",
