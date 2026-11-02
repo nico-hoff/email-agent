@@ -1,4 +1,4 @@
-FROM node:26.12.1-slim AS base
+FROM node:26.13.0-slim AS base
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
