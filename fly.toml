@@ -1,5 +1,10 @@
 # fly.io deployment, see docs/fly-deploy.md. AUTH_MODE=users: login with user accounts (create the first admin with `npm run user:create`).
-# Secrets (APP_PASSWORD, OPENROUTER_API_KEY, accounts) are never written here; use `fly secrets set`.
+# Secrets (OPENROUTER_API_KEY, ACCOUNTS_ENCRYPTION_KEY, TS_AUTHKEY, VAPID_*) are never written here; use the
+# "Secrets nach fly" workflow or `fly secrets set`.
+#
+# Reachable ONLY in the tailnet (ADR 0046): no [http_service], no public IP. Tailscale runs inside the Machine and
+# serves HTTPS on https://<TS_HOSTNAME>.<tailnet>.ts.net to the app on port 3000. Release any public IPs once
+# (`fly ips list`, `fly ips release <ip>`); a new app is deployed with `fly deploy --no-public-ips`.
 app = 'email-agent'
 primary_region = 'fra'
 
@@ -9,29 +14,30 @@ primary_region = 'fra'
 
 [env]
   AUTH_MODE = 'users'
-  # fly's proxy terminates TLS and sets X-Forwarded-Proto itself; without this Veryfront names the CSRF cookie for
-  # http://<app> and every POST from the https page fails with 403 (docs/veryfront-guide.md, Fallstricke).
+  # tailscale serve terminates TLS and sets X-Forwarded-Proto; without this Veryfront names the CSRF cookie for
+  # http://<host> and every POST from the https page fails with 403 (docs/veryfront-guide.md, Fallstricke).
   VERYFRONT_TRUST_FORWARDED_HEADERS = '1'
+  # 0.0.0.0 so fly's machine check can reach /api/health over the private network; without a service and a public IP
+  # nothing outside the organisation's private network can connect.
   BIND_ADDRESS = '0.0.0.0'
   DATABASE_PATH = '/data/email-agent.sqlite'
+  TAILSCALE_ENABLE = '1'
+  TS_HOSTNAME = 'email-agent'
 
 [mounts]
   source = 'email_data'
   destination = '/data'
 
-# One machine that never stops: it holds the IMAP IDLE connections and runs the automatic actions.
-[http_service]
-  internal_port = 3000
-  force_https = true
-  auto_stop_machines = 'off'
-  auto_start_machines = false
-  min_machines_running = 1
-
-  [[http_service.checks]]
+# One machine that never stops on its own: it holds the IMAP IDLE connections and runs the automatic actions.
+# Without [http_service] fly's proxy neither stops nor starts it (no traffic routing), and no public route exists.
+[checks]
+  [checks.health]
+    type = 'http'
+    port = 3000
+    method = 'get'
+    path = '/api/health'
     grace_period = '30s'
     interval = '30s'
-    method = 'GET'
-    path = '/api/health'
     timeout = '5s'
 
 [[vm]]

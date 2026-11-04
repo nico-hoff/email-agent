@@ -1,6 +1,6 @@
 # Deployment auf fly.io
 
-> **Nur deployen, wenn `APP_PASSWORD` gesetzt ist.** Auf fly ist die App aus dem Internet erreichbar, und der Tailscale-Header beweist dort nichts (jeder kann ihn selbst senden). Der Server erzwingt das: Ist `FLY_APP_NAME` gesetzt (fly setzt sie auf jeder Maschine, https://docs.fly.io/reference/runtime-environment) und `APP_PASSWORD` fehlt, ist leer oder kürzer als 16 Zeichen, **startet er nicht** (`lib/fly-guard.ts`, Fehler `FlyAuthMissingError`, ohne den Wert). Der Deploy scheitert dann sichtbar am Health-Check. Zum Passwort-Modus selbst siehe README, Abschnitt „Öffentlich hosten (z. B. fly.io) mit Passwort“.
+> **Seit 2026-11-04 nur im Tailnet erreichbar (ADR 0046).** Kein `[http_service]`, keine öffentliche IP: Tailscale läuft in der Maschine und liefert HTTPS auf `https://email-agent.<tailnet>.ts.net`. Login weiter mit Nutzerkonten (`AUTH_MODE=users`). Der Start-Schutz `lib/fly-guard.ts` lässt auf fly nur den Nutzer- oder Passwort-Modus zu. Der frühere öffentliche Betrieb mit `APP_PASSWORD` ist abgelöst.
 
 Nichts in diesem Repo ruft fly auf. Alle `fly ...`-Befehle unten führt Nico selbst aus.
 
@@ -10,14 +10,12 @@ Nichts in diesem Repo ruft fly auf. Alle `fly ...`-Befehle unten führt Nico sel
 |---|---|---|
 | `primary_region` | `fra` | Frankfurt, Deutschland: https://docs.fly.io/reference/regions |
 | `[build] build-target` | `fly` | Docker-Stage ohne `USER` (siehe Volume-Rechte); Syntax https://docs.fly.io/reference/configuration (Abschnitt `build`) |
-| `internal_port` | `3000` | Standardport der App (die generierte Vorlage hatte 8080) |
-| `[env] BIND_ADDRESS` | `0.0.0.0` | sonst lauscht der Server nur auf Loopback und fly erreicht ihn nicht |
+| kein `[http_service]` | – | ohne Service routet fly’s Proxy keinen Verkehr; zusammen mit freigegebenen öffentlichen IPs ist die App nicht aus dem Internet erreichbar (ADR 0046) |
+| `[env] TAILSCALE_ENABLE`, `TS_HOSTNAME` | `1`, `email-agent` | Entrypoint startet Tailscale (Userspace, als `node`, Zustand in `/data/tailscale`) und `tailscale serve --https=443` → `127.0.0.1:3000` |
+| `[env] BIND_ADDRESS` | `0.0.0.0` | der Health-Check erreicht die App über das private fly-Netz („Needs to be available on 0.0.0.0“, https://docs.fly.io/reference/configuration, `checks`) |
 | `[env] DATABASE_PATH` | `/data/email-agent.sqlite` | liegt auf dem Volume |
-| `force_https` | `true` | https://docs.fly.io/reference/configuration (`http_service`) |
-| `auto_stop_machines` | `'off'` | erlaubte Werte `"off"`, `"stop"`, `"suspend"`: ebenda. Ein Auto-Stop würde IMAP-IDLE, Mail-Eingang und Klassifikation anhalten |
-| `min_machines_running` | `1` | laut Doku nur mit `stop`/`suspend` wirksam; hier zusätzlich als Absicherung gesetzt |
-| `auto_start_machines` | `false` | eine von Hand gestoppte Maschine (Not-Aus) startet nicht durch eine Anfrage wieder |
-| Health-Check | `GET /api/health` (offen, ohne Login), Intervall 30 s, Timeout 5 s, Karenz 30 s | `[[http_service.checks]]`: https://docs.fly.io/reference/configuration |
+| Auto-Stop/-Start | entfällt | ohne Service stoppt oder startet fly’s Proxy die Maschine nicht; sie läuft dauerhaft (IMAP-IDLE), Not-Aus = `fly machine stop` |
+| Health-Check | `GET /api/health` auf Port 3000, Intervall 30 s, Timeout 5 s, Karenz 30 s | top-level `[checks]` (braucht keinen Service und keine öffentliche IP): https://docs.fly.io/reference/configuration |
 | `[[vm]]` | `shared-cpu-1x`, `512mb` | gemessen, siehe unten; `size` und `memory`: https://docs.fly.io/launch/scale-machine |
 | `[mounts]` | `source = 'email_data'`, `destination = '/data'` | https://docs.fly.io/reference/configuration (`mounts`) |
 
@@ -51,6 +49,17 @@ docker exec fly-probe sh -c 'grep ^Uid /proc/1/status; stat -c "%U:%G %a" /data 
 
 Ergebnis (2026-10-31): Uid 1000, `/data` = `node:node 700`, Datenbankdateien `node:node`, `/api/health` 200, `/api/emails` ohne Anmeldung 401. Ohne `APP_PASSWORD` (aber mit `FLY_APP_NAME`) bricht der Start mit `FlyAuthMissingError` ab. Der Docker-Smoke (`npm run smoke:docker`, Compose-Härtung, `USER node`) blieb grün.
 
+## Zugang nur im Tailnet (ADR 0046)
+
+1. **Tailscale-Auth-Key erzeugen** (Tailscale-Admin → Settings → Keys → *Generate auth key*): einmalig verwendbar reicht, weil der Zustand danach auf dem Volume liegt; optional mit Tag (z. B. `tag:email-agent`) und ACL, die nur deine Geräte zulässt. Im Tailnet müssen MagicDNS und HTTPS-Zertifikate aktiv sein.
+2. **Als Secret setzen:** `TS_AUTHKEY` im GitHub-Environment `prod` und Workflow „Secrets nach fly“ (oder `fly secrets set TS_AUTHKEY=…` direkt im Terminal, nie in Chat oder Datei).
+3. **Öffentliche IPs entfernen:** `fly ips list`, dann `fly ips release <ip> …` für jede öffentliche Adresse (https://docs.fly.io/networking/flycast). Eine neue App mit `fly deploy --no-public-ips` anlegen.
+4. **Deployen**, dann im Log `entrypoint: tailscale registered` (erster Start) bzw. `tailscale connected (saved state)` prüfen; die Maschine erscheint als `email-agent` in der Tailscale-Geräteliste.
+5. **Öffnen:** `https://email-agent.<tailnet>.ts.net` auf einem Gerät im Tailnet; ohne Tailnet ist die App nicht erreichbar (`https://email-agent.fly.dev` antwortet nicht).
+6. Nach erfolgreicher Anmeldung kann der Auth-Key in Tailscale widerrufen und das Secret entfernt werden; der Zustand bleibt auf dem Volume. Geht das Volume verloren, braucht es einen neuen Key.
+
+Grenze: Fällt `tailscaled` aus, bleibt die App für fly gesund (der Check prüft nur die App), ist aber nicht erreichbar. Abhilfe: `fly machine restart`.
+
 ## Schritte
 
 Voraussetzung: `flyctl` installiert und per `fly auth login` angemeldet. Der App-Name `email-agent` muss bei fly frei sein; sonst in `fly.toml` ändern.
@@ -82,7 +91,7 @@ Voraussetzung: `flyctl` installiert und per `fly auth login` angemeldet. Der App
    Mailinhalte werden nirgends gespeichert; die Datenbank enthält nur Metadaten.
 6. **Deployen:** `fly deploy` (Build mit dem Target `fly`, Remote-Builder).
 7. **Auf eine Maschine begrenzen:** `fly scale count 1`. Beim ersten Deploy kann fly sonst zwei Maschinen anlegen; ein Volume hängt an genau einer, und zwei Instanzen würden IMAP doppelt bedienen. Prüfen mit `fly status` und `fly volumes list`.
-8. **Prüfen:** `https://<app>.fly.dev/api/health` → `{"status":"ok"}`; Startseite öffnen, Passwort eingeben.
+8. **Prüfen:** `https://email-agent.<tailnet>.ts.net/api/health` → `{"status":"ok"}`; Startseite öffnen, anmelden (ersten Admin vorher per `user:create` anlegen, `docs/qa/BLOCKERS.md` B6). `https://<app>.fly.dev` darf nicht antworten.
 
 ## GitHub Environments und Workflows
 

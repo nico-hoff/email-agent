@@ -142,7 +142,7 @@ Quelle der Wahrheit: `docs/erd.md` (ERD + DDL je Migration, Schema-Test vergleic
 ## 7. Deployment
 
 - **Docker** (`Dockerfile`, `compose.yaml`): `node:26.12.1-slim`, `USER node`, `read_only`, `tmpfs`, `cap_drop: [ALL]`, `no-new-privileges`, nur `127.0.0.1:3000` am Host, SQLite im Volume `/data`, Healthcheck `/api/health`. Prüfung: `npm run smoke:docker`.
-- **fly.io** (`fly.toml`, Anleitung `docs/fly-deploy.md`): Frankfurt (`fra`), eine dauerhaft laufende Maschine `shared-cpu-1x`/512 MB (IMAP-IDLE braucht Dauerbetrieb), SQLite auf 1-GB-Volume, `internal_port = 3000`, `BIND_ADDRESS=0.0.0.0`, `AUTH_MODE=users` (oder bis zur Umstellung `APP_PASSWORD`), Start-Schutz `lib/fly-guard.ts`; Volume-Rechte über `scripts/docker-entrypoint.sh` (Target `fly`). PR #4 (fly-Vorlage) ist dadurch ersetzt.
+- **fly.io** (`fly.toml`, Anleitung `docs/fly-deploy.md`): Frankfurt (`fra`), eine dauerhaft laufende Maschine `shared-cpu-1x`/512 MB (IMAP-IDLE braucht Dauerbetrieb), SQLite auf 1-GB-Volume, **nur im Tailnet erreichbar** (ADR 0046: kein `[http_service]`, keine öffentliche IP, Tailscale im Userspace in der Maschine, `tailscale serve` HTTPS → Port 3000, Health-Check über top-level `[checks]`), `BIND_ADDRESS=0.0.0.0`, `AUTH_MODE=users` (oder bis zur Umstellung `APP_PASSWORD`), Start-Schutz `lib/fly-guard.ts`; Volume-Rechte über `scripts/docker-entrypoint.sh` (Target `fly`). PR #4 (fly-Vorlage) ist dadurch ersetzt.
 
 ## 8. Qualitätssicherung
 

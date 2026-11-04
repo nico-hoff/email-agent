@@ -19,6 +19,7 @@
 | B6 | Ersten Admin auf fly anlegen | `fly.toml` setzt `AUTH_MODE=users`; ohne Admin kommt niemand rein | nach dem Deploy: `fly ssh console`, dann `su node -s /bin/sh -c "node scripts/user-create.ts --email …"` (als `node`, nicht root; Weg auf echtem fly ungetestet) |
 | B7 | Postfächer anlegen und „Verbindung testen“ | echte Postfächer nur Nico | Profil → Konten; vorhandene Konten-Datei wird beim ersten Start mit Schlüssel importiert (Log `legacy accounts file imported`), danach Datei und fly-Secret `ACCOUNTS_JSON` entfernen (`docs/qa/R2.md`) |
 | B8 | App-Name `email-agent` frei? Preis 512 MB in `fra` prüfen | Konto/Preise nur Nico | `docs/fly-deploy.md` |
+| B19 | Prod nur im Tailnet (ADR 0046): Tailscale-Auth-Key `TS_AUTHKEY` erzeugen und als Secret setzen, öffentliche IPs freigeben (`fly ips list`, `fly ips release`), nach dem ersten Start prüfen | Tailscale-Konto, Secret-Werte, wirkende fly-Befehle | `docs/fly-deploy.md`, Abschnitt „Zugang nur im Tailnet“ |
 
 ## Echtbetrieb und Scharfschalten
 

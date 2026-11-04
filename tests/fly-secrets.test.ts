@@ -21,7 +21,7 @@ test("buildPlan: sends only catalog secrets, skips config and unknown names", ()
   const plan = buildPlan(parseEnv(`APP_PASSWORD=${PW}\nOPENROUTER_API_KEY=${KEY}\nBIND_ADDRESS=127.0.0.1\nDATABASE_PATH=data/x.sqlite\nIMAP_SOMETHING=zzz\n`));
   assert.equal(plan.ok, true);
   assert.deepEqual(plan.send, ["APP_PASSWORD", "OPENROUTER_API_KEY"]);
-  assert.deepEqual(plan.emptyOptional, ["OPENAI_API_KEY", "ACCOUNTS_ENCRYPTION_KEY", "VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY", "VAPID_SUBJECT"]);
+  assert.deepEqual(plan.emptyOptional, ["OPENAI_API_KEY", "ACCOUNTS_ENCRYPTION_KEY", "VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY", "VAPID_SUBJECT", "TS_AUTHKEY"]);
   assert.deepEqual(plan.config, ["BIND_ADDRESS", "DATABASE_PATH"]);
   assert.deepEqual(plan.unknown, ["IMAP_SOMETHING"]);
   assert.equal(plan.stdin, `APP_PASSWORD="""${PW}"""\nOPENROUTER_API_KEY="""${KEY}"""\n`);

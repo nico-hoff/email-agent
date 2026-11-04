@@ -29,14 +29,17 @@ test("Dockerfile: default (last) target keeps USER node, the fly target has no U
   assert.match(read("Dockerfile"), /ENTRYPOINT \["sh", "\/app\/scripts\/docker-entrypoint\.sh"\]/);
 });
 
-test("fly.toml: one machine, always on, Frankfurt, port 3000, volume, no duplicate memory setting", () => {
+test("fly.toml: tailnet only (no public service), health check, Frankfurt, volume, no duplicate memory setting", () => {
   const raw = read("fly.toml");
   const t = raw.split("\n").filter((l) => !l.trim().startsWith("#")).join("\n");
   assert.match(t, /^primary_region = 'fra'$/m);
-  assert.match(t, /^\s*internal_port = 3000$/m);
-  assert.match(t, /^\s*auto_stop_machines = 'off'$/m);
-  assert.match(t, /^\s*min_machines_running = 1$/m);
-  assert.match(t, /^\s*force_https = true$/m);
+  // ADR 0046: no [http_service] and no [[services]] = no route through fly's public proxy.
+  assert.doesNotMatch(t, /^\[http_service\]|^\[\[services\]\]/m);
+  assert.match(t, /^\s*TAILSCALE_ENABLE = '1'$/m);
+  assert.match(t, /^\s*TS_HOSTNAME = '[a-z0-9-]+'$/m);
+  assert.match(t, /^\[checks\]$/m);
+  assert.match(t, /^\s*port = 3000$/m);
+  assert.doesNotMatch(t, /TS_AUTHKEY/);
   assert.match(t, /^\s*build-target = 'fly'$/m);
   assert.match(t, /source = 'email_data'/);
   assert.match(t, /destination = '\/data'/);
@@ -44,4 +47,27 @@ test("fly.toml: one machine, always on, Frankfurt, port 3000, volume, no duplica
   assert.equal((t.match(/memory/g) ?? []).length, 1);
   assert.doesNotMatch(t, /APP_PASSWORD|OPENROUTER_API_KEY|ACCOUNTS/);
   assert.match(t, /^\s*AUTH_MODE = 'users'$/m, "fly runs in users mode (docs/access-contract.md)");
+});
+
+test("entrypoint: tailscale only on TAILSCALE_ENABLE=1, userspace as node, key via file and never printed, unset before the app", () => {
+  const s = read("scripts/docker-entrypoint.sh");
+  assert.match(s, /if \[ "\$\{TAILSCALE_ENABLE:-\}" = "1" \]; then start_tailscale 1; fi/);
+  assert.match(s, /tailscaled --tun=userspace-networking --statedir=/);
+  assert.match(s, /setpriv --reuid=node --regid=node --init-groups -- "\$@"; else/);
+  assert.match(s, /--auth-key="file:\$keyfile"/);
+  assert.match(s, /rm -f "\$keyfile"/);
+  assert.match(s, /unset TS_AUTHKEY/);
+  assert.match(s, /serve --bg --https=443 "http:\/\/127\.0\.0\.1:/);
+  // The key must never reach stdout/stderr or argv.
+  for (const line of s.split("\n")) {
+    if (/\becho\b/.test(line)) assert.doesNotMatch(line, /\$\{?TS_AUTHKEY/, line);
+  }
+  assert.doesNotMatch(s, /--auth-key="\$TS_AUTHKEY"/);
+});
+
+test("Dockerfile: tailscale binaries only in the fly target, pinned by version and digest", () => {
+  const stages = read("Dockerfile").split(/^FROM /m).slice(1);
+  assert.match(stages[1] ?? "", /tailscale\/tailscale:v\d+\.\d+\.\d+@sha256:[0-9a-f]{64} \/usr\/local\/bin\/tailscaled/);
+  assert.doesNotMatch(stages[0] ?? "", /tailscale/);
+  assert.doesNotMatch(stages[2] ?? "", /tailscale/);
 });

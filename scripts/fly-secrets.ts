@@ -71,6 +71,12 @@ export const SECRETS: readonly SecretSpec[] = [
     purpose: "Web-Push (VAPID), Kontakt als mailto: oder https:// (Apple lehnt Push ohne gültiges sub ab)",
     validate: (v) => (/^(mailto:[^\s@]+@[^\s@]+|https:\/\/[^\s]+)$/.test(v) ? null : "weder mailto: noch https://"),
   },
+  {
+    name: "TS_AUTHKEY",
+    required: false,
+    purpose: "Tailscale-Auth-Key für die fly-Maschine (ADR 0046); nur bis zur ersten Anmeldung nötig, danach liegt der Zustand auf dem Volume",
+    validate: (v) => (/^tskey-[A-Za-z0-9-]{10,200}$/.test(v) ? null : "kein Tailscale-Auth-Key (beginnt mit tskey-)"),
+  },
 ];
 
 /** Decoded byte length of a base64 (or base64url) string, or null when it is not valid. Never returns or logs the value. */

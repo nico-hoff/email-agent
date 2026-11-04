@@ -22,7 +22,7 @@ test("secrets-to-fly: manual only, environment prod, read-only token, forced non
 
 test("secrets-to-fly: every catalog secret is mapped, values only via env, never echoed", () => {
   const y = code(".github/workflows/secrets-to-fly.yml");
-  for (const n of ["FLY_API_TOKEN", "APP_PASSWORD", "OPENROUTER_API_KEY", "OPENAI_API_KEY", "ACCOUNTS_ENCRYPTION_KEY", "VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY", "VAPID_SUBJECT"]) {
+  for (const n of ["FLY_API_TOKEN", "APP_PASSWORD", "OPENROUTER_API_KEY", "OPENAI_API_KEY", "ACCOUNTS_ENCRYPTION_KEY", "VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY", "VAPID_SUBJECT", "TS_AUTHKEY"]) {
     assert.match(y, new RegExp(`^\\s+${n}: \\$\\{\\{ secrets\\.${n} \\}\\}$`, "m"), n);
   }
   const secretsUses = y.split("\n").filter((l) => /\$\{\{[^}]*secrets\./.test(l));

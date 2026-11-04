@@ -36,6 +36,7 @@ Pro Environment: **Environment secrets** → *Add environment secret*. Namen exa
 | `VAPID_PRIVATE_KEY` | ja | Dieselbe Ausgabe, `VAPID_PRIVATE_KEY=` (base64url, 32 Byte). Public und Private gehören zusammen, nicht mischen. |
 | `VAPID_SUBJECT` | für Web-Push ja (ADR 0036) | `mailto:deine@adresse` oder `https://…`. Der Secret-Katalog behandelt ihn noch als optional, ohne ihn bleibt Push aus (Apple verlangt ihn). |
 | `OPENAI_API_KEY` | nein | Nur falls die Agenten direkt zu OpenAI sollen. Leer lassen = nicht gesetzt. |
+| `TS_AUTHKEY` | für den ersten Start ja (ADR 0046) | Tailscale-Admin → Settings → Keys → *Generate auth key* (`tskey-…`). Nur bis zur ersten Anmeldung der Maschine nötig; danach in Tailscale widerrufen und hier löschen. |
 
 Fehlt ein Pflichtwert oder hat er das falsche Format, bricht der Workflow ab, **bevor** fly kontaktiert wird (Namen und Grund im Log, nie der Wert).
 
