@@ -33,3 +33,7 @@ dist/
 # local account files outside data/ (template stays tracked)
 docs/accounts*.json
 !docs/accounts.example.json
+
+# Playwright output (ADR 0047)
+test-results/
+playwright-report/

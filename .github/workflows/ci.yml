@@ -22,3 +22,6 @@ jobs:
       # End-to-end smoke (T44): the real service in synthetic mode with a temp database; offline, no secrets, no model call.
       # The Docker smoke (npm run smoke:docker) needs a daemon and the network for npm ci: not run in CI.
       - run: npm run smoke:e2e
+      # Browser tests (ADR 0047): Playwright against the real service (users mode, temp database, synthetic data only).
+      - run: npx playwright install --with-deps chromium
+      - run: npm run e2e:browser

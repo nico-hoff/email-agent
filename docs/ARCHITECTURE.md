@@ -153,9 +153,10 @@ Quelle der Wahrheit: `docs/erd.md` (ERD + DDL je Migration, Schema-Test vergleic
 | Build | `npm run build` | lokal, CI |
 | Offline-Eval-Gate (Jev, Entwürfe, Briefing) | `npm run eval` | lokal, CI |
 | End-to-End-Smoke (synthetisch plus Users-Modus, 40 Schritte) | `npm run smoke:e2e` | lokal, CI |
+| Browser-Tests (Playwright, 4 Kern-Flows × Desktop/iPhone-Viewport, synthetisch, ADR 0047) | `npm run e2e:browser` (TDD ohne Build: `E2E_SERVER_MODE=development npm run e2e:browser`) | lokal, CI |
 | Docker-Smoke (gehärtet) | `npm run smoke:docker` | lokal (Sandbox: Dockerfile-Kopie mit Proxy-CA) |
 | Live-Evals/Proben | `eval:jev`, `eval:agents`, `jev:probe:v2`, `agent:probe`, `briefing:probe` | nur Nico, manuell |
 
 ## 9. Verzeichnis-Landkarte
 
-`app/` Seiten und API · `agents/` Veryfront-Agenten · `tools/` Veryfront-Tools (nur `tool()`-Exporte) · `components/` React-UI · `lib/` Logik (rein, testbar) · `workers/` IMAP-Worker · `scripts/` CLIs (Sample, Evals, Smokes, Kalibrierung) · `evals/` Offline-Gates · `config/` versionierte Konfiguration (Schwellen) · `db/migrations/` Schema · `public/` PWA · `tests/` Tests und synthetische Fixtures · `docs/` Doku (Index: `docs/README.md`).
+`app/` Seiten und API · `agents/` Veryfront-Agenten · `tools/` Veryfront-Tools (nur `tool()`-Exporte) · `components/` React-UI · `lib/` Logik (rein, testbar) · `workers/` IMAP-Worker · `scripts/` CLIs (Sample, Evals, Smokes, Kalibrierung) · `evals/` Offline-Gates · `config/` versionierte Konfiguration (Schwellen) · `db/migrations/` Schema · `public/` PWA · `tests/` Tests und synthetische Fixtures · `e2e/` Browser-Tests (Playwright) · `docs/` Doku (Index: `docs/README.md`).

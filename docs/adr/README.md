@@ -49,6 +49,7 @@ Neue ADR: nächste freie Nummer, Vorlage unten, Eintrag in dieser Tabelle, im se
 | [0044](0044-user-settings-stop-permissions.md) | Nutzereinstellungen: Not-Aus pro Nutzer, Berechtigung Modellwahl, Tageslimit pro Konto | angenommen |
 | [0045](0045-scaling-path.md) | Skalierungspfad: Schwellen (~50/200/1 000/10 000 Nutzer), Next.js-Frage, Query-Builder statt ORM | vorgeschlagen |
 | [0046](0046-prod-tailnet-only.md) | Prod nur im Tailnet: Tailscale in der fly-Maschine, keine öffentliche IP, Nutzerkonten bleiben | angenommen |
+| [0047](0047-browser-tests-playwright.md) | Browser-Tests mit Playwright (UI-TDD), Teil des Push-Gates | angenommen |
 
 ## Vorlage
 
