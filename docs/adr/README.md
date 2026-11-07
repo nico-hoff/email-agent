@@ -50,6 +50,8 @@ Neue ADR: nächste freie Nummer, Vorlage unten, Eintrag in dieser Tabelle, im se
 | [0045](0045-scaling-path.md) | Skalierungspfad: Schwellen (~50/200/1 000/10 000 Nutzer), Next.js-Frage, Query-Builder statt ORM | vorgeschlagen |
 | [0046](0046-prod-tailnet-only.md) | Prod nur im Tailnet: Tailscale in der fly-Maschine, keine öffentliche IP, Nutzerkonten bleiben | angenommen |
 | [0047](0047-browser-tests-playwright.md) | Browser-Tests mit Playwright (UI-TDD), Teil des Push-Gates | angenommen |
+| [0048](0048-monorepo.md) | Monorepo: Apps (web, api, worker) und Pakete (core, db), npm-Workspaces, Umbau in Schritten | angenommen |
+| [0049](0049-supabase-or-postgres.md) | Datenplattform: Supabase selbst gehostet, Supabase Cloud oder reines Postgres | vorgeschlagen |
 
 ## Vorlage
 
