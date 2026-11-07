@@ -3,12 +3,12 @@ import assert from "node:assert/strict";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CSRF_HEADER } from "../lib/csrf.ts";
-import { appPasswordStatus, issueSession, isLoopbackBind, isLoopbackDirect, MIN_PASSWORD_CHARS, PASSWORD_IDENTITY, selectAuthMode, SESSION_COOKIE } from "../lib/auth.ts";
-import { createPasswordVerifier } from "../lib/password.ts";
+import { CSRF_HEADER } from "../packages/core/src/csrf.ts";
+import { appPasswordStatus, issueSession, isLoopbackBind, isLoopbackDirect, MIN_PASSWORD_CHARS, PASSWORD_IDENTITY, selectAuthMode, SESSION_COOKIE } from "../packages/core/src/auth.ts";
+import { createPasswordVerifier } from "../packages/core/src/password.ts";
 import {
   createAuthContext, createPasswordLimiter, guardRequest, handleLogin, handleLoginRequest, handleLogout, handleSession, interceptRequest,
-} from "../lib/auth-runtime.ts";
+} from "../packages/core/src/auth-runtime.ts";
 
 // Unique marker: it must never show up in any response, header or log line.
 const PW = "pw-MARKER-7f3a9c1e-correct-horse";
@@ -87,7 +87,7 @@ test("verifier: right, wrong, empty, near-miss and oversized candidates", async 
 });
 
 test("verifier compares derived keys with timingSafeEqual and never the plaintext", () => {
-  const src = readFileSync(join(import.meta.dirname, "..", "lib", "password.ts"), "utf8");
+  const src = readFileSync(join(import.meta.dirname, "..", "packages", "core", "src", "password.ts"), "utf8");
   assert.match(src, /timingSafeEqual/);
   assert.match(src, /scrypt/);
   assert.doesNotMatch(src.replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, ""), /===\s*(password|candidate)\b|\b(password|candidate)\s*===/);

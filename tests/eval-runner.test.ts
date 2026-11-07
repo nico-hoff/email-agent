@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { join } from "node:path";
 import { formatReport, loadDataset, runEvalSet } from "../scripts/eval-jev.ts";
-import { QUESTIONS } from "../lib/jev-questions.ts";
-import type { JevClient } from "../lib/jev.ts";
+import { QUESTIONS } from "../packages/core/src/jev-questions.ts";
+import type { JevClient } from "../packages/core/src/jev.ts";
 
 const DATASET = join(import.meta.dirname, "fixtures", "eval", "email-eval-v1.jsonl");
 

@@ -3,11 +3,11 @@ import { describe, it } from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createElement } from "react";
 import { loadTsx } from "./helpers/load-tsx.ts";
-import { INITIAL_BRIEFING, type BriefingState } from "../lib/briefing-client.ts";
-import type { HitlCandidate, SenderRule } from "../lib/senders-client.ts";
-import type { ApiAccount, ApiEmail, ActionTab, AutoMode } from "../lib/review-ui.ts";
+import { INITIAL_BRIEFING, type BriefingState } from "../packages/core/src/briefing-client.ts";
+import type { HitlCandidate, SenderRule } from "../packages/core/src/senders-client.ts";
+import type { ApiAccount, ApiEmail, ActionTab, AutoMode } from "../packages/core/src/review-ui.ts";
 import type { DraftViewState } from "../components/draft.tsx";
-import type { FeedbackState } from "../lib/feedback-client.ts";
+import type { FeedbackState } from "../packages/core/src/feedback-client.ts";
 
 type Briefing = typeof import("../components/briefing.tsx");
 type Draft = typeof import("../components/draft.tsx");
@@ -161,7 +161,7 @@ describe("DraftPanel", () => {
   });
   it("never writes to browser storage", async () => {
     const src = (await import("node:fs")).readFileSync(new URL("../components/draft.tsx", import.meta.url), "utf8")
-      + (await import("node:fs")).readFileSync(new URL("../lib/draft-client.ts", import.meta.url), "utf8");
+      + (await import("node:fs")).readFileSync(new URL("../packages/core/src/draft-client.ts", import.meta.url), "utf8");
     assert.ok(!/localStorage|sessionStorage|indexedDB/.test(src));
   });
 });

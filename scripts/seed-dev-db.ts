@@ -2,8 +2,8 @@
 // (data/eval-datasets/, siehe `npm run eval:fetch`). Kein Jev-Aufruf, kein Netz, keine Kosten.
 // Aufruf: node scripts/seed-dev-db.ts
 import { join } from "node:path";
-import { PROJECT_ROOT } from "../lib/constants.ts";
-import { importSyntheticCases, openSyntheticDevDatabase } from "../lib/synthetic-dev-db.ts";
+import { PROJECT_ROOT } from "../packages/core/src/constants.ts";
+import { importSyntheticCases, openSyntheticDevDatabase } from "../packages/core/src/synthetic-dev-db.ts";
 import { loadHfCases } from "./eval-jev.ts";
 
 export function seedDevDatabase(o: { root?: string; now?: Date } = {}): { cases: number } {

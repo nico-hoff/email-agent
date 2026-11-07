@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseProbeArgs, PROBE_CONTEXT, runProbe } from "../scripts/briefing-live-probe.ts";
-import { formatBriefingInput } from "../lib/briefing-context.ts";
+import { formatBriefingInput } from "../packages/core/src/briefing-context.ts";
 import { fakeStreamAgent } from "./helpers/fake-stream-agent.ts";
 
 const root = join(import.meta.dirname, "..");

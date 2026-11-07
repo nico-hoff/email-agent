@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { mkdtempSync, chmodSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openDatabase } from "../lib/db.ts";
-import { syncAccounts } from "../lib/accounts.ts";
+import { openDatabase } from "../packages/core/src/db.ts";
+import { syncAccounts } from "../packages/core/src/accounts.ts";
 import { GET } from "../app/api/emails/route.ts";
 import * as route from "../app/api/emails/route.ts";
 

@@ -4,15 +4,15 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import { openDatabase } from "../lib/db.ts";
-import { syncAccounts } from "../lib/accounts.ts";
-import { DEFAULT_SPAM_THRESHOLD } from "../lib/accounts-config.ts";
-import { DEV_SYNTHETIC_DATABASE_PATH, JEV_MODEL, QUESTION_SET_VERSION } from "../lib/constants.ts";
-import { QUESTIONS } from "../lib/jev-questions.ts";
-import { normalizeAnswers, type NormalizedAnswer } from "../lib/jev-response.ts";
-import { createPersistResponse } from "../lib/classification-pipeline.ts";
-import { computeShadowQuarantine } from "../lib/shadow.ts";
-import type { EvalCase } from "../lib/eval-sources.ts";
+import { openDatabase } from "../packages/core/src/db.ts";
+import { syncAccounts } from "../packages/core/src/accounts.ts";
+import { DEFAULT_SPAM_THRESHOLD } from "../packages/core/src/accounts-config.ts";
+import { DEV_SYNTHETIC_DATABASE_PATH, JEV_MODEL, QUESTION_SET_VERSION } from "../packages/core/src/constants.ts";
+import { QUESTIONS } from "../packages/core/src/jev-questions.ts";
+import { normalizeAnswers, type NormalizedAnswer } from "../packages/core/src/jev-response.ts";
+import { createPersistResponse } from "../packages/core/src/classification-pipeline.ts";
+import { computeShadowQuarantine } from "../packages/core/src/shadow.ts";
+import type { EvalCase } from "../packages/core/src/eval-sources.ts";
 import {
   assertSyntheticDatabase,
   importSyntheticCases,
@@ -20,7 +20,7 @@ import {
   openSyntheticDevDatabase,
   SYNTHETIC_HOST,
   syntheticReceivedAt,
-} from "../lib/synthetic-dev-db.ts";
+} from "../packages/core/src/synthetic-dev-db.ts";
 import { seedDevDatabase } from "../scripts/seed-dev-db.ts";
 
 const NOW = new Date("2026-10-27T12:00:00.000Z");

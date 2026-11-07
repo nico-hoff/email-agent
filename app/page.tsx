@@ -4,11 +4,11 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ReviewListView, type NoiseState } from '../components/review.tsx'
 import { BriefingBox, HitlCards } from '../components/briefing.tsx'
 import { mutationDeps, useBriefing, useHitl } from '../components/hooks.ts'
-import { appendUnique, fetchPage, SessionExpired } from '../lib/list-client.ts'
-import { createBrowserPushEnv, syncPushSubscription } from '../lib/push-client.ts'
-import { effectiveTopic, fetchTopicCounts, NO_COUNTS, topicLabels, visibleFolders, type TopicCounts } from '../lib/topics-client.ts'
-import { DONE_ERROR_TEXT, postEmailDone } from '../lib/mutate-client.ts'
-import { markDone, reinsert, type ListState } from '../lib/review-done.ts'
+import { appendUnique, fetchPage, SessionExpired } from '../packages/core/src/list-client.ts'
+import { createBrowserPushEnv, syncPushSubscription } from '../packages/core/src/push-client.ts'
+import { effectiveTopic, fetchTopicCounts, NO_COUNTS, topicLabels, visibleFolders, type TopicCounts } from '../packages/core/src/topics-client.ts'
+import { DONE_ERROR_TEXT, postEmailDone } from '../packages/core/src/mutate-client.ts'
+import { markDone, reinsert, type ListState } from '../packages/core/src/review-done.ts'
 import {
   DEFAULT_VIEW,
   isViewId,
@@ -19,7 +19,7 @@ import {
   type ApiEmail,
   type AutoMode,
   type ViewId,
-} from '../lib/review-ui.ts'
+} from '../packages/core/src/review-ui.ts'
 
 const STORE_KEY = 'review-ui'
 

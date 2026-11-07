@@ -1,7 +1,7 @@
 // Offline stand-in for a Veryfront agent's stream() in the documented form (esm/src/agent/types.d.ts, AgentStreamInput /
 // AgentStreamResult): callbacks onChunk / onFinish plus a result whose toDataStreamResponse() is an SSE body
 // (`data: {json}\n\n`, text-delta frames {type, id, delta}, an {type:"error"} frame on failure).
-import type { BriefingStreamArgs } from "../../lib/briefing.ts";
+import type { BriefingStreamArgs } from "../../packages/core/src/briefing.ts";
 
 export interface FakeStreamOptions {
   chunks?: string[];

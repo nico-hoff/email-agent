@@ -16,7 +16,7 @@ import {
   type BriefingExpect,
   type ReplyExpect,
   type ReplyOutput,
-} from "../lib/agent-eval-checks.ts";
+} from "../packages/core/src/agent-eval-checks.ts";
 
 describe("primitives", () => {
   it("counts bullets in the usual markers only", () => {

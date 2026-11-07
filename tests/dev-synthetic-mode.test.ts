@@ -4,10 +4,10 @@ import { chmodSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createService, formatListening } from "../server.ts";
-import { DEV_SYNTHETIC_DATABASE_PATH } from "../lib/constants.ts";
-import { importSyntheticCases, openSyntheticDevDatabase } from "../lib/synthetic-dev-db.ts";
-import { QUESTIONS } from "../lib/jev-questions.ts";
-import type { NormalizedAnswer } from "../lib/jev-response.ts";
+import { DEV_SYNTHETIC_DATABASE_PATH } from "../packages/core/src/constants.ts";
+import { importSyntheticCases, openSyntheticDevDatabase } from "../packages/core/src/synthetic-dev-db.ts";
+import { QUESTIONS } from "../packages/core/src/jev-questions.ts";
+import type { NormalizedAnswer } from "../packages/core/src/jev-response.ts";
 
 const pkg = JSON.parse(readFileSync(join(import.meta.dirname, "..", "package.json"), "utf8")) as { scripts: Record<string, string> };
 const savedDb = process.env.DATABASE_PATH;

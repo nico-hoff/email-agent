@@ -1,14 +1,14 @@
 // Initial import (ADR 0043): range math, exactly once, resume, progress, no mailbox actions for imported mails. Synthetic only.
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { readSync, restartSync, syncView } from "../lib/account-sync.ts";
-import { IMPORT_DEFAULT_COUNT, IMPORT_MAX_COUNT, IMPORT_WATCH_MS } from "../lib/constants.ts";
-import { openDatabase } from "../lib/db.ts";
-import { clampImportCount, importCutoff, selectImportUids } from "../lib/initial-import.ts";
-import { ingestMail } from "../lib/ingest.ts";
-import { createMailboxActions } from "../lib/mailbox-actions.ts";
-import { loadBriefingContext } from "../lib/briefing-context.ts";
-import { setUserState } from "../lib/user-state.ts";
+import { readSync, restartSync, syncView } from "../packages/core/src/account-sync.ts";
+import { IMPORT_DEFAULT_COUNT, IMPORT_MAX_COUNT, IMPORT_WATCH_MS } from "../packages/core/src/constants.ts";
+import { openDatabase } from "../packages/core/src/db.ts";
+import { clampImportCount, importCutoff, selectImportUids } from "../packages/core/src/initial-import.ts";
+import { ingestMail } from "../packages/core/src/ingest.ts";
+import { createMailboxActions } from "../packages/core/src/mailbox-actions.ts";
+import { loadBriefingContext } from "../packages/core/src/briefing-context.ts";
+import { setUserState } from "../packages/core/src/user-state.ts";
 import { account, fakeClassify, importHarness, ImportPort, settle, until } from "./helpers/import-harness.ts";
 
 const range = (a: number, b: number) => Array.from({ length: b - a + 1 }, (_, i) => a + i);

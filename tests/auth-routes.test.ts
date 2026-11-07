@@ -3,11 +3,11 @@ import assert from "node:assert/strict";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CSRF_HEADER } from "../lib/csrf.ts";
-import { SESSION_COOKIE, DEV_IDENTITY } from "../lib/auth.ts";
+import { CSRF_HEADER } from "../packages/core/src/csrf.ts";
+import { SESSION_COOKIE, DEV_IDENTITY } from "../packages/core/src/auth.ts";
 import {
   createAuthContext, createLoginLimiter, dataDirFromEnv, guardRequest, handleLogin, handleLogout, handleSession, handleDeny, interceptRequest, isPublicPath, syntheticFromEnv,
-} from "../lib/auth-runtime.ts";
+} from "../packages/core/src/auth-runtime.ts";
 
 const ME = "nico@example.test";
 const HOST = "mac.tail.ts.net";

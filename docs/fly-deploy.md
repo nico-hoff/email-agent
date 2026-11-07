@@ -1,6 +1,6 @@
 # Deployment auf fly.io
 
-> **Seit 2026-11-04 nur im Tailnet erreichbar (ADR 0046).** Kein `[http_service]`, keine öffentliche IP: Tailscale läuft in der Maschine und liefert HTTPS auf `https://email-agent.<tailnet>.ts.net`. Login weiter mit Nutzerkonten (`AUTH_MODE=users`). Der Start-Schutz `lib/fly-guard.ts` lässt auf fly nur den Nutzer- oder Passwort-Modus zu. Der frühere öffentliche Betrieb mit `APP_PASSWORD` ist abgelöst.
+> **Seit 2026-11-04 nur im Tailnet erreichbar (ADR 0046).** Kein `[http_service]`, keine öffentliche IP: Tailscale läuft in der Maschine und liefert HTTPS auf `https://email-agent.<tailnet>.ts.net`. Login weiter mit Nutzerkonten (`AUTH_MODE=users`). Der Start-Schutz `packages/core/src/fly-guard.ts` lässt auf fly nur den Nutzer- oder Passwort-Modus zu. Der frühere öffentliche Betrieb mit `APP_PASSWORD` ist abgelöst.
 
 Nichts in diesem Repo ruft fly auf. Alle `fly ...`-Befehle unten führt Nico selbst aus.
 

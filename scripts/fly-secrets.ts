@@ -22,7 +22,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readSync, writeSync } from "node:fs";
 import { isatty } from "node:tty";
-import { appPasswordStatus } from "../lib/auth.ts";
+import { appPasswordStatus } from "../packages/core/src/auth.ts";
 
 export interface SecretSpec {
   name: string;

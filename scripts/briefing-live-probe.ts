@@ -4,10 +4,10 @@
 // Speichert nichts: keine Datenbank, keine Datei, kein IMAP.
 import { pathToFileURL } from "node:url";
 import { join } from "node:path";
-import { buildBriefingContext, formatBriefingInput, type OpenMail } from "../lib/briefing-context.ts";
-import { runBriefingStream, type BriefingAgent } from "../lib/briefing.ts";
-import { BRIEFING_MODEL, PROJECT_ROOT } from "../lib/constants.ts";
-import { applyOpenRouterEnv } from "../lib/openrouter-env.ts";
+import { buildBriefingContext, formatBriefingInput, type OpenMail } from "../packages/core/src/briefing-context.ts";
+import { runBriefingStream, type BriefingAgent } from "../packages/core/src/briefing.ts";
+import { BRIEFING_MODEL, PROJECT_ROOT } from "../packages/core/src/constants.ts";
+import { applyOpenRouterEnv } from "../packages/core/src/openrouter-env.ts";
 
 const mail = (id: number, o: Partial<OpenMail>): OpenMail => ({
   id, received_at: `2026-10-27T0${id}:00:00.000Z`, account_label: "Privat", sender: "kontakt@beispiel.example",

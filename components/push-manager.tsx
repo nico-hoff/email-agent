@@ -1,9 +1,9 @@
 // Profile → Benachrichtigungen (R6, ADR 0027/0036): per-device Web Push. Stateless: the page passes the state and callbacks.
 // The permission prompt is requested only by the tap on "Auf diesem Gerät aktivieren" (the page calls enablePush from that
 // handler). A push never carries a subject, sender or text; the device learns only kind and count.
-import { formatWhen } from "../lib/profile-client.ts";
-import type { PushDevice, PushKindName, PushKinds } from "../lib/push-client.ts";
-import { kindsSummary, REASON_TEXT, type PushSectionState } from "../lib/push-section.ts";
+import { formatWhen } from "../packages/core/src/profile-client.ts";
+import type { PushDevice, PushKindName, PushKinds } from "../packages/core/src/push-client.ts";
+import { kindsSummary, REASON_TEXT, type PushSectionState } from "../packages/core/src/push-section.ts";
 
 const noop = (): void => {};
 

@@ -1,4 +1,4 @@
-import { defaultTopicsDeps, handleTopicsGet, handleTopicsPost } from "../../../lib/topics-api.ts";
+import { defaultTopicsDeps, handleTopicsGet, handleTopicsPost } from "../../../packages/core/src/topics-api.ts";
 
 // GET: the user's topics (12 fixed + own custom topics), the switch `topics_enabled` and the limits.
 // POST { action: "create" | "update" | "set_active" | "set_enabled", ... }: change custom topics or the switch.

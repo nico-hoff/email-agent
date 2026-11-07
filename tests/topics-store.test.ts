@@ -2,13 +2,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { DatabaseSync } from "node:sqlite";
-import { openDatabase } from "../lib/db.ts";
-import { createUser } from "../lib/users.ts";
-import { buildTopicList, FIXED_TOPICS } from "../lib/topics.ts";
+import { openDatabase } from "../packages/core/src/db.ts";
+import { createUser } from "../packages/core/src/users.ts";
+import { buildTopicList, FIXED_TOPICS } from "../packages/core/src/topics.ts";
 import {
   ACTIVE_CUSTOM_TOPICS_LIMIT, createCustomTopic, CUSTOM_TOPIC_ROWS_MAX, listCustomTopics, setCustomTopicActive, setTopicsEnabled,
   topicLabels, topicListForUser, topicsEnabled, updateCustomTopic,
-} from "../lib/topics-store.ts";
+} from "../packages/core/src/topics-store.ts";
 
 const NOW = new Date("2026-11-01T10:00:00.000Z");
 const later = (n: number) => new Date(NOW.getTime() + n * 1000);

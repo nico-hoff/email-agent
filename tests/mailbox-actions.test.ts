@@ -4,13 +4,13 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import { openDatabase } from "../lib/db.ts";
-import { syncAccounts } from "../lib/accounts.ts";
-import { upsertSeen } from "../lib/email-status.ts";
-import { ImapWriteError, type ImapWritePort } from "../lib/imap-write.ts";
-import type { AccountConfig } from "../lib/accounts-config.ts";
-import { createMailboxActions, DAILY_ACTION_LIMIT } from "../lib/mailbox-actions.ts";
-import { createRule, deactivateRule } from "../lib/sender-rules.ts";
+import { openDatabase } from "../packages/core/src/db.ts";
+import { syncAccounts } from "../packages/core/src/accounts.ts";
+import { upsertSeen } from "../packages/core/src/email-status.ts";
+import { ImapWriteError, type ImapWritePort } from "../packages/core/src/imap-write.ts";
+import type { AccountConfig } from "../packages/core/src/accounts-config.ts";
+import { createMailboxActions, DAILY_ACTION_LIMIT } from "../packages/core/src/mailbox-actions.ts";
+import { createRule, deactivateRule } from "../packages/core/src/sender-rules.ts";
 
 const T0 = new Date("2026-10-27T10:00:00.000Z");
 const SUBJECT = "SUBJECT-MARKER-5521";
@@ -456,7 +456,7 @@ describe("sender rules (M5, H17)", () => {
 
 describe("per-user emergency stop (R3, ADR 0025 Teil 1)", () => {
   const stopUser = async (db: DatabaseSync, userId: number, on: boolean) => {
-    const { setUserStop } = await import("../lib/user-settings.ts");
+    const { setUserStop } = await import("../packages/core/src/user-settings.ts");
     setUserStop(db, userId, on, T0);
   };
 

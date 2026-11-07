@@ -1,6 +1,6 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { ACCOUNT_PALETTE, accountColor, accountTag } from "../lib/account-color.ts";
+import { ACCOUNT_PALETTE, accountColor, accountTag } from "../packages/core/src/account-color.ts";
 
 describe("accountColor", () => {
   test("keeps a configured color and otherwise picks a stable palette color by id", () => {

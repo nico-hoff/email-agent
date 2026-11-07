@@ -5,14 +5,14 @@ import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import { generateKey } from "../lib/account-secrets.ts";
+import { generateKey } from "../packages/core/src/account-secrets.ts";
 import {
   handleAccountCreate, handleAccountEnabled, handleAccountSync, handleAccountSyncRestart, handleAccountsList, handleAccountTest, handleAccountUpdate, type AccountsApiDeps,
-} from "../lib/accounts-api.ts";
-import { createAuthContext, createLoginLimiter, createMutationLimiter, handleLogin, handleSession } from "../lib/auth-runtime.ts";
-import type { TestConnector } from "../lib/connection-test.ts";
-import { CSRF_HEADER } from "../lib/csrf.ts";
-import { openDatabase } from "../lib/db.ts";
+} from "../packages/core/src/accounts-api.ts";
+import { createAuthContext, createLoginLimiter, createMutationLimiter, handleLogin, handleSession } from "../packages/core/src/auth-runtime.ts";
+import type { TestConnector } from "../packages/core/src/connection-test.ts";
+import { CSRF_HEADER } from "../packages/core/src/csrf.ts";
+import { openDatabase } from "../packages/core/src/db.ts";
 
 const ME = "nico@example.test";
 const HOST = "mac.tail.ts.net";

@@ -11,11 +11,11 @@
 // ACCOUNTS_ENCRYPTION_KEY must be set in .env.local, otherwise no mailbox can be stored or started (fail-closed).
 import { spawn } from "node:child_process";
 import { cpus } from "node:os";
-import { validateDatabasePath } from "../lib/accounts.ts";
-import { loadKeyring } from "../lib/account-secrets.ts";
-import { PROJECT_ROOT } from "../lib/constants.ts";
-import { openDatabase } from "../lib/db.ts";
-import { isOwnerUnclaimed } from "../lib/users.ts";
+import { validateDatabasePath } from "../packages/core/src/accounts.ts";
+import { loadKeyring } from "../packages/core/src/account-secrets.ts";
+import { PROJECT_ROOT } from "../packages/core/src/constants.ts";
+import { openDatabase } from "../packages/core/src/db.ts";
+import { isOwnerUnclaimed } from "../packages/core/src/users.ts";
 import { portFree, QA_NO_ACCOUNTS_FILE, runtimeProblem } from "./qa-serve.ts";
 
 export const STAGING_DATABASE_PATH = "data/staging.sqlite";

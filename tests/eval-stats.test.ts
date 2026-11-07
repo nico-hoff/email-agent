@@ -10,7 +10,7 @@ import {
   rocAuc,
   specificity,
   wilson,
-} from "../lib/eval-stats.ts";
+} from "../packages/core/src/eval-stats.ts";
 
 const close = (a: number | null, b: number, eps = 1e-3) => {
   assert.ok(a !== null && Math.abs(a - b) < eps, `${a} vs ${b}`);

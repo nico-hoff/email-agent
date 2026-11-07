@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { appendUnique, fetchDetail, fetchPage, SessionExpired } from "../lib/list-client.ts";
-import type { ApiEmail } from "../lib/review-ui.ts";
+import { appendUnique, fetchDetail, fetchPage, SessionExpired } from "../packages/core/src/list-client.ts";
+import type { ApiEmail } from "../packages/core/src/review-ui.ts";
 
 const reply = (body: unknown, status = 200): typeof fetch => (() => Promise.resolve(new Response(JSON.stringify(body), { status }))) as typeof fetch;
 const row = (id: number) => ({ id }) as ApiEmail;

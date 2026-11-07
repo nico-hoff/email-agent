@@ -6,9 +6,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { accountsImportMain } from "../scripts/accounts-import.ts";
 import { accountsRekeyMain } from "../scripts/accounts-rekey.ts";
-import { generateKey, loadKeyring } from "../lib/account-secrets.ts";
-import { openDatabase } from "../lib/db.ts";
-import { loadWorkerAccounts } from "../lib/mail-accounts.ts";
+import { generateKey, loadKeyring } from "../packages/core/src/account-secrets.ts";
+import { openDatabase } from "../packages/core/src/db.ts";
+import { loadWorkerAccounts } from "../packages/core/src/mail-accounts.ts";
 
 const SECRET = "cli-synthetic-secret-1";
 function project() {
@@ -59,11 +59,11 @@ describe("accounts CLI", () => {
 });
 
 describe("the legacy file is read by the import only", () => {
-  it("only lib/mail-accounts.ts (import) and lib/accounts.ts (startup) reference loadAccountsConfig; account-modes does not", () => {
+  it("only packages/core/src/mail-accounts.ts (import) and packages/core/src/accounts.ts (startup) reference loadAccountsConfig; account-modes does not", () => {
     const read = (f: string) => readFileSync(new URL(`../${f}`, import.meta.url), "utf8");
-    assert.doesNotMatch(read("lib/account-modes.ts"), /loadAccountsConfig|ACCOUNTS_FILE/);
-    assert.doesNotMatch(read("lib/accounts-api.ts"), /loadAccountsConfig|ACCOUNTS_FILE/);
-    assert.doesNotMatch(read("lib/account-supervisor.ts"), /loadAccountsConfig|ACCOUNTS_FILE/);
-    assert.match(read("lib/mail-accounts.ts"), /loadAccountsConfig/);
+    assert.doesNotMatch(read("packages/core/src/account-modes.ts"), /loadAccountsConfig|ACCOUNTS_FILE/);
+    assert.doesNotMatch(read("packages/core/src/accounts-api.ts"), /loadAccountsConfig|ACCOUNTS_FILE/);
+    assert.doesNotMatch(read("packages/core/src/account-supervisor.ts"), /loadAccountsConfig|ACCOUNTS_FILE/);
+    assert.match(read("packages/core/src/mail-accounts.ts"), /loadAccountsConfig/);
   });
 });

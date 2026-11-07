@@ -2,11 +2,11 @@
 //   ACCOUNTS_ENCRYPTION_KEY=<new> ACCOUNTS_ENCRYPTION_KEY_OLD=<old> npm run accounts:rekey
 // Afterwards ACCOUNTS_ENCRYPTION_KEY_OLD can be removed. All or nothing: one unreadable secret aborts and changes nothing.
 import { fileURLToPath } from "node:url";
-import { validateDatabasePath } from "../lib/accounts.ts";
-import { loadKeyring } from "../lib/account-secrets.ts";
-import { PROJECT_ROOT } from "../lib/constants.ts";
-import { openDatabase } from "../lib/db.ts";
-import { rekeyAll } from "../lib/mail-accounts.ts";
+import { validateDatabasePath } from "../packages/core/src/accounts.ts";
+import { loadKeyring } from "../packages/core/src/account-secrets.ts";
+import { PROJECT_ROOT } from "../packages/core/src/constants.ts";
+import { openDatabase } from "../packages/core/src/db.ts";
+import { rekeyAll } from "../packages/core/src/mail-accounts.ts";
 import type { CliDeps } from "./accounts-import.ts";
 
 export function accountsRekeyMain(deps: CliDeps): number {

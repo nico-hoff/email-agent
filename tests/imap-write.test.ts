@@ -2,7 +2,7 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
-import { createImapWritePort, ImapWriteError } from "../lib/imap-write.ts";
+import { createImapWritePort, ImapWriteError } from "../packages/core/src/imap-write.ts";
 
 const root = join(import.meta.dirname, "..");
 const CFG = { host: "imap.secret.example", port: 993, tls: true, user: "secret-user", password: "secret-pass" };
@@ -134,7 +134,7 @@ describe("ImapWritePort (H16, H16a)", () => {
   test("the port has exactly three methods; the module never references destructive IMAP calls (messageMove is the only move)", () => {
     const port = createImapWritePort(CFG, () => new FakeClient() as never);
     assert.deepEqual(Object.keys(port).sort(), ["addSeen", "moveMessage", "removeSeen"]);
-    const src = readFileSync(join(root, "lib", "imap-write.ts"), "utf8");
+    const src = readFileSync(join(root, "packages", "core", "src", "imap-write.ts"), "utf8");
     for (const bad of ["messageDelete", "expunge", "EXPUNGE", "messageCopy", "append(", "moveTo", "messageFlagsSet", "\\\\Deleted", "mailboxDelete", "mailboxRename", "messageFlagsAdd([uid], [\"\\\\Deleted"]) {
       assert.ok(!src.includes(bad), bad);
     }
@@ -145,12 +145,12 @@ describe("ImapWritePort (H16, H16a)", () => {
   });
 
   test("the read port keeps no write method (H2 stays)", () => {
-    const src = readFileSync(join(root, "lib", "imap.ts"), "utf8");
+    const src = readFileSync(join(root, "packages", "core", "src", "imap.ts"), "utf8");
     assert.ok(!/messageFlags(Add|Remove|Set)|messageDelete|messageMove|expunge|append\(/.test(src));
     assert.ok(!src.includes("readOnly: false"));
   });
 
-  test("only lib/mailbox-actions.ts creates the write port", () => {
+  test("only packages/core/src/mailbox-actions.ts creates the write port", () => {
     const files: string[] = [];
     const skip = new Set(["node_modules", ".git", "tests", "data", "graphify-out", "dist", ".claude", ".veryfront", ".hermes"]);
     const walk = (dir: string) => {
@@ -163,6 +163,6 @@ describe("ImapWritePort (H16, H16a)", () => {
     };
     walk(root);
     const users = files.filter((f) => /createImapWritePort|imap-write\.ts/.test(readFileSync(f, "utf8"))).map((f) => relative(root, f)).sort();
-    assert.deepEqual(users, ["lib/imap-write.ts", "lib/mailbox-actions.ts"]);
+    assert.deepEqual(users, ["packages/core/src/imap-write.ts", "packages/core/src/mailbox-actions.ts"]);
   });
 });

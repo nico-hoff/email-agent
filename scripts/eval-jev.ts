@@ -13,7 +13,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import { createJevClient, type JevClient } from "../lib/jev.ts";
+import { createJevClient, type JevClient } from "../packages/core/src/jev.ts";
 import {
   dedupeCases,
   EVAL_SOURCES,
@@ -24,17 +24,17 @@ import {
   type EvalCase,
   type EvalSplit,
   type SampleStrategy,
-} from "../lib/eval-sources.ts";
-import { buildState, QUESTIONS, questionsFor, type JevQuestion } from "../lib/jev-questions.ts";
-import { normalizeAnswers, type NormalizedAnswer } from "../lib/jev-response.ts";
-import { JEV_MODEL, QUESTION_SET_VERSION, QUESTION_SET_VERSION_V1, QUESTION_SET_VERSION_V2 } from "../lib/constants.ts";
-import { gateDatasetFileName, gateLinesFromReport, GATE_DATASET_DIR, serializeGateDataset } from "../lib/eval-gate.ts";
+} from "../packages/core/src/eval-sources.ts";
+import { buildState, QUESTIONS, questionsFor, type JevQuestion } from "../packages/core/src/jev-questions.ts";
+import { normalizeAnswers, type NormalizedAnswer } from "../packages/core/src/jev-response.ts";
+import { JEV_MODEL, QUESTION_SET_VERSION, QUESTION_SET_VERSION_V1, QUESTION_SET_VERSION_V2 } from "../packages/core/src/constants.ts";
+import { gateDatasetFileName, gateLinesFromReport, GATE_DATASET_DIR, serializeGateDataset } from "../packages/core/src/eval-gate.ts";
 import {
   importSyntheticCases,
   openSyntheticDevDatabase,
   type ImportResult,
   type SyntheticItem,
-} from "../lib/synthetic-dev-db.ts";
+} from "../packages/core/src/synthetic-dev-db.ts";
 
 export const MAX_LIVE_CALLS = 30;
 // Harte Grenze pro Lauf fuer die HF-Stichprobe.

@@ -16,11 +16,11 @@ import {
   type EvalCase,
 } from "../scripts/eval-jev.ts";
 import { existsSync, readFileSync as readFile } from "node:fs";
-import { openDatabase } from "../lib/db.ts";
-import { DEV_SYNTHETIC_DATABASE_PATH } from "../lib/constants.ts";
-import { partitionOf } from "../lib/eval-sources.ts";
+import { openDatabase } from "../packages/core/src/db.ts";
+import { DEV_SYNTHETIC_DATABASE_PATH } from "../packages/core/src/constants.ts";
+import { partitionOf } from "../packages/core/src/eval-sources.ts";
 import { seedDevDatabase } from "../scripts/seed-dev-db.ts";
-import type { JevClient } from "../lib/jev.ts";
+import type { JevClient } from "../packages/core/src/jev.ts";
 
 function answers(over: Record<string, unknown> = {}) {
   return {

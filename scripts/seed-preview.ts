@@ -9,10 +9,10 @@
 // - Seeds only an EMPTY database (no emails yet); a restart on a filled database changes nothing.
 // Output: one line, no mail data. Aufruf: node scripts/seed-preview.ts
 import { existsSync } from "node:fs";
-import { PROJECT_ROOT } from "../lib/constants.ts";
-import { validateDatabasePath } from "../lib/accounts.ts";
-import { openDatabase } from "../lib/db.ts";
-import { importSyntheticCases } from "../lib/synthetic-dev-db.ts";
+import { PROJECT_ROOT } from "../packages/core/src/constants.ts";
+import { validateDatabasePath } from "../packages/core/src/accounts.ts";
+import { openDatabase } from "../packages/core/src/db.ts";
+import { importSyntheticCases } from "../packages/core/src/synthetic-dev-db.ts";
 import { smokeItems } from "./e2e-smoke.ts";
 
 export const PREVIEW_APP_PREFIX = "email-agent-preview-";

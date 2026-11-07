@@ -1,10 +1,10 @@
 // "Konten verwalten" (R2): the section of the profile page that lists, adds, edits, tests and disables mailboxes.
 // Stateless: the page passes data, the open form and callbacks. The password field is never prefilled and no secret is ever
 // rendered; the list shows only whether a password is stored and since when.
-import { ACCOUNTS_ERROR_TEXT, COLOR_CHOICES, formType, GOOGLE_DEFAULTS, TEST_RESULT_TEXT, workerText, type AccountForm, type AccountItem, type AccountsData } from "../lib/accounts-client.ts";
-import { hostPlaceholder } from "../lib/mail-provider-hints.ts";
-import { formatWhen } from "../lib/profile-client.ts";
-import { showSyncCard, type SyncData } from "../lib/sync-client.ts";
+import { ACCOUNTS_ERROR_TEXT, COLOR_CHOICES, formType, GOOGLE_DEFAULTS, TEST_RESULT_TEXT, workerText, type AccountForm, type AccountItem, type AccountsData } from "../packages/core/src/accounts-client.ts";
+import { hostPlaceholder } from "../packages/core/src/mail-provider-hints.ts";
+import { formatWhen } from "../packages/core/src/profile-client.ts";
+import { showSyncCard, type SyncData } from "../packages/core/src/sync-client.ts";
 import { SyncCard } from "./sync-card.tsx";
 
 const noop = (): void => {};

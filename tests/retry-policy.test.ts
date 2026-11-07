@@ -1,14 +1,14 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import type { DatabaseSync } from "node:sqlite";
-import { openDatabase } from "../lib/db.ts";
-import { syncAccounts } from "../lib/accounts.ts";
-import { ingestMail } from "../lib/ingest.ts";
-import type { ImapPort, MessageMeta, TransientInput } from "../lib/imap.ts";
-import type { JevCallResult } from "../lib/jev.ts";
-import { JEV_MAX_ATTEMPTS, JEV_MODEL, JEV_RETRY_BACKOFF_MAX_MS, JEV_RETRY_BACKOFF_MIN_MS, QUESTION_SET_VERSION, SCHEDULER_TICK_MS } from "../lib/constants.ts";
-import { backoffMs, classifyFailure } from "../lib/retry-policy.ts";
-import { createClassificationPipeline, type SchedulerClock } from "../lib/classification-pipeline.ts";
+import { openDatabase } from "../packages/core/src/db.ts";
+import { syncAccounts } from "../packages/core/src/accounts.ts";
+import { ingestMail } from "../packages/core/src/ingest.ts";
+import type { ImapPort, MessageMeta, TransientInput } from "../packages/core/src/imap.ts";
+import type { JevCallResult } from "../packages/core/src/jev.ts";
+import { JEV_MAX_ATTEMPTS, JEV_MODEL, JEV_RETRY_BACKOFF_MAX_MS, JEV_RETRY_BACKOFF_MIN_MS, QUESTION_SET_VERSION, SCHEDULER_TICK_MS } from "../packages/core/src/constants.ts";
+import { backoffMs, classifyFailure } from "../packages/core/src/retry-policy.ts";
+import { createClassificationPipeline, type SchedulerClock } from "../packages/core/src/classification-pipeline.ts";
 
 const T0 = new Date("2026-10-26T12:00:00.000Z");
 const meta: MessageMeta = {

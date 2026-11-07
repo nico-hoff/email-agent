@@ -1,9 +1,9 @@
-import { defaultAuthContext, defaultMutationLimiter } from "../../../../../lib/auth-runtime.ts";
-import { validateDatabasePath } from "../../../../../lib/accounts.ts";
-import { PROJECT_ROOT } from "../../../../../lib/constants.ts";
-import { openDatabase } from "../../../../../lib/db.ts";
-import { handleActionUndo } from "../../../../../lib/action-undo.ts";
-import { defaultMailboxActions } from "../../../../../lib/email-unread.ts";
+import { defaultAuthContext, defaultMutationLimiter } from "../../../../../packages/core/src/auth-runtime.ts";
+import { validateDatabasePath } from "../../../../../packages/core/src/accounts.ts";
+import { PROJECT_ROOT } from "../../../../../packages/core/src/constants.ts";
+import { openDatabase } from "../../../../../packages/core/src/db.ts";
+import { handleActionUndo } from "../../../../../packages/core/src/action-undo.ts";
+import { defaultMailboxActions } from "../../../../../packages/core/src/email-unread.ts";
 
 // Veryfront passes the route params as the second argument (Context7 /websites/veryfront, api-routes).
 export async function POST(request: Request, context: { params: Record<string, string> | Promise<Record<string, string>> }): Promise<Response> {

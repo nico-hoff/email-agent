@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import { MIGRATIONS_DIR, openDatabase } from "../lib/db.ts";
+import { MIGRATIONS_DIR, openDatabase } from "../packages/core/src/db.ts";
 
 const root = join(import.meta.dirname, "..");
 let tmp: string;

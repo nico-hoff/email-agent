@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createHash } from "node:crypto";
-import { EXCERPT_MAX_CHARS, QUESTION_SET_VERSION, QUESTION_SET_VERSION_V1, QUESTION_SET_VERSION_V2, QUESTION_SET_VERSION_V3 } from "../lib/constants.ts";
-import { QUESTIONS, QUESTION_SET_VERSIONS, STATE_KEYS, buildState, questionsFor, questionsV3 } from "../lib/jev-questions.ts";
-import { buildTopicList, FIXED_TOPICS } from "../lib/topics.ts";
+import { EXCERPT_MAX_CHARS, QUESTION_SET_VERSION, QUESTION_SET_VERSION_V1, QUESTION_SET_VERSION_V2, QUESTION_SET_VERSION_V3 } from "../packages/core/src/constants.ts";
+import { QUESTIONS, QUESTION_SET_VERSIONS, STATE_KEYS, buildState, questionsFor, questionsV3 } from "../packages/core/src/jev-questions.ts";
+import { buildTopicList, FIXED_TOPICS } from "../packages/core/src/topics.ts";
 
 test("version constant", () => {
   assert.equal(QUESTION_SET_VERSION, "email-classification-v2"); // default since R7 (ADR 0032)

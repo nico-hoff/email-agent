@@ -22,7 +22,7 @@ import {
   workState,
   type ApiAnswer,
   type ApiEmail,
-} from "../lib/review-ui.ts";
+} from "../packages/core/src/review-ui.ts";
 
 const TZ = "Europe/Berlin";
 const NOW = new Date("2026-10-27T12:00:00.000Z");

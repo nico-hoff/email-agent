@@ -1,7 +1,7 @@
-import { defaultAuthContext, requireUser } from "../../../lib/auth-runtime.ts";
-import { openDatabase } from "../../../lib/db.ts";
-import { validateDatabasePath } from "../../../lib/accounts.ts";
-import { PROJECT_ROOT } from "../../../lib/constants.ts";
+import { defaultAuthContext, requireUser } from "../../../packages/core/src/auth-runtime.ts";
+import { openDatabase } from "../../../packages/core/src/db.ts";
+import { validateDatabasePath } from "../../../packages/core/src/accounts.ts";
+import { PROJECT_ROOT } from "../../../packages/core/src/constants.ts";
 
 const CLASSIFICATION_STATES = ["pending", "retry_wait", "classified", "failed", "paused"] as const;
 

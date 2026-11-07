@@ -14,10 +14,10 @@ import {
   runLive,
   type JudgeFn,
 } from "../scripts/agent-eval-live.ts";
-import { formatBriefingInput } from "../lib/briefing-context.ts";
-import { briefingContextOf, loadBriefingCases, loadReplyCases, parseBriefingGate, parseReplyGate, serializeBriefingGate, serializeReplyGate } from "../lib/agent-eval-gate.ts";
-import { loadBriefingGate, loadReplyGate } from "../lib/agent-eval-gate.ts";
-import type { DraftAgent } from "../lib/draft-reply.ts";
+import { formatBriefingInput } from "../packages/core/src/briefing-context.ts";
+import { briefingContextOf, loadBriefingCases, loadReplyCases, parseBriefingGate, parseReplyGate, serializeBriefingGate, serializeReplyGate } from "../packages/core/src/agent-eval-gate.ts";
+import { loadBriefingGate, loadReplyGate } from "../packages/core/src/agent-eval-gate.ts";
+import type { DraftAgent } from "../packages/core/src/draft-reply.ts";
 import { fakeStreamAgent } from "./helpers/fake-stream-agent.ts";
 
 const root = join(import.meta.dirname, "..");

@@ -1,4 +1,4 @@
-import { handleDeny } from "../../../../lib/auth-runtime.ts";
+import { handleDeny } from "../../../../packages/core/src/auth-runtime.ts";
 
 // Target of the request interceptor for denied requests (see interceptRequest). The answer depends only on ?k=.
 const deny = (request: Request): Response => handleDeny(request);

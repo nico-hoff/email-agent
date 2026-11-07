@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { copyToClipboard, DRAFT_ERROR_TEXT, draftErrorText, postDraft, reasonText, showDraftButton } from "../lib/draft-client.ts";
-import type { MutationDeps } from "../lib/mutate-client.ts";
+import { copyToClipboard, DRAFT_ERROR_TEXT, draftErrorText, postDraft, reasonText, showDraftButton } from "../packages/core/src/draft-client.ts";
+import type { MutationDeps } from "../packages/core/src/mutate-client.ts";
 
 function deps(res: Response) {
   const calls: { url: string; init?: RequestInit }[] = [];

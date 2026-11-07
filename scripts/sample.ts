@@ -2,11 +2,11 @@
 // Aufruf: npm run sample -- --account <id> --limit-per-folder 200 [--confirm <N>] [--question-set <version>]
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
-import { createPersistResponse, createClassificationPipeline } from "../lib/classification-pipeline.ts";
-import { JEV_MODEL, PROJECT_ROOT, QUESTION_SET_VERSION, SAMPLE_HARD_LIMIT } from "../lib/constants.ts";
-import { checkFolderMapping, createImapFlowPort, formatFolderCheck, parseMessage, type ImapPort } from "../lib/imap.ts";
-import { ingestMail } from "../lib/ingest.ts";
-import { createJevClient, type JevClient } from "../lib/jev.ts";
+import { createPersistResponse, createClassificationPipeline } from "../packages/core/src/classification-pipeline.ts";
+import { JEV_MODEL, PROJECT_ROOT, QUESTION_SET_VERSION, SAMPLE_HARD_LIMIT } from "../packages/core/src/constants.ts";
+import { checkFolderMapping, createImapFlowPort, formatFolderCheck, parseMessage, type ImapPort } from "../packages/core/src/imap.ts";
+import { ingestMail } from "../packages/core/src/ingest.ts";
+import { createJevClient, type JevClient } from "../packages/core/src/jev.ts";
 
 export const DEFAULT_LIMIT_PER_FOLDER = 200;
 
@@ -291,7 +291,7 @@ export function formatSample(r: SampleResult): string {
 }
 
 async function main(): Promise<void> {
-  const { startup } = await import("../lib/accounts.ts");
+  const { startup } = await import("../packages/core/src/accounts.ts");
   let args;
   try {
     args = parseSampleArgs(process.argv.slice(2));
@@ -301,8 +301,8 @@ async function main(): Promise<void> {
   }
   const started = startup({ env: process.env, projectRoot: PROJECT_ROOT });
   try {
-    const { loadKeyring } = await import("../lib/account-secrets.ts");
-    const { loadWorkerAccounts } = await import("../lib/mail-accounts.ts");
+    const { loadKeyring } = await import("../packages/core/src/account-secrets.ts");
+    const { loadWorkerAccounts } = await import("../packages/core/src/mail-accounts.ts");
     const keys = loadKeyring(process.env);
     if (!keys.ok) {
       console.error("ACCOUNTS_ENCRYPTION_KEY is not set or invalid");

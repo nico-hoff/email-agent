@@ -15,7 +15,7 @@ import {
   type CreatedInvite,
   type OpenInvite,
   type Profile,
-} from '../../lib/profile-client.ts'
+} from '../../packages/core/src/profile-client.ts'
 import {
   applyPatch,
   emptyForm,
@@ -27,8 +27,8 @@ import {
   postUpdateAccount,
   type AccountForm,
   type AccountsData,
-} from '../../lib/accounts-client.ts'
-import { fetchSync, isActivePhase, postSyncRestart, RESTART_ERROR_TEXT, SYNC_POLL_MS, type SyncData } from '../../lib/sync-client.ts'
+} from '../../packages/core/src/accounts-client.ts'
+import { fetchSync, isActivePhase, postSyncRestart, RESTART_ERROR_TEXT, SYNC_POLL_MS, type SyncData } from '../../packages/core/src/sync-client.ts'
 import {
   fetchSettings,
   postClassifierChoice,
@@ -41,7 +41,7 @@ import {
   type SettingsData,
   type SettingsResult,
   type SpamSeenMode,
-} from '../../lib/settings-client.ts'
+} from '../../packages/core/src/settings-client.ts'
 
 // Shell only: account data, invitations and the one-time invite code arrive through client-side /api calls and live in
 // component state; nothing is written to browser storage.

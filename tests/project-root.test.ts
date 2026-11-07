@@ -2,9 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { PROJECT_ROOT } from "../lib/constants.ts";
+import { PROJECT_ROOT } from "../packages/core/src/constants.ts";
 import { createService } from "../server.ts";
-import { openDatabase } from "../lib/db.ts";
+import { openDatabase } from "../packages/core/src/db.ts";
 
 test("PROJECT_ROOT is the directory containing server.ts, independent of cwd", () => {
   assert.ok(existsSync(join(PROJECT_ROOT, "server.ts")));

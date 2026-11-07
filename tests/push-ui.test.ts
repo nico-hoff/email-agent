@@ -5,9 +5,9 @@ import { describe, it } from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { loadTsx } from "./helpers/load-tsx.ts";
-import { pushSectionState, type PushSectionState } from "../lib/push-section.ts";
-import { currentPushDevice, removePushDevice, type PushConfigInfo, type PushDevice, type PushEnv, type PushSubscriptionLike } from "../lib/push-client.ts";
-import type { MutationDeps } from "../lib/mutate-client.ts";
+import { pushSectionState, type PushSectionState } from "../packages/core/src/push-section.ts";
+import { currentPushDevice, removePushDevice, type PushConfigInfo, type PushDevice, type PushEnv, type PushSubscriptionLike } from "../packages/core/src/push-client.ts";
+import type { MutationDeps } from "../packages/core/src/mutate-client.ts";
 
 type Mgr = typeof import("../components/push-manager.tsx");
 type Prof = typeof import("../components/profile.tsx");

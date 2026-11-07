@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { join } from "node:path";
 import { datasetPath, formatReport, loadDataset, parseEvalArgs, runEvalSet } from "../scripts/eval-jev.ts";
-import { QUESTION_SET_VERSION_V1, QUESTION_SET_VERSION_V2 } from "../lib/constants.ts";
-import { QUESTIONS, questionsFor } from "../lib/jev-questions.ts";
-import type { JevClient } from "../lib/jev.ts";
+import { QUESTION_SET_VERSION_V1, QUESTION_SET_VERSION_V2 } from "../packages/core/src/constants.ts";
+import { QUESTIONS, questionsFor } from "../packages/core/src/jev-questions.ts";
+import type { JevClient } from "../packages/core/src/jev.ts";
 
 const V2_SET = join(import.meta.dirname, "fixtures", "eval", "email-eval-v2.jsonl");
 const V1_SET = join(import.meta.dirname, "fixtures", "eval", "email-eval-v1.jsonl");

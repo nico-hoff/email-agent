@@ -1,10 +1,10 @@
-import { hasModelKey, resolveAgent } from "../../../../../lib/agent-registry.ts";
-import { validateDatabasePath } from "../../../../../lib/accounts.ts";
-import { createMutationLimiter, defaultAuthContext } from "../../../../../lib/auth-runtime.ts";
-import { PROJECT_ROOT } from "../../../../../lib/constants.ts";
-import { openDatabase } from "../../../../../lib/db.ts";
-import type { DraftAgent } from "../../../../../lib/draft-reply.ts";
-import { defaultPortFactory, handleDraft } from "../../../../../lib/draft-route.ts";
+import { hasModelKey, resolveAgent } from "../../../../../packages/core/src/agent-registry.ts";
+import { validateDatabasePath } from "../../../../../packages/core/src/accounts.ts";
+import { createMutationLimiter, defaultAuthContext } from "../../../../../packages/core/src/auth-runtime.ts";
+import { PROJECT_ROOT } from "../../../../../packages/core/src/constants.ts";
+import { openDatabase } from "../../../../../packages/core/src/db.ts";
+import type { DraftAgent } from "../../../../../packages/core/src/draft-reply.ts";
+import { defaultPortFactory, handleDraft } from "../../../../../packages/core/src/draft-route.ts";
 
 // Strict budget: every call is a model run plus an IMAP refetch (10 per 10 minutes and identity).
 const limiter = createMutationLimiter(undefined, 10);

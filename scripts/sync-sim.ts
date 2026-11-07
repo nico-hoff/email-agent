@@ -13,12 +13,12 @@
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { cpus } from "node:os";
-import { generateKey } from "../lib/account-secrets.ts";
-import { validateDatabasePath } from "../lib/accounts.ts";
-import { PROJECT_ROOT } from "../lib/constants.ts";
-import { openDatabase } from "../lib/db.ts";
-import type { HeaderInfo, ImapPort } from "../lib/imap.ts";
-import type { JevCallResult, JevClient } from "../lib/jev.ts";
+import { generateKey } from "../packages/core/src/account-secrets.ts";
+import { validateDatabasePath } from "../packages/core/src/accounts.ts";
+import { PROJECT_ROOT } from "../packages/core/src/constants.ts";
+import { openDatabase } from "../packages/core/src/db.ts";
+import type { HeaderInfo, ImapPort } from "../packages/core/src/imap.ts";
+import type { JevCallResult, JevClient } from "../packages/core/src/jev.ts";
 import { createService, createSupervisedWorkers } from "../server.ts";
 import { createImapWorkers } from "../workers/imap-worker.ts";
 import { ensureQaUser, portFree, QA_NO_ACCOUNTS_FILE, QA_PASSWORD, QA_USER_EMAIL, runtimeProblem } from "./qa-serve.ts";

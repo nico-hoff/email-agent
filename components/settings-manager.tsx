@@ -2,8 +2,8 @@
 // "Klassifikationsmodell" (only with the permission) and "Berechtigungen" (admins). Stateless: the page passes data, the open
 // dialog and callbacks. Shows switches, counts and model names only; nothing from a mail.
 import { ConfirmDialog } from "./confirm-dialog.tsx";
-import { costText, MODE_LABEL, modeSummary, quarantineSummary, type SettingsAccount, type SettingsData, type SpamSeenMode } from "../lib/settings-client.ts";
-import { formatWhen } from "../lib/profile-client.ts";
+import { costText, MODE_LABEL, modeSummary, quarantineSummary, type SettingsAccount, type SettingsData, type SpamSeenMode } from "../packages/core/src/settings-client.ts";
+import { formatWhen } from "../packages/core/src/profile-client.ts";
 
 const noop = (): void => {};
 const MODES: readonly SpamSeenMode[] = ["off", "dry_run", "live"];

@@ -4,11 +4,11 @@ import { mkdtempSync, chmodSync, rmSync, readdirSync, readFileSync, existsSync }
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { openDatabase } from "../lib/db.ts";
-import { syncAccounts } from "../lib/accounts.ts";
-import { QUESTION_SET_VERSION } from "../lib/constants.ts";
-import type { NormalizedAnswer, NoulReading } from "../lib/jev-response.ts";
-import { runAsUser } from "../lib/tenant.ts";
+import { openDatabase } from "../packages/core/src/db.ts";
+import { syncAccounts } from "../packages/core/src/accounts.ts";
+import { QUESTION_SET_VERSION } from "../packages/core/src/constants.ts";
+import type { NormalizedAnswer, NoulReading } from "../packages/core/src/jev-response.ts";
+import { runAsUser } from "../packages/core/src/tenant.ts";
 
 // Outside the Veryfront runtime nobody registers the SchemaValidator that defineSchema() needs at
 // module load (the runtime does it in bootstrap, see agent-contract notes). Not a public export,

@@ -4,7 +4,7 @@ import { UndoToast } from "./review.tsx";
 import { HitlCard, type HitlDecision } from "./briefing.tsx";
 import {
   KIND_LABEL, SENDER_ERROR_TEXT, type HitlCandidate, type RuleKind, type SenderReason, type SenderRule,
-} from "../lib/senders-client.ts";
+} from "../packages/core/src/senders-client.ts";
 
 const noop = (): void => {};
 

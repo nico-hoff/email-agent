@@ -1,8 +1,8 @@
 // Live card of the initial import (ADR 0043) in Profil → Konten. Stateless: the page polls and passes the data. Shows the
 // four stages, two progress bars and a short feed of the mails System One has just processed (subject, sender, badges: all
 // of it is already in the database and in the list API). No mail content beyond that; respects prefers-reduced-motion.
-import { cardBadges, type Badge } from "../lib/review-ui.ts";
-import { isActivePhase, syncHeadline, syncNote, syncStages, type Stage, type SyncData } from "../lib/sync-client.ts";
+import { cardBadges, type Badge } from "../packages/core/src/review-ui.ts";
+import { isActivePhase, syncHeadline, syncNote, syncStages, type Stage, type SyncData } from "../packages/core/src/sync-client.ts";
 
 const noop = (): void => {};
 /** Badges the feed shows: the call to action, the category (Spam, Newsletter, ...) and how important the mail is. */

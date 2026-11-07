@@ -3,9 +3,9 @@ import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { test } from "node:test";
 import { buildFixture, FIXTURE_PATH, parseProbeArgs, PROBE_MAIL, runProbe } from "../scripts/jev-v2-probe.ts";
-import { QUESTION_SET_VERSION_V2 } from "../lib/constants.ts";
-import { questionsFor } from "../lib/jev-questions.ts";
-import type { JevClient } from "../lib/jev.ts";
+import { QUESTION_SET_VERSION_V2 } from "../packages/core/src/constants.ts";
+import { questionsFor } from "../packages/core/src/jev-questions.ts";
+import type { JevClient } from "../packages/core/src/jev.ts";
 
 const root = join(import.meta.dirname, "..");
 

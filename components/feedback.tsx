@@ -1,7 +1,7 @@
 // Feedback buttons on the detail page (T37). Stateless: the current answer per topic comes from the server,
 // null = still loading. A repeated answer is a no-op on the server, so a pressed button just stays pressed.
-import { CATEGORY_CHOICES, type FeedbackKind, type FeedbackState } from "../lib/feedback-client.ts";
-import { categoryLabel } from "../lib/review-ui.ts";
+import { CATEGORY_CHOICES, type FeedbackKind, type FeedbackState } from "../packages/core/src/feedback-client.ts";
+import { categoryLabel } from "../packages/core/src/review-ui.ts";
 
 export interface FeedbackPanelProps {
   state: FeedbackState | null;

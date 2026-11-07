@@ -1,4 +1,4 @@
-import { defaultAccountsDeps, handleAccountTest } from "../../../../../lib/accounts-api.ts";
+import { defaultAccountsDeps, handleAccountTest } from "../../../../../packages/core/src/accounts-api.ts";
 
 // Veryfront passes the route params as the second argument (Context7 /websites/veryfront, api-routes).
 type Ctx = { params: Record<string, string> | Promise<Record<string, string>> };

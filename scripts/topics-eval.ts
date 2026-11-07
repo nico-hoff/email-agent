@@ -10,20 +10,20 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { JEV_MODEL, PROJECT_ROOT, QUESTION_SET_VERSION_V2, QUESTION_SET_VERSION_V3 } from "../lib/constants.ts";
-import { createDecisionsClient, LUNA_DECISIONS_MODEL } from "../lib/decisions-client.ts";
-import { createJevClient, type JevClient } from "../lib/jev.ts";
-import { questionsFor, questionsV3 } from "../lib/jev-questions.ts";
-import { createLimiter } from "../lib/limiter.ts";
+import { JEV_MODEL, PROJECT_ROOT, QUESTION_SET_VERSION_V2, QUESTION_SET_VERSION_V3 } from "../packages/core/src/constants.ts";
+import { createDecisionsClient, LUNA_DECISIONS_MODEL } from "../packages/core/src/decisions-client.ts";
+import { createJevClient, type JevClient } from "../packages/core/src/jev.ts";
+import { questionsFor, questionsV3 } from "../packages/core/src/jev-questions.ts";
+import { createLimiter } from "../packages/core/src/limiter.ts";
 import {
   evaluateTopicsGate, serializeTopicsGateDataset, topicsGateFileName, TOPICS_GATE_DIR,
   type HfGateLine, type TopicGateLine, type TopicsGateLine, type TopicsGateResult,
-} from "../lib/topics-gate.ts";
-import { buildTopicList } from "../lib/topics.ts";
+} from "../packages/core/src/topics-gate.ts";
+import { buildTopicList } from "../packages/core/src/topics.ts";
 import { expectedOf, runCompare, stateOf, type CaseRec, type SuiteDef, type SuiteRun } from "./model-compare.ts";
 import { prepareHfSample } from "./eval-jev.ts";
 import { loadTopicCases, PROBE_CUSTOM, sampleTopicCases } from "./jev-topic-probe.ts";
-import type { EvalCase } from "../lib/eval-sources.ts";
+import type { EvalCase } from "../packages/core/src/eval-sources.ts";
 
 export const REPORT_DIR = join(PROJECT_ROOT, "data", "eval-runs");
 export const MODEL_IDS = new Map<string, { id: string; short: string }>([

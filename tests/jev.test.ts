@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { createJevClient } from "../lib/jev.ts";
-import { createLimiter } from "../lib/limiter.ts";
-import { QUESTIONS } from "../lib/jev-questions.ts";
-import { JEV_MODEL } from "../lib/constants.ts";
+import { createJevClient } from "../packages/core/src/jev.ts";
+import { createLimiter } from "../packages/core/src/limiter.ts";
+import { QUESTIONS } from "../packages/core/src/jev-questions.ts";
+import { JEV_MODEL } from "../packages/core/src/constants.ts";
 
 const response = { answers: {}, model: "m", usage: { inputTokens: 1, outputTokens: 2 } };
 

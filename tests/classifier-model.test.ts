@@ -3,20 +3,20 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { openDatabase } from "../lib/db.ts";
-import { syncAccounts } from "../lib/accounts.ts";
-import { ingestMail } from "../lib/ingest.ts";
-import type { ImapPort, MessageMeta, TransientInput } from "../lib/imap.ts";
-import type { JevCallResult, JevClient } from "../lib/jev.ts";
-import { createClassificationPipeline, createPersistResponse } from "../lib/classification-pipeline.ts";
-import { CLASSIFIER_MODELS, DEFAULT_CLASSIFIER, isClassifierModel, JEV_CLASSIFIER, LUNA_CLASSIFIER, relativeCost } from "../lib/classifier-models.ts";
-import { JEV_MODEL, QUESTION_SET_VERSION } from "../lib/constants.ts";
-import { LUNA_DECISIONS_MODEL } from "../lib/decisions-client.ts";
-import { interpretNoul } from "../lib/jev-response.ts";
-import { calibrationFor, NOUL_CALIBRATIONS, parseNoulCalibrations } from "../lib/noul-calibration.ts";
+import { openDatabase } from "../packages/core/src/db.ts";
+import { syncAccounts } from "../packages/core/src/accounts.ts";
+import { ingestMail } from "../packages/core/src/ingest.ts";
+import type { ImapPort, MessageMeta, TransientInput } from "../packages/core/src/imap.ts";
+import type { JevCallResult, JevClient } from "../packages/core/src/jev.ts";
+import { createClassificationPipeline, createPersistResponse } from "../packages/core/src/classification-pipeline.ts";
+import { CLASSIFIER_MODELS, DEFAULT_CLASSIFIER, isClassifierModel, JEV_CLASSIFIER, LUNA_CLASSIFIER, relativeCost } from "../packages/core/src/classifier-models.ts";
+import { JEV_MODEL, QUESTION_SET_VERSION } from "../packages/core/src/constants.ts";
+import { LUNA_DECISIONS_MODEL } from "../packages/core/src/decisions-client.ts";
+import { interpretNoul } from "../packages/core/src/jev-response.ts";
+import { calibrationFor, NOUL_CALIBRATIONS, parseNoulCalibrations } from "../packages/core/src/noul-calibration.ts";
 import {
   classifierModelFor, isSelectableModel, readUserSettings, setClassifierChoice, setClassifierModel, setUserStop, userStopped,
-} from "../lib/user-settings.ts";
+} from "../packages/core/src/user-settings.ts";
 import shipped from "../config/noul-calibration.ts";
 
 const T0 = new Date("2026-10-31T12:00:00.000Z");

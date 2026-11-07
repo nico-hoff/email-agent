@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openDatabase } from "../lib/db.ts";
+import { openDatabase } from "../packages/core/src/db.ts";
 
 const root = join(import.meta.dirname, "..");
 
@@ -33,7 +33,7 @@ test("starter workflow leftovers are gone", () => {
     "agents/writer.ts",
     "tools/publish.ts",
     "workflows/content-pipeline.ts",
-    "lib/workflows.ts",
+    "packages/core/src/workflows.ts",
     "app/api/workflows",
     "app/workflows",
   ]) assert.equal(existsSync(join(root, p)), false, p);

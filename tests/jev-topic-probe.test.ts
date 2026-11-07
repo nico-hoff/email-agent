@@ -14,7 +14,7 @@ import {
   variantOptions,
   type Row,
 } from "../scripts/jev-topic-probe.ts";
-import type { JevClient } from "../lib/jev.ts";
+import type { JevClient } from "../packages/core/src/jev.ts";
 
 const root = join(import.meta.dirname, "..");
 

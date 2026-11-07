@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { agentEligibility } from "../lib/agent-eligibility.ts";
-import type { NormalizedAnswer, NoulReading } from "../lib/jev-response.ts";
-import { QUESTION_SET_VERSION } from "../lib/constants.ts";
+import { agentEligibility } from "../packages/core/src/agent-eligibility.ts";
+import type { NormalizedAnswer, NoulReading } from "../packages/core/src/jev-response.ts";
+import { QUESTION_SET_VERSION } from "../packages/core/src/constants.ts";
 
 // Test interpreter: >= 0.5 positive, below negative. Only for these tests; the real one is calibrated (D13).
 const byValue = (a: NormalizedAnswer): NoulReading => ((a.value as number) >= 0.5 ? "positive" : "negative");

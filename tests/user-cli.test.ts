@@ -4,8 +4,8 @@ import { describe, it } from "node:test";
 import { chmodSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openDatabase } from "../lib/db.ts";
-import { listOpenInvites, registerWithInvite, verifyLogin } from "../lib/users.ts";
+import { openDatabase } from "../packages/core/src/db.ts";
+import { listOpenInvites, registerWithInvite, verifyLogin } from "../packages/core/src/users.ts";
 import { parseUserCreateArgs, userCreateMain } from "../scripts/user-create.ts";
 import { parseUserInviteArgs, userInviteMain } from "../scripts/user-invite.ts";
 

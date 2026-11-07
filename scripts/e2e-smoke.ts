@@ -9,17 +9,17 @@ import { chmodSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createService } from "../server.ts";
-import { generateKey } from "../lib/account-secrets.ts";
-import { syncAccounts } from "../lib/accounts.ts";
-import { openDatabase } from "../lib/db.ts";
+import { generateKey } from "../packages/core/src/account-secrets.ts";
+import { syncAccounts } from "../packages/core/src/accounts.ts";
+import { openDatabase } from "../packages/core/src/db.ts";
 import { userCreateMain } from "./user-create.ts";
 import { userInviteMain } from "./user-invite.ts";
-import { QUESTIONS } from "../lib/jev-questions.ts";
-import type { NormalizedAnswer } from "../lib/jev-response.ts";
-import { QUESTION_SET_VERSION } from "../lib/constants.ts";
-import { createSseParser, type SseEvent } from "../lib/sse.ts";
-import { recordJevSpam } from "../lib/senders.ts";
-import { importSyntheticCases, openSyntheticDevDatabase, type SyntheticItem } from "../lib/synthetic-dev-db.ts";
+import { QUESTIONS } from "../packages/core/src/jev-questions.ts";
+import type { NormalizedAnswer } from "../packages/core/src/jev-response.ts";
+import { QUESTION_SET_VERSION } from "../packages/core/src/constants.ts";
+import { createSseParser, type SseEvent } from "../packages/core/src/sse.ts";
+import { recordJevSpam } from "../packages/core/src/senders.ts";
+import { importSyntheticCases, openSyntheticDevDatabase, type SyntheticItem } from "../packages/core/src/synthetic-dev-db.ts";
 
 /** Strings that only exist in the (never stored) synthetic mail bodies: they must not appear in any response. */
 const BODY_MARKER = "ZZSMOKE-BODY-MARKER";

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { parseProbeArgs, runProbe, PROBE_INPUT } from "../scripts/agent-live-probe.ts";
-import type { DraftAgent } from "../lib/draft-reply.ts";
+import type { DraftAgent } from "../packages/core/src/draft-reply.ts";
 
 const root = join(import.meta.dirname, "..");
 const GOOD = { draft: "SYNTH-DRAFT-TEXT", language: "de", tone: "formal", needs_human_check: true, reasons: ["a"] };

@@ -1,21 +1,21 @@
 import type { DatabaseSync } from "node:sqlite";
 import { defineSchema } from "veryfront/schemas";
 import { tool } from "veryfront/tool";
-import { validateDatabasePath } from "../lib/accounts.ts";
-import { PROJECT_ROOT } from "../lib/constants.ts";
-import { openDatabase } from "../lib/db.ts";
-import { type EmailContextResult, readEmailContext } from "../lib/email-context.ts";
-import type { NoulInterpreter } from "../lib/jev-response.ts";
-import { currentUserId } from "../lib/tenant.ts";
+import { validateDatabasePath } from "../packages/core/src/accounts.ts";
+import { PROJECT_ROOT } from "../packages/core/src/constants.ts";
+import { openDatabase } from "../packages/core/src/db.ts";
+import { type EmailContextResult, readEmailContext } from "../packages/core/src/email-context.ts";
+import type { NoulInterpreter } from "../packages/core/src/jev-response.ts";
+import { currentUserId } from "../packages/core/src/tenant.ts";
 
 export { readEmailContext };
-export type { EmailContext, EmailContextResult } from "../lib/email-context.ts";
+export type { EmailContext, EmailContextResult } from "../packages/core/src/email-context.ts";
 
 export interface GetEmailContextDeps {
   /** Returns a connection; the tool closes it after every call. */
   openDb: () => DatabaseSync;
   interpret?: NoulInterpreter;
-  /** Tests pin the user; in production it comes from the request's async context (lib/tenant.ts), never from the model. */
+  /** Tests pin the user; in production it comes from the request's async context (packages/core/src/tenant.ts), never from the model. */
   userId?: number;
 }
 

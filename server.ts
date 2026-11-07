@@ -1,29 +1,29 @@
 import net from "node:net";
-import { KILL_SWITCH_FILE, PROJECT_ROOT } from "./lib/constants.ts";
-import { prepareSyntheticDevDatabase } from "./lib/synthetic-dev-db.ts";
-import { startup as defaultStartup, type StartupResult } from "./lib/accounts.ts";
+import { KILL_SWITCH_FILE, PROJECT_ROOT } from "./packages/core/src/constants.ts";
+import { prepareSyntheticDevDatabase } from "./packages/core/src/synthetic-dev-db.ts";
+import { startup as defaultStartup, type StartupResult } from "./packages/core/src/accounts.ts";
 import { createImapWorkers, type ImapWorkers, type ImapWorkersDeps } from "./workers/imap-worker.ts";
 import { fileURLToPath } from "node:url";
-import { createClassificationPipeline, createPersistResponse } from "./lib/classification-pipeline.ts";
-import { topicListForUser, topicsEnabled } from "./lib/topics-store.ts";
-import { createJevClient, type JevClient } from "./lib/jev.ts";
-import { createDecisionsClient } from "./lib/decisions-client.ts";
-import { LUNA_CLASSIFIER } from "./lib/classifier-models.ts";
-import { classifierModelFor } from "./lib/user-settings.ts";
-import { accountUserId } from "./lib/tenant.ts";
-import { createImapFlowPort, type ImapPort } from "./lib/imap.ts";
-import { applyOpenRouterEnv } from "./lib/openrouter-env.ts";
-import { assertFlyAuthConfigured } from "./lib/fly-guard.ts";
-import { findStyleScanHazards } from "./lib/dev-hazards.ts";
-import { type AccountConfig, DEFAULT_SPAM_THRESHOLD } from "./lib/accounts-config.ts";
-import { createAccountSupervisor } from "./lib/account-supervisor.ts";
-import { dataDirFromEnv, interceptRequest } from "./lib/auth-runtime.ts";
-import { appPasswordStatus, selectAuthMode } from "./lib/auth.ts";
-import { openDatabase } from "./lib/db.ts";
-import { ensureDevUser } from "./lib/users.ts";
-import { createMailboxActions, type MailboxActions } from "./lib/mailbox-actions.ts";
-import { createPushNotifier, type PushNotifier } from "./lib/push-notify.ts";
-import { fetchTransport, loadPushConfig, type PushTransport } from "./lib/push.ts";
+import { createClassificationPipeline, createPersistResponse } from "./packages/core/src/classification-pipeline.ts";
+import { topicListForUser, topicsEnabled } from "./packages/core/src/topics-store.ts";
+import { createJevClient, type JevClient } from "./packages/core/src/jev.ts";
+import { createDecisionsClient } from "./packages/core/src/decisions-client.ts";
+import { LUNA_CLASSIFIER } from "./packages/core/src/classifier-models.ts";
+import { classifierModelFor } from "./packages/core/src/user-settings.ts";
+import { accountUserId } from "./packages/core/src/tenant.ts";
+import { createImapFlowPort, type ImapPort } from "./packages/core/src/imap.ts";
+import { applyOpenRouterEnv } from "./packages/core/src/openrouter-env.ts";
+import { assertFlyAuthConfigured } from "./packages/core/src/fly-guard.ts";
+import { findStyleScanHazards } from "./packages/core/src/dev-hazards.ts";
+import { type AccountConfig, DEFAULT_SPAM_THRESHOLD } from "./packages/core/src/accounts-config.ts";
+import { createAccountSupervisor } from "./packages/core/src/account-supervisor.ts";
+import { dataDirFromEnv, interceptRequest } from "./packages/core/src/auth-runtime.ts";
+import { appPasswordStatus, selectAuthMode } from "./packages/core/src/auth.ts";
+import { openDatabase } from "./packages/core/src/db.ts";
+import { ensureDevUser } from "./packages/core/src/users.ts";
+import { createMailboxActions, type MailboxActions } from "./packages/core/src/mailbox-actions.ts";
+import { createPushNotifier, type PushNotifier } from "./packages/core/src/push-notify.ts";
+import { fetchTransport, loadPushConfig, type PushTransport } from "./packages/core/src/push.ts";
 import { join } from "node:path";
 import { startServer } from "veryfront/server";
 import { register, tryResolve } from "veryfront/extensions/contracts";
@@ -87,7 +87,7 @@ function pickFreePort(host: string): Promise<number> {
 
 async function defaultStartHttp(o: { port: number; bindAddress: string; mode: "development" | "production" }): Promise<HttpHandle> {
   ensureBundlerContracts();
-  // The session guard runs as requestInterceptor (no root middleware.ts: see lib/auth-runtime.ts and docs/DEVIATIONS.md).
+  // The session guard runs as requestInterceptor (no root middleware.ts: see packages/core/src/auth-runtime.ts and docs/DEVIATIONS.md).
   const server = await startServer({
     mode: o.mode, port: o.port, bindAddress: o.bindAddress, projectDir: fileURLToPath(new URL(".", import.meta.url)),
     requestInterceptor: (request) => interceptRequest(request),
@@ -219,7 +219,7 @@ export function createWorkersWithPipeline(
 
 /**
  * Production workers (R2): accounts come from the database. The supervisor starts one IMAP worker per enabled account
- * with a decryptable secret and follows changes made through the API (lib/account-supervisor.ts).
+ * with a decryptable secret and follows changes made through the API (packages/core/src/account-supervisor.ts).
  */
 export function createSupervisedWorkers(
   deps: { db: StartupResult["db"] },

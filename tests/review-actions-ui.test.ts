@@ -17,9 +17,9 @@ import {
   type ActionsCounts,
   type ApiEmail,
   type ApiMailboxAction,
-} from "../lib/review-ui.ts";
-import { mapLimit, fetchActions } from "../lib/list-client.ts";
-import { postEmailUnread, UNREAD_ERROR_TEXT, type MutationDeps } from "../lib/mutate-client.ts";
+} from "../packages/core/src/review-ui.ts";
+import { mapLimit, fetchActions } from "../packages/core/src/list-client.ts";
+import { postEmailUnread, UNREAD_ERROR_TEXT, type MutationDeps } from "../packages/core/src/mutate-client.ts";
 
 const A1: ApiAccount = { id: "a1", label: "Web", color: "#3b82f6" };
 const A2: ApiAccount = { id: "a2", label: "Arbeit", color: "#f97316" };

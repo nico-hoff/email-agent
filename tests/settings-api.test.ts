@@ -5,16 +5,16 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import { generateKey } from "../lib/account-secrets.ts";
-import { handleAccountCreate, type AccountsApiDeps } from "../lib/accounts-api.ts";
-import { createAuthContext, createLoginLimiter, createMutationLimiter, handleLogin, handleSession } from "../lib/auth-runtime.ts";
-import { CSRF_HEADER } from "../lib/csrf.ts";
-import { openDatabase } from "../lib/db.ts";
+import { generateKey } from "../packages/core/src/account-secrets.ts";
+import { handleAccountCreate, type AccountsApiDeps } from "../packages/core/src/accounts-api.ts";
+import { createAuthContext, createLoginLimiter, createMutationLimiter, handleLogin, handleSession } from "../packages/core/src/auth-runtime.ts";
+import { CSRF_HEADER } from "../packages/core/src/csrf.ts";
+import { openDatabase } from "../packages/core/src/db.ts";
 import {
   handleClassifierModel, handlePermission, handleQuarantineSettings, handleSettingsGet, handleSpamSeenMode, handleStop, type SettingsApiDeps,
-} from "../lib/settings-api.ts";
-import { LUNA_CLASSIFIER } from "../lib/classifier-models.ts";
-import { isSelectableModel } from "../lib/user-settings.ts";
+} from "../packages/core/src/settings-api.ts";
+import { LUNA_CLASSIFIER } from "../packages/core/src/classifier-models.ts";
+import { isSelectableModel } from "../packages/core/src/user-settings.ts";
 
 const ME = "nico@example.test";
 const HOST = "mac.tail.ts.net";

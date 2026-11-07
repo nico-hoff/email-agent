@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { postActionUndo, postEmailDone, UNDO_MOVE_ERROR_TEXT, type MutationDeps } from "../lib/mutate-client.ts";
+import { postActionUndo, postEmailDone, UNDO_MOVE_ERROR_TEXT, type MutationDeps } from "../packages/core/src/mutate-client.ts";
 
 interface Call { url: string; init?: RequestInit }
 

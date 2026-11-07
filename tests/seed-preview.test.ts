@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { chmodSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openDatabase } from "../lib/db.ts";
+import { openDatabase } from "../packages/core/src/db.ts";
 import { assertPreviewEnv, PreviewSeedRefusedError, seedPreview } from "../scripts/seed-preview.ts";
 import { smokeItems } from "../scripts/e2e-smoke.ts";
 

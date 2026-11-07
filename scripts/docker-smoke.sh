@@ -80,8 +80,8 @@ for _ in $(seq 1 30); do
 done
 if [ "$STATUS" = "healthy" ]; then echo "ok healthcheck healthy"; else echo "FAIL healthcheck ${STATUS:-unknown}"; FAILED=1; fi
 
-# Only a count leaves the container: how many migrations are recorded (must equal the number of files in db/migrations; numbers may have gaps).
-MIG_TOTAL=$(ls "$(dirname "$0")/../db/migrations/"*.sql | wc -l | tr -d ' ')
+# Only a count leaves the container: how many migrations are recorded (must equal the number of files in packages/db/migrations; numbers may have gaps).
+MIG_TOTAL=$(ls "$(dirname "$0")/../packages/db/migrations/"*.sql | wc -l | tr -d ' ')
 MIG="$(docker exec "$NAME" node -e "
 const { DatabaseSync } = require('node:sqlite');
 const db = new DatabaseSync('/data/email-agent.sqlite', { readOnly: true });

@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import {
   disablePush, enablePush, fetchPushConfig, fetchPushDevices, isSubscribed, pushSupport, sendTestPush, syncPushSubscription, updatePushKinds, urlBase64ToBytes,
   type PushEnv, type PushSubscriptionLike,
-} from "../lib/push-client.ts";
-import type { MutationDeps } from "../lib/mutate-client.ts";
+} from "../packages/core/src/push-client.ts";
+import type { MutationDeps } from "../packages/core/src/mutate-client.ts";
 
 const PUB = "BP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A8";
 const DEVICE = { id: 4, agent_family: "iOS Safari", created_at: "2026-10-31T10:00:00.000Z", last_success_at: null, failing: false, kinds: { important_mail: true, briefing_ready: true } };

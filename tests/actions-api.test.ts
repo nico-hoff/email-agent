@@ -4,10 +4,10 @@ import { chmodSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import { openDatabase } from "../lib/db.ts";
-import { syncAccounts } from "../lib/accounts.ts";
-import { listActions, parseActionsQuery } from "../lib/actions-api.ts";
-import { createAuthContext, guardRequest } from "../lib/auth-runtime.ts";
+import { openDatabase } from "../packages/core/src/db.ts";
+import { syncAccounts } from "../packages/core/src/accounts.ts";
+import { listActions, parseActionsQuery } from "../packages/core/src/actions-api.ts";
+import { createAuthContext, guardRequest } from "../packages/core/src/auth-runtime.ts";
 import * as route from "../app/api/actions/route.ts";
 
 const T = "2026-10-27T10:00:00.000Z";

@@ -3,8 +3,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { readFileSync } from "node:fs";
-import { QUESTIONS } from "../lib/jev-questions.ts";
-import { normalizeAnswers } from "../lib/jev-response.ts";
+import { QUESTIONS } from "../packages/core/src/jev-questions.ts";
+import { normalizeAnswers } from "../packages/core/src/jev-response.ts";
 import { createSimJev, createSimPort, parseSimArgs, simGuard, simMessage, SIM_MAILS, SIM_OLD_MAILS, TEMPLATES } from "../scripts/sync-sim.ts";
 
 const root = new URL("..", import.meta.url);
@@ -26,7 +26,7 @@ describe("sync-sim", () => {
     for (const f of ["server.ts", "Dockerfile", "fly.toml", "fly.preview.toml", "compose.yaml", "scripts/docker-entrypoint.sh", "package.json"]) {
       assert.doesNotMatch(readFileSync(new URL(f, root), "utf8"), /sync-sim/, f);
     }
-    for (const f of ["lib/initial-import.ts", "workers/imap-worker.ts", "lib/account-sync.ts", "lib/accounts-api.ts"]) {
+    for (const f of ["packages/core/src/initial-import.ts", "workers/imap-worker.ts", "packages/core/src/account-sync.ts", "packages/core/src/accounts-api.ts"]) {
       assert.doesNotMatch(readFileSync(new URL(f, root), "utf8"), /sync-sim|createSimPort|createSimJev/, f);
     }
   });

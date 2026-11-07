@@ -1,0 +1,7 @@
+{
+  "name": "@email-agent/db",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Database schema: SQL migrations (ADR 0048). Applied by @email-agent/core (src/db.ts); the Postgres move is R13 (ADR 0049).",
+  "files": ["migrations"]
+}

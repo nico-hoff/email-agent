@@ -3,11 +3,11 @@
 //   npm run user:create -- --email <e> [--role admin|user]            password is asked on the terminal (no echo)
 //   npm run user:create -- --email <e> --password-stdin               password from stdin (scripts, CI)
 // The password is never an argument (shell history, ps) and never printed.
-import { validateDatabasePath } from "../lib/accounts.ts";
-import { PROJECT_ROOT } from "../lib/constants.ts";
-import { openDatabase } from "../lib/db.ts";
-import { MIN_USER_PASSWORD_CHARS } from "../lib/user-password.ts";
-import { createUser, USER_ROLES, type UserRole } from "../lib/users.ts";
+import { validateDatabasePath } from "../packages/core/src/accounts.ts";
+import { PROJECT_ROOT } from "../packages/core/src/constants.ts";
+import { openDatabase } from "../packages/core/src/db.ts";
+import { MIN_USER_PASSWORD_CHARS } from "../packages/core/src/user-password.ts";
+import { createUser, USER_ROLES, type UserRole } from "../packages/core/src/users.ts";
 
 export interface CliDeps {
   env: Record<string, string | undefined>;

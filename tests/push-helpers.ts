@@ -2,8 +2,8 @@
 // a fake push transport and a fake-mail seeder. No network, no real keys.
 import { createDecipheriv, createECDH, hkdfSync, randomBytes } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
-import { generateVapidKeys } from "../lib/push-crypto.ts";
-import type { PushTransport, TransportRequest, TransportResponse } from "../lib/push.ts";
+import { generateVapidKeys } from "../packages/core/src/push-crypto.ts";
+import type { PushTransport, TransportRequest, TransportResponse } from "../packages/core/src/push.ts";
 
 export const SUBJECT_MARKER = "SUBJECT-MARKER-7391";
 export const SENDER_MARKER = "sender-marker-7391@example.test";

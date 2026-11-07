@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createRateLimiter } from "../lib/rate-limit.ts";
+import { createRateLimiter } from "../packages/core/src/rate-limit.ts";
 
 test("allows up to the limit per key within the window, then reports retry-after", () => {
   let now = 1000;

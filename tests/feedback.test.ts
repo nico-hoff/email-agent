@@ -1,13 +1,13 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import type { DatabaseSync } from "node:sqlite";
-import { openDatabase } from "../lib/db.ts";
-import { syncAccounts } from "../lib/accounts.ts";
-import { ingestMail } from "../lib/ingest.ts";
-import type { MessageMeta } from "../lib/imap.ts";
-import { CATEGORY_OPTIONS, FEEDBACK_KINDS, feedbackState, recordFeedback } from "../lib/feedback.ts";
-import { senderCounts } from "../lib/senders.ts";
-import { QUESTIONS } from "../lib/jev-questions.ts";
+import { openDatabase } from "../packages/core/src/db.ts";
+import { syncAccounts } from "../packages/core/src/accounts.ts";
+import { ingestMail } from "../packages/core/src/ingest.ts";
+import type { MessageMeta } from "../packages/core/src/imap.ts";
+import { CATEGORY_OPTIONS, FEEDBACK_KINDS, feedbackState, recordFeedback } from "../packages/core/src/feedback.ts";
+import { senderCounts } from "../packages/core/src/senders.ts";
+import { QUESTIONS } from "../packages/core/src/jev-questions.ts";
 
 const T = "2026-10-27T12:00:00.000Z";
 const T2 = "2026-10-27T13:00:00.000Z";

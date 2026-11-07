@@ -5,10 +5,10 @@
 // per case id, split, expected labels and the normalized noul/choice values. No subject, body, sender or raw response.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { createDecisionsClient } from "../lib/decisions-client.ts";
-import { LUNA_CLASSIFIER } from "../lib/classifier-models.ts";
-import { PROJECT_ROOT, QUESTION_SET_VERSION_V2 } from "../lib/constants.ts";
-import { questionsFor } from "../lib/jev-questions.ts";
+import { createDecisionsClient } from "../packages/core/src/decisions-client.ts";
+import { LUNA_CLASSIFIER } from "../packages/core/src/classifier-models.ts";
+import { PROJECT_ROOT, QUESTION_SET_VERSION_V2 } from "../packages/core/src/constants.ts";
+import { questionsFor } from "../packages/core/src/jev-questions.ts";
 import { datasetPath, loadDataset, prepareHfSample, runEvalSet } from "./eval-jev.ts";
 
 function arg(name: string, fallback: string): string {

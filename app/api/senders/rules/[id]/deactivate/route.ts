@@ -1,4 +1,4 @@
-import { defaultApiDeps, handleRuleDeactivate } from "../../../../../../lib/senders-api.ts";
+import { defaultApiDeps, handleRuleDeactivate } from "../../../../../../packages/core/src/senders-api.ts";
 
 // POST: switches the rule off (the row is kept).
 export async function POST(request: Request, context: { params: Record<string, string> | Promise<Record<string, string>> }): Promise<Response> {

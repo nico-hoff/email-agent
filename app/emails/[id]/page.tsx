@@ -6,7 +6,7 @@ import { DetailMessage, EmailDetailView, UndoToast } from '../../../components/r
 import { DraftPanel, type DraftViewState } from '../../../components/draft.tsx'
 import { FeedbackPanel } from '../../../components/feedback.tsx'
 import { mutationDeps } from '../../../components/hooks.ts'
-import { browserClipboardEnv, copyToClipboard, postDraft, showDraftButton } from '../../../lib/draft-client.ts'
+import { browserClipboardEnv, copyToClipboard, postDraft, showDraftButton } from '../../../packages/core/src/draft-client.ts'
 import {
   applyFeedback,
   EMPTY_FEEDBACK,
@@ -16,11 +16,11 @@ import {
   postFeedback,
   type FeedbackKind,
   type FeedbackState,
-} from '../../../lib/feedback-client.ts'
-import { fetchDetail, SessionExpired } from '../../../lib/list-client.ts'
-import { DONE_ERROR_TEXT, postEmailDone, postEmailUnread, UNREAD_ERROR_TEXT } from '../../../lib/mutate-client.ts'
-import { isCta } from '../../../lib/review-done.ts'
-import type { ApiEmailDetail } from '../../../lib/review-ui.ts'
+} from '../../../packages/core/src/feedback-client.ts'
+import { fetchDetail, SessionExpired } from '../../../packages/core/src/list-client.ts'
+import { DONE_ERROR_TEXT, postEmailDone, postEmailUnread, UNREAD_ERROR_TEXT } from '../../../packages/core/src/mutate-client.ts'
+import { isCta } from '../../../packages/core/src/review-done.ts'
+import type { ApiEmailDetail } from '../../../packages/core/src/review-ui.ts'
 
 type State = { kind: 'loading' } | { kind: 'error' } | { kind: 'missing' } | { kind: 'ready'; email: ApiEmailDetail }
 

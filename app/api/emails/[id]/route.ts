@@ -1,9 +1,9 @@
-import { defaultAuthContext, requireUser } from "../../../../lib/auth-runtime.ts";
-import { openDatabase } from "../../../../lib/db.ts";
-import { validateDatabasePath } from "../../../../lib/accounts.ts";
-import { PROJECT_ROOT } from "../../../../lib/constants.ts";
-import { getEmailDetail } from "../../../../lib/email-api.ts";
-import { parseEmailId } from "../../../../lib/email-status.ts";
+import { defaultAuthContext, requireUser } from "../../../../packages/core/src/auth-runtime.ts";
+import { openDatabase } from "../../../../packages/core/src/db.ts";
+import { validateDatabasePath } from "../../../../packages/core/src/accounts.ts";
+import { PROJECT_ROOT } from "../../../../packages/core/src/constants.ts";
+import { getEmailDetail } from "../../../../packages/core/src/email-api.ts";
+import { parseEmailId } from "../../../../packages/core/src/email-status.ts";
 
 // Veryfront passes the route params as the second argument (Context7 /websites/veryfront, api-routes).
 export async function GET(request: Request, context: { params: Record<string, string> | Promise<Record<string, string>> }): Promise<Response> {

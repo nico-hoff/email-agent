@@ -251,9 +251,9 @@ async function main(): Promise<void> {
   }
   let db: DatabaseSync | undefined;
   try {
-    const { openDatabase } = await import("../lib/db.ts");
-    const { validateDatabasePath } = await import("../lib/accounts.ts");
-    const { PROJECT_ROOT } = await import("../lib/constants.ts");
+    const { openDatabase } = await import("../packages/core/src/db.ts");
+    const { validateDatabasePath } = await import("../packages/core/src/accounts.ts");
+    const { PROJECT_ROOT } = await import("../packages/core/src/constants.ts");
     db = openDatabase(validateDatabasePath(process.env, PROJECT_ROOT));
     const report = buildCalibrationReport(db, args);
     console.log(args.json ? JSON.stringify(report, null, 2) : formatCalibrationReport(report));

@@ -9,7 +9,7 @@ import {
   FIXED_TOPICS,
   MAX_CUSTOM_TOPICS,
   selectTopicOptions,
-} from "../lib/topics.ts";
+} from "../packages/core/src/topics.ts";
 
 test("fixed topics: ADR 0026 set, stable ascii snake_case keys, unique, fallback present", () => {
   assert.equal(FIXED_TOPICS.length, 12);

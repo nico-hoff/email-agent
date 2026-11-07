@@ -1,12 +1,12 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import type { DatabaseSync } from "node:sqlite";
-import { openDatabase } from "../lib/db.ts";
-import { syncAccounts } from "../lib/accounts.ts";
+import { openDatabase } from "../packages/core/src/db.ts";
+import { syncAccounts } from "../packages/core/src/accounts.ts";
 import {
   BRIEFING_MAX_MAILS, buildBriefingContext, fallbackBriefing, formatBriefingInput, loadBriefingContext, type OpenMail,
-} from "../lib/briefing-context.ts";
-import { getUserState, setUserState } from "../lib/user-state.ts";
+} from "../packages/core/src/briefing-context.ts";
+import { getUserState, setUserState } from "../packages/core/src/user-state.ts";
 
 const T = "2026-10-27T08:00:00.000Z";
 const QV = "email-classification-v1";

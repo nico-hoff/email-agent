@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { test } from "node:test";
-import { createDecisionsClient, LUNA_DECISIONS_MODEL } from "../lib/decisions-client.ts";
-import type { JevClient } from "../lib/jev.ts";
+import { createDecisionsClient, LUNA_DECISIONS_MODEL } from "../packages/core/src/decisions-client.ts";
+import type { JevClient } from "../packages/core/src/jev.ts";
 import {
   auc,
   bestF1,

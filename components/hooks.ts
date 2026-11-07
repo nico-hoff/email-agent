@@ -3,9 +3,9 @@
 // component state only; sessionStorage holds nothing but the collapsed flag of the box.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { csrfMutationHeaders } from 'veryfront/index.client'
-import { INITIAL_BRIEFING, reduceBriefing, runBriefing, type BriefingState } from '../lib/briefing-client.ts'
-import type { MutationDeps } from '../lib/mutate-client.ts'
-import { fetchHitl, postDismiss, postRule, SENDER_ERROR_TEXT, KIND_LABEL, type HitlCandidate } from '../lib/senders-client.ts'
+import { INITIAL_BRIEFING, reduceBriefing, runBriefing, type BriefingState } from '../packages/core/src/briefing-client.ts'
+import type { MutationDeps } from '../packages/core/src/mutate-client.ts'
+import { fetchHitl, postDismiss, postRule, SENDER_ERROR_TEXT, KIND_LABEL, type HitlCandidate } from '../packages/core/src/senders-client.ts'
 import type { HitlDecision } from './briefing.tsx'
 
 export const mutationDeps: MutationDeps = {

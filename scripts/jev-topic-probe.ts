@@ -8,19 +8,19 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { JEV_MODEL, PROJECT_ROOT } from "../lib/constants.ts";
-import { mulberry32, shuffle } from "../lib/eval-sources.ts";
-import { createJevClient, type JevClient } from "../lib/jev.ts";
-import { buildState, topicQuestion, type JevQuestion } from "../lib/jev-questions.ts";
-import { normalizeAnswers } from "../lib/jev-response.ts";
-import { createLimiter } from "../lib/limiter.ts";
+import { JEV_MODEL, PROJECT_ROOT } from "../packages/core/src/constants.ts";
+import { mulberry32, shuffle } from "../packages/core/src/eval-sources.ts";
+import { createJevClient, type JevClient } from "../packages/core/src/jev.ts";
+import { buildState, topicQuestion, type JevQuestion } from "../packages/core/src/jev-questions.ts";
+import { normalizeAnswers } from "../packages/core/src/jev-response.ts";
+import { createLimiter } from "../packages/core/src/limiter.ts";
 import {
   buildTopicList,
   FALLBACK_TOPIC_KEY,
   selectTopicOptions,
   type CustomTopicInput,
   type TopicOption,
-} from "../lib/topics.ts";
+} from "../packages/core/src/topics.ts";
 
 export const FIXTURE_PATH = join(PROJECT_ROOT, "tests", "fixtures", "eval", "topics-synthetic.jsonl");
 export const REPORT_DIR = join(PROJECT_ROOT, "data", "eval-runs");

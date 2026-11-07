@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { defaultLabel, emailDomain, hostPlaceholder, imapHostForEmail, isGoogleHost } from "../lib/mail-provider-hints.ts";
-import { detectSpamFolder } from "../lib/connection-test.ts";
+import { defaultLabel, emailDomain, hostPlaceholder, imapHostForEmail, isGoogleHost } from "../packages/core/src/mail-provider-hints.ts";
+import { detectSpamFolder } from "../packages/core/src/connection-test.ts";
 
 describe("provider hints", () => {
   it("known domains map to their IMAP server", () => {

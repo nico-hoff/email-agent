@@ -2,8 +2,8 @@
 // from the model: it is split into lines and rendered as text nodes, never as HTML or Markdown, and never stored.
 import {
   BRIEFING_ERROR_TEXT, briefingLines, FALLBACK_LABEL, type BriefingState,
-} from "../lib/briefing-client.ts";
-import { dmarcText, hitlTitle, splitCandidates, type HitlCandidate } from "../lib/senders-client.ts";
+} from "../packages/core/src/briefing-client.ts";
+import { dmarcText, hitlTitle, splitCandidates, type HitlCandidate } from "../packages/core/src/senders-client.ts";
 
 const noop = (): void => {};
 export const BRIEFING_VISIBLE_LINES = 3;

@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   applyFeedback, CATEGORY_CHOICES, EMPTY_FEEDBACK, fetchFeedback, FEEDBACK_ERROR_TEXT, postFeedback, type FeedbackState,
-} from "../lib/feedback-client.ts";
-import type { MutationDeps } from "../lib/mutate-client.ts";
+} from "../packages/core/src/feedback-client.ts";
+import type { MutationDeps } from "../packages/core/src/mutate-client.ts";
 
 function deps(res: Response) {
   const calls: { url: string; init?: RequestInit }[] = [];

@@ -6,7 +6,7 @@ import { AccountsSection, type AccountsSectionProps } from "./accounts-manager.t
 import { TopicsSection, type TopicsSectionProps } from "./topics-manager.tsx";
 import { PushSection, type PushSectionProps } from "./push-manager.tsx";
 import { SettingsSections, type SettingsSectionProps } from "./settings-manager.tsx";
-import { formatWhen, PROFILE_ERROR_TEXT, type CreatedInvite, type OpenInvite, type Profile, type ProfileReason } from "../lib/profile-client.ts";
+import { formatWhen, PROFILE_ERROR_TEXT, type CreatedInvite, type OpenInvite, type Profile, type ProfileReason } from "../packages/core/src/profile-client.ts";
 
 const noop = (): void => {};
 

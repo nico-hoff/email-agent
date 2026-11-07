@@ -2,7 +2,7 @@
 // The fake throws on every method the port must never use (copy, delete, expunge, append, flags), so a call to any of them fails a test.
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { createImapWritePort, findTrashFolder, ImapWriteError, QUARANTINE_FOLDER } from "../lib/imap-write.ts";
+import { createImapWritePort, findTrashFolder, ImapWriteError, QUARANTINE_FOLDER } from "../packages/core/src/imap-write.ts";
 
 const CFG = { host: "imap.secret.example", port: 993, tls: true, user: "secret-user", password: "secret-pass" };
 

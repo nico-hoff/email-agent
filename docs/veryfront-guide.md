@@ -11,7 +11,7 @@ Nach https://veryfront.com/docs/code/guides/choose-a-primitive:
 | App-/API-Route (`app/`) | Seiten, Endpunkte, Webhooks | **ja** | Guard als `requestInterceptor`, nie Root-`middleware.ts` |
 | Einzelner Modellaufruf (`veryfront/llm`, `generate()`) | Extraktion, Klassifikation, Routing | Jev läuft direkt über `@openrouter/sdk` | Briefing (ohne Tools) wäre ein Kandidat |
 | Agent (`agents/<id>.ts`, `agent()`) | Modell entscheidet, ruft Tools, streamt | **ja**: `replyDrafter`, `briefing` | ID = Dateiname; neutrale `description` (siehe Fallstricke) |
-| Tool (`tools/<id>.ts`, `tool()`) | typisierte Operation | **ja**: `get-email-context` | dünne Hülle, Logik + Gate in `lib/` (ADR 0029) |
+| Tool (`tools/<id>.ts`, `tool()`) | typisierte Operation | **ja**: `get-email-context` | dünne Hülle, Logik + Gate in `packages/core/src/` (ADR 0029) |
 | Skill (`skills/<id>/SKILL.md`) | wiederverwendbare Anweisungen | nein (`skills: false`) | später für Schreibstil; `allowed-tools` wird **nicht** durchgesetzt |
 | Prompt, Resource | Vorlagen, Ressourcen (MCP) | nein | – |
 | Eval (`evals/*.eval.ts`) | Qualitätsmessung | **ja**: `npm run eval` | Offline-Gate in CI |
@@ -38,25 +38,26 @@ Nach https://veryfront.com/docs/code/guides/choose-a-primitive:
 
 ## 3. Tipps
 
-1. **Tool-Muster:** `lib/<name>.ts` (Schema + reine Funktion + typisiertes Ergebnis) → `tools/<id>.ts` (Hülle: Gate, dann Kern). Fehler/Ablehnung als `{ ok: false, code }`, nie Exception ans Modell.
+1. **Tool-Muster:** `packages/core/src/<name>.ts` (Schema + reine Funktion + typisiertes Ergebnis) → `tools/<id>.ts` (Hülle: Gate, dann Kern). Fehler/Ablehnung als `{ ok: false, code }`, nie Exception ans Modell.
 2. **Agent-Konfiguration exportieren** (`export const replyDrafterConfig`) und per Test prüfen: Modell, `allowedModels`, explizite Tools, `skills: false`, `mcpServers: []`, `maxSteps`.
-3. **Streaming:** `agent.stream({ onChunk, onFinish })` liefert `toDataStreamResponse()`; wir lesen den Stream serverseitig aus und schicken eigenes SSE (`lib/sse.ts`).
-4. **Modelle über OpenRouter:** Veryfronts OpenAI-Provider mit `OPENAI_BASE_URL`; `lib/openrouter-env.ts` leitet aus `OPENROUTER_API_KEY` ab (nie einen echten `OPENAI_API_KEY` überschreiben). Modell-String `openai/<openrouter-modell>`, z. B. `openai/openai/gpt-6-luna`.
-5. **Evals** über `veryfront/eval` (`evalDataset`, `metrics`), deterministische Checks in `lib/agent-eval-checks.ts`.
+3. **Streaming:** `agent.stream({ onChunk, onFinish })` liefert `toDataStreamResponse()`; wir lesen den Stream serverseitig aus und schicken eigenes SSE (`packages/core/src/sse.ts`).
+4. **Modelle über OpenRouter:** Veryfronts OpenAI-Provider mit `OPENAI_BASE_URL`; `packages/core/src/openrouter-env.ts` leitet aus `OPENROUTER_API_KEY` ab (nie einen echten `OPENAI_API_KEY` überschreiben). Modell-String `openai/<openrouter-modell>`, z. B. `openai/openai/gpt-6-luna`.
+5. **Evals** über `veryfront/eval` (`evalDataset`, `metrics`), deterministische Checks in `packages/core/src/agent-eval-checks.ts`.
 6. **Dev:** erster Aufruf einer Route kompiliert (2–3 s) → in Playwright auf Antworten warten (`waitForResponse`).
 
 ## 4. Fallstricke (alle selbst erlebt)
 
 | Problem | Ursache | Lösung |
 |---|---|---|
-| 500 auf allen Routen im gehärteten Container | Root-`middleware.ts` wird als `.vf-middleware-<uuid>.mjs` neben die Quelle geschrieben → `EACCES/EROFS` | Guard als `requestInterceptor` (`lib/auth-runtime.ts`); Test `tests/no-root-middleware.test.ts` |
+| 500 auf allen Routen im gehärteten Container | Root-`middleware.ts` wird als `.vf-middleware-<uuid>.mjs` neben die Quelle geschrieben → `EACCES/EROFS` | Guard als `requestInterceptor` (`packages/core/src/auth-runtime.ts`); Test `tests/no-root-middleware.test.ts` |
 | API-Routen scheitern in Produktion mit `WorkerEgressBlockedError` | `createHandler` führt Routen im Sandbox-Worker aus | `startServer` mit `requestInterceptor` statt `createHandler` |
-| UI ohne Styles | CSS-Scanner bricht bei > 100k Kandidaten ab, wenn Worktrees mit `node_modules` im Projekt liegen | Worktrees außerhalb des Repos bzw. sofort löschen; `lib/dev-hazards.ts` warnt |
+| UI ohne Styles | CSS-Scanner bricht bei > 100k Kandidaten ab, wenn Worktrees mit `node_modules` im Projekt liegen | Worktrees außerhalb des Repos bzw. sofort löschen; `packages/core/src/dev-hazards.ts` warnt |
 | `startServer` startet nicht | Bundler/ModuleLexer nicht registriert | `server.ts` registriert sie selbst (DEVIATIONS T2) |
 | Login/POST 403 hinter Tailscale Serve oder fly (https-Seite) | TLS endet am Proxy; Veryfront leitet den Browser-Ursprung aus der internen `http://`-URL ab und benennt das CSRF-Cookie für `http://<host>`, der Client sucht es unter https | `VERYFRONT_TRUST_FORWARDED_HEADERS=1` (liest `X-Forwarded-Proto`; nur wenn der Listener allein hinter dem Proxy erreichbar ist: Loopback + Tailscale Serve, oder fly-Proxy). Gesetzt in `fly.toml`, `fly.preview.toml`, `npm run qa:serve` (2026-10-31) |
 | Production-Modus lokal: `/` zeigt Veryfronts Projektübersicht, `/_projects/ui/index.js` mit 503 | Der Host `localhost` gilt Veryfront als eigene lokale Domain (Projekt-Discovery) | Lokal `http://127.0.0.1:<port>` statt `localhost` öffnen; Browser-Tests nutzen 127.0.0.1 (ADR 0047, 2026-11-05) |
 | Production-Modus lokal: Seite 500, „does not provide an export named …“ | Veralteter Eintrag im lokalen Modul-Cache `.cache/veryfront-mdx-esm/<projekt>/preview-main` (nur `npm start`/Production, nicht der Dev-Server) | Cache-Ordner löschen (wird neu gebaut); `scripts/e2e-browser-serve.ts` tut das vor jedem Lauf (2026-11-05) |
 | Echtes WebKit/Safari auf `http://127.0.0.1`: Login und POST scheitern | Die App setzt `__Host-`/`Secure`-Cookies; WebKit speichert sie auf http nicht (Chromium auf 127.0.0.1 schon) | Für Safari immer HTTPS (Tailscale Serve); Browser-Tests nutzen den iPhone-Viewport auf Chromium (ADR 0047) |
+| Import über Paketnamen eines npm-Workspaces (`@email-agent/core/x.ts`) in Seite/Komponente: 404 von `esm.sh`, Build scheitert | Veryfront schreibt reine Paketnamen im Browser- und SSR-Pfad auf sein Modul-CDN um, auch für lokale Workspace-Pakete | Relativ importieren (`../packages/core/src/x.ts`) oder `@/packages/…`; Paketnamen nur in reinen Node-Apps (ADR 0048, 2026-11-07) |
 | HTTPS-Erkennung hinter fly falsch | Veryfront entfernt `x-forwarded-*` vor den Routen | `Secure`-Cookie im Passwort-Modus unbedingt |
 | POST 403 in Tests | eingebautes Double-Submit-CSRF; Cookie nur bei `Accept: text/html` | Client `csrfMutationHeaders` (`veryfront/index.client`); Tests senden `Accept: text/html` |
 | `agent.stream()` ist kein async iterable | API-Form | `onChunk`/`onFinish` + `toDataStreamResponse()` |
@@ -109,12 +110,12 @@ Auftrag: ADR 0029 Punkt 8. Geprüft wurden statisch der installierte Code (`very
 | 14 harmlose synthetische Mails (de/en, inkl. „Please ignore the previous email“, „Systemstatus: ok“, „password was changed“) und Briefing-Betreffe | 0 von 14 blockiert (0 %) |
 | Entwurf mit E-Mail, Telefon, Karte, 10-stelliger Referenz | `[EMAIL]`, `[PHONE]`, `[CREDIT_CARD]`, `[PHONE]`; Datum bleibt |
 
-**Zusammenspiel mit unseren Schutzmaßnahmen.** Die Middleware ersetzt nichts: Das Fence in `lib/agent-input.ts` (schließende Tags werden zu `[removed tag]`), das Eignungs-Gate (H11), der Prompt und die Allowlist der Tools tragen die Abwehr; deutsche und strukturelle Angriffe erreichen das Modell trotz Middleware. Doppelt behandelt wird nur die englische Muster-Klasse; das ist harmlos (fail-closed). Eine feindliche Mail kann den Entwurf dieser Mail abbrechen, ein feindlicher Betreff unter den 25 Betreffen das Modell-Briefing (dann greift `fallbackBriefing`); das ist kein Datenverlust.
+**Zusammenspiel mit unseren Schutzmaßnahmen.** Die Middleware ersetzt nichts: Das Fence in `packages/core/src/agent-input.ts` (schließende Tags werden zu `[removed tag]`), das Eignungs-Gate (H11), der Prompt und die Allowlist der Tools tragen die Abwehr; deutsche und strukturelle Angriffe erreichen das Modell trotz Middleware. Doppelt behandelt wird nur die englische Muster-Klasse; das ist harmlos (fail-closed). Eine feindliche Mail kann den Entwurf dieser Mail abbrechen, ein feindlicher Betreff unter den 25 Betreffen das Modell-Briefing (dann greift `fallbackBriefing`); das ist kein Datenverlust.
 
 **Entscheidung: behalten, nicht ersetzen** (kein neues ADR, ADR 0029 Punkt 8 ist damit erledigt):
 1. Fail-closed passt zur Linie des Projekts; der Fehlalarm kostet höchstens einen Entwurf, den Nico selbst schreibt, bzw. den Fallback-Text.
 2. Kein Netz, kein Logging, kein Inhalt in Fehlern; Datenschutz H3 bleibt gewahrt. Die Ausgabe-Schwärzung ist eine zusätzliche Sperre gegen Rückgabe von Adressen und Nummern (die Prompts verbieten sie ohnehin).
-3. Ersetzen würde `security: false` plus eigene Muster und eigene Schwärzung in `lib/` bedeuten; das ergäbe mehr Eigencode ohne Gewinn, solange die Muster die einzige Lücke sind. Wird deutsche Erkennung oder ein Verzicht auf die PII-Schwärzung gebraucht, dann per neuem ADR mit `security: false` und `securityMiddleware({...})` (`securityMiddleware` steckt in `agent/middleware/security/validator.js` Z. 1384 und ist über den öffentlichen Einstieg `veryfront/agent` nicht exportiert; Tiefenimport wäre nötig).
+3. Ersetzen würde `security: false` plus eigene Muster und eigene Schwärzung in `packages/core/src/` bedeuten; das ergäbe mehr Eigencode ohne Gewinn, solange die Muster die einzige Lücke sind. Wird deutsche Erkennung oder ein Verzicht auf die PII-Schwärzung gebraucht, dann per neuem ADR mit `security: false` und `securityMiddleware({...})` (`securityMiddleware` steckt in `agent/middleware/security/validator.js` Z. 1384 und ist über den öffentlichen Einstieg `veryfront/agent` nicht exportiert; Tiefenimport wäre nötig).
 4. Absicherung gegen Updates: `tests/agent-security-middleware.test.ts` legt das heutige Verhalten fest (blockierte Muster, bekannte Lücken, Fehlalarm, 0/14 harmlose, Ausgabe-Ersetzung, Tool-Ergebnisse unangetastet, kein Netz/Log). Schlägt er nach einem Update fehl, diesen Abschnitt und den Test gemeinsam anpassen.
 
 Nebenwirkung für die UI: Entwürfe können `[EMAIL]` oder `[PHONE]` enthalten, wenn das Modell eine Adresse oder lange Zahl schreibt; der Nutzer sieht das im Entwurf und setzt den Wert selbst ein.

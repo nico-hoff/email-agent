@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { generateKey, loadKeyring, openSecret, resealSecret, SecretError, sealSecret, type Keyring } from "../lib/account-secrets.ts";
+import { generateKey, loadKeyring, openSecret, resealSecret, SecretError, sealSecret, type Keyring } from "../packages/core/src/account-secrets.ts";
 
 const ring = (env: Record<string, string>): Keyring => {
   const r = loadKeyring(env);

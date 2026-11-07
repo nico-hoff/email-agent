@@ -18,7 +18,10 @@ Stand der Agenten: `replyDrafter` und `briefing` (Veryfront-Agenten), Tools unte
 ## Optionen
 - **A:** Veryfront bleibt als schlanker Agenten-Dienst (eigene App `apps/agents` oder Teil von `apps/worker`), API und Web sind eigene Apps.
 - **B:** Agenten-Primitive als Bibliothek direkt in `apps/worker`/`apps/api`, ohne Veryfront-Server.
-- **C:** Ersatz durch eine andere Agenten-Bibliothek (OpenRouter-SDK direkt, AI SDK). Nur wenn A und B nicht tragen.
+- **C:** Ersatz durch eine andere Agenten-Bibliothek (OpenRouter-SDK direkt, AI SDK o. ä.). Nico 2026-11-07: keine Bindung an Veryfront. Bei zu vielen Eigenheiten ist C ausdrücklich in Ordnung.
+
+## Bisher erlebte Eigenheiten (Entscheidungshilfe)
+Root-`middleware.ts` bricht den read-only-Container, CSS-Scanner und Worktrees, CSRF-Cookie hinter Proxys nur mit `VERYFRONT_TRUST_FORWARDED_HEADERS`, `localhost` zeigt im Production-Modus die Projektübersicht, veralteter Modul-Cache, Paketnamen werden auf das CDN umgeschrieben (`docs/veryfront-guide.md`).
 
 ## Einordnung
 Generative Funktionen sind Zusatz (`VISION.md`). Die Entscheidung blockiert weder den Monorepo-Umbau noch Postgres. Sie fällt spätestens mit Schritt 3 aus 0048 (Veryfront-App ablösen).

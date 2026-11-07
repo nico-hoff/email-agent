@@ -5,7 +5,7 @@
 // Aufruf: node scripts/fetch-eval-datasets.ts [--source <kurzname>] [--max-rows N  (nur Tests/Debug)]
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { classLabel, contentHash, EVAL_SOURCES, mulberry32, shuffle, type EvalSource } from "../lib/eval-sources.ts";
+import { classLabel, contentHash, EVAL_SOURCES, mulberry32, shuffle, type EvalSource } from "../packages/core/src/eval-sources.ts";
 
 export const PAGE_SIZE = 100;
 /** Sicherheitsobergrenze je Quelle fuer den vollstaendigen Download. */

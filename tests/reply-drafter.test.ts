@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { applyOpenRouterEnv } from "../lib/openrouter-env.ts";
+import { applyOpenRouterEnv } from "../packages/core/src/openrouter-env.ts";
 
 const root = join(import.meta.dirname, "..");
 const { ensureBuiltinSchemaValidator } = await import(
@@ -66,7 +66,7 @@ test("no MCP server route and no MCP config exist (agent-contract section 2)", (
     readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
       e.isDirectory() ? walk(join(dir, e.name)) : [join(dir, e.name)]
     );
-  for (const dir of ["app", "agents", "tools", "lib", "workers"]) {
+  for (const dir of ["app", "agents", "tools", "packages/core/src", "workers"]) {
     if (!existsSync(join(root, dir))) continue;
     for (const file of walk(join(root, dir))) {
       if (!/\.(ts|tsx)$/.test(file)) continue;

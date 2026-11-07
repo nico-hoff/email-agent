@@ -1,11 +1,11 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import type { DatabaseSync } from "node:sqlite";
-import { IMAP_BACKOFF_MAX_MS, IMAP_BACKOFF_MIN_MS, POLL_INTERVAL_MS, WATCHDOG_STALE_MS } from "../lib/constants.ts";
-import { openDatabase } from "../lib/db.ts";
-import { syncAccounts } from "../lib/accounts.ts";
-import type { ImapEventError, ImapPort, TransientInput } from "../lib/imap.ts";
-import { ingestMail } from "../lib/ingest.ts";
+import { IMAP_BACKOFF_MAX_MS, IMAP_BACKOFF_MIN_MS, POLL_INTERVAL_MS, WATCHDOG_STALE_MS } from "../packages/core/src/constants.ts";
+import { openDatabase } from "../packages/core/src/db.ts";
+import { syncAccounts } from "../packages/core/src/accounts.ts";
+import type { ImapEventError, ImapPort, TransientInput } from "../packages/core/src/imap.ts";
+import { ingestMail } from "../packages/core/src/ingest.ts";
 import { createImapWorkers } from "../workers/imap-worker.ts";
 
 const settle = async () => {

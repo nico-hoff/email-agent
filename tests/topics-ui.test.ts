@@ -5,13 +5,13 @@ import { describe, it } from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { loadTsx } from "./helpers/load-tsx.ts";
-import { listUrl, type ApiCounts, type ApiEmail } from "../lib/review-ui.ts";
+import { listUrl, type ApiCounts, type ApiEmail } from "../packages/core/src/review-ui.ts";
 import {
   canAddTopic, effectiveTopic, fetchTopicCounts, fetchTopics, parseTopics, postTopicChange, topicErrorText, topicLabels, visibleFolders,
   type TopicCounts, type TopicsData,
-} from "../lib/topics-client.ts";
-import type { MutationDeps } from "../lib/mutate-client.ts";
-import { FIXED_TOPICS } from "../lib/topics.ts";
+} from "../packages/core/src/topics-client.ts";
+import type { MutationDeps } from "../packages/core/src/mutate-client.ts";
+import { FIXED_TOPICS } from "../packages/core/src/topics.ts";
 
 type Mgr = typeof import("../components/topics-manager.tsx");
 type Review = typeof import("../components/review.tsx");

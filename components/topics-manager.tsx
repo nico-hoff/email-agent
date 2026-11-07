@@ -1,7 +1,7 @@
 // Profile → Themen (R8, ADR 0026/0037): the switch "Themen sortieren", the 12 fixed topics (read-only) and up to 4 own topics
 // (name plus a short hint). Stateless: the page passes data, the open editor and callbacks. Shows topic names and hints the
 // person typed; nothing from a mail.
-import { activeCustomCount, canAddTopic, customTopics, fixedTopics, type TopicItem, type TopicsData } from "../lib/topics-client.ts";
+import { activeCustomCount, canAddTopic, customTopics, fixedTopics, type TopicItem, type TopicsData } from "../packages/core/src/topics-client.ts";
 
 const noop = (): void => {};
 

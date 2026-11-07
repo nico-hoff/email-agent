@@ -1,6 +1,9 @@
 FROM node:26.12.1-slim AS base
 WORKDIR /app
 COPY package.json package-lock.json ./
+# npm workspaces (ADR 0048): the workspace manifests must exist before npm ci.
+COPY packages/core/package.json packages/core/package.json
+COPY packages/db/package.json packages/db/package.json
 RUN npm ci
 COPY . .
 RUN npm run build

@@ -36,6 +36,11 @@ Geprüft (Probe 2026-11-07, Node 26.12.1): Ein npm-Workspace-Paket, dessen `expo
   3. `apps/api` und `apps/web` lösen die Veryfront-App ab. Die Browser-Tests (0047) sichern dabei die Bedienung ab. Das Framework für API und Web wählt eine eigene ADR.
 - Jede neue Funktion entsteht ab jetzt so, dass sie in `packages/core` passt: frameworkfrei, mandantengebunden, ohne direkten Zugriff auf `process.env` in der Fachlogik.
 
+## Stand Schritt 1 (2026-11-07, umgesetzt)
+- `lib/` → `packages/core/src/` (`@email-agent/core`), `db/migrations/` → `packages/db/migrations/` (`@email-agent/db`), Root-`package.json` mit `workspaces: ["packages/*"]`. Das Dockerfile kopiert die Workspace-Manifeste vor `npm ci`. Verhalten und alle 1.631 Tests sind unverändert, Browser-Tests 13/13.
+- **Importe vorerst relativ** (`../packages/core/src/x.ts`), nicht über den Paketnamen. Probe am 2026-11-07: Veryfront schreibt reine Paketnamen in Seiten und Komponenten auf das Modul-CDN um (`https://esm.sh/@email-agent/core/…` → 404, Seite und Build scheitern). Reine Node-Apps (`apps/worker`, `apps/api`) dürfen `@email-agent/core/…` importieren; das ist mit Node 26 geprüft. Die Umstellung auf Paketnamen auch im Web folgt, wenn Veryfront nicht mehr das Frontend bündelt (Schritt 3).
+- Alte ADRs, Handover und QA-Pakete nennen weiter `lib/…`. Sie sind Historie; gemeint ist jeweils `packages/core/src/…`.
+
 ## Folgen
 - Schritt 1 ist reine Umstrukturierung: Pfade und Imports ändern sich, Verhalten und Tests nicht. Die Pfade in Doku, `CLAUDE.md`/`AGENTS.md`, Dockerfile, CI und graphify-Ignore werden im selben Commit angepasst.
 - **Veryfront im Unterordner:** Ob Veryfront als Workspace in `apps/web` läuft (Projekt-Root, CSS-Scanner, `veryfront build`), ist nicht geprüft. Das wird vor Schritt 3 per Context7 und Probe geklärt (STOP-5 bei Widerspruch). Bis dahin bleibt die App im Root.

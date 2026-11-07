@@ -4,18 +4,18 @@ import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import { CSRF_HEADER } from "../lib/csrf.ts";
+import { CSRF_HEADER } from "../packages/core/src/csrf.ts";
 import {
   deriveKeys, issueSession, issueUserSession, selectAuthMode, SESSION_COOKIE, SESSION_TTL_MS, userIdentity, USERS_PRE_LOGIN_IDENTITY, verifyUserSession,
-} from "../lib/auth.ts";
+} from "../packages/core/src/auth.ts";
 import {
   createAuthContext, createUsersLimits, guardMutation, guardRequest, handleLoginRequest, handleLogout, handleLogoutAll, handleRegister, handleSession,
   interceptRequest, requireUser,
-} from "../lib/auth-runtime.ts";
-import { openDatabase } from "../lib/db.ts";
-import { createInvite, createUser, countLiveSessions, listOpenInvites } from "../lib/users.ts";
-import { createMutationLimiter } from "../lib/auth-runtime.ts";
-import { handleInviteCreate, handleInvitesList, handleProfileGet } from "../lib/profile-api.ts";
+} from "../packages/core/src/auth-runtime.ts";
+import { openDatabase } from "../packages/core/src/db.ts";
+import { createInvite, createUser, countLiveSessions, listOpenInvites } from "../packages/core/src/users.ts";
+import { createMutationLimiter } from "../packages/core/src/auth-runtime.ts";
+import { handleInviteCreate, handleInvitesList, handleProfileGet } from "../packages/core/src/profile-api.ts";
 
 // Unique markers: they must never show up in any response or header.
 const PW = "pw-MARKER-5b1c2d33-correct-horse";
@@ -460,7 +460,7 @@ describe("profile and invitation routes", () => {
 });
 
 // A token bound to an arbitrary identity, signed with this context's CSRF key.
-import { issueCsrfToken } from "../lib/csrf.ts";
+import { issueCsrfToken } from "../packages/core/src/csrf.ts";
 function createUsersTokenFor(identity: string): string {
   return issueCsrfToken(identity, s.ctx.keys().csrf, s.clock.t);
 }

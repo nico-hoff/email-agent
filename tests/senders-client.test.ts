@@ -3,8 +3,8 @@ import { describe, it } from "node:test";
 import {
   dmarcText, fetchHitl, fetchRules, guessMatch, hitlTitle, postDeactivate, postDismiss, postRule, SENDER_ERROR_TEXT, splitCandidates,
   type HitlCandidate,
-} from "../lib/senders-client.ts";
-import type { MutationDeps } from "../lib/mutate-client.ts";
+} from "../packages/core/src/senders-client.ts";
+import type { MutationDeps } from "../packages/core/src/mutate-client.ts";
 
 const cand = (over: Partial<HitlCandidate> = {}): HitlCandidate => ({
   key: "domain:spam.example", match: "domain", value: "spam.example", jev_spam_count: 4, mails_seen: 5, dmarc_pass_rate: 0.2, sample_email_ids: [1], ...over,

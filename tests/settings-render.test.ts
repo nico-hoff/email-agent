@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { loadTsx } from "./helpers/load-tsx.ts";
-import { costText, fetchSettings, postClassifierModel, postGlobalStop, postQuarantine, postSpamSeenMode, postUserStop, type SettingsData } from "../lib/settings-client.ts";
+import { costText, fetchSettings, postClassifierModel, postGlobalStop, postQuarantine, postSpamSeenMode, postUserStop, type SettingsData } from "../packages/core/src/settings-client.ts";
 
 type Mgr = typeof import("../components/settings-manager.tsx");
 const { SettingsSections } = await loadTsx<Mgr>("components/settings-manager.tsx");

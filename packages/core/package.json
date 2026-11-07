@@ -1,0 +1,8 @@
+{
+  "name": "@email-agent/core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Domain logic without a web framework (ADR 0048): Jev, rules, IMAP ports, write port, push, calibration, repositories.",
+  "exports": { "./*": "./src/*" }
+}

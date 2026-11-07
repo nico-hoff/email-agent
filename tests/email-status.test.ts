@@ -1,11 +1,11 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import type { DatabaseSync } from "node:sqlite";
-import { openDatabase } from "../lib/db.ts";
-import { syncAccounts } from "../lib/accounts.ts";
-import { ingestMail } from "../lib/ingest.ts";
-import type { ImapPort, MessageMeta } from "../lib/imap.ts";
-import { readEmailStatus, refreshSeenFlags, setDone, upsertSeen } from "../lib/email-status.ts";
+import { openDatabase } from "../packages/core/src/db.ts";
+import { syncAccounts } from "../packages/core/src/accounts.ts";
+import { ingestMail } from "../packages/core/src/ingest.ts";
+import type { ImapPort, MessageMeta } from "../packages/core/src/imap.ts";
+import { readEmailStatus, refreshSeenFlags, setDone, upsertSeen } from "../packages/core/src/email-status.ts";
 
 const NOW = new Date("2026-10-27T12:00:00.000Z");
 const DAY = 86_400_000;

@@ -15,7 +15,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { formatAgentInput } from "../lib/agent-input.ts";
+import { formatAgentInput } from "../packages/core/src/agent-input.ts";
 import {
   AGENT_GATE_FILES,
   briefingContextOf,
@@ -31,13 +31,13 @@ import {
   type BriefingGateLine,
   type ReplyCase,
   type ReplyGateLine,
-} from "../lib/agent-eval-gate.ts";
-import type { ReplyOutput } from "../lib/agent-eval-checks.ts";
-import { formatBriefingInput } from "../lib/briefing-context.ts";
-import { runBriefingStream, type BriefingAgent, type BriefingUsage } from "../lib/briefing.ts";
-import { BRIEFING_MODEL, PROJECT_ROOT, REPLY_DRAFTER_MODEL } from "../lib/constants.ts";
-import { parseReplyDraft, type DraftAgent } from "../lib/draft-reply.ts";
-import { applyOpenRouterEnv } from "../lib/openrouter-env.ts";
+} from "../packages/core/src/agent-eval-gate.ts";
+import type { ReplyOutput } from "../packages/core/src/agent-eval-checks.ts";
+import { formatBriefingInput } from "../packages/core/src/briefing-context.ts";
+import { runBriefingStream, type BriefingAgent, type BriefingUsage } from "../packages/core/src/briefing.ts";
+import { BRIEFING_MODEL, PROJECT_ROOT, REPLY_DRAFTER_MODEL } from "../packages/core/src/constants.ts";
+import { parseReplyDraft, type DraftAgent } from "../packages/core/src/draft-reply.ts";
+import { applyOpenRouterEnv } from "../packages/core/src/openrouter-env.ts";
 
 export const MAX_LIVE_CALLS = 25;
 const CALL_TIMEOUT_MS = 60_000;

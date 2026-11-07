@@ -11,7 +11,7 @@ import {
   postRule,
   SENDER_ERROR_TEXT,
   type SenderRule,
-} from '../../lib/senders-client.ts'
+} from '../../packages/core/src/senders-client.ts'
 
 const EMPTY_FORM: RuleForm = { value: '', kind: 'blacklist', busy: false, error: null }
 

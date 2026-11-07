@@ -3,8 +3,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, describe, test } from "node:test";
-import { openDatabase } from "../lib/db.ts";
-import { verifyLogin } from "../lib/users.ts";
+import { openDatabase } from "../packages/core/src/db.ts";
+import { verifyLogin } from "../packages/core/src/users.ts";
 import {
   ensureQaUser, parseQaArgs, QA_PASSWORD, portFree, runtimeProblem, profileForTopic, QA_NO_ACCOUNTS_FILE, QA_USER_EMAIL, qaItems, qaServerEnv, seedQaDatabase,
 } from "../scripts/qa-serve.ts";

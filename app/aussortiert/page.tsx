@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ActionsView } from '../../components/actions.tsx'
 import { csrfMutationHeaders } from 'veryfront/index.client'
-import { fetchActions, fetchDetail, fetchPage, mapLimit, SessionExpired } from '../../lib/list-client.ts'
-import { postActionUndo, postEmailUnread, UNDO_MOVE_ERROR_TEXT, UNREAD_ERROR_TEXT, type MutationDeps } from '../../lib/mutate-client.ts'
+import { fetchActions, fetchDetail, fetchPage, mapLimit, SessionExpired } from '../../packages/core/src/list-client.ts'
+import { postActionUndo, postEmailUnread, UNDO_MOVE_ERROR_TEXT, UNREAD_ERROR_TEXT, type MutationDeps } from '../../packages/core/src/mutate-client.ts'
 import {
   ACTION_PAGE_SIZE,
   actionsUrl,
@@ -18,7 +18,7 @@ import {
   type ApiAccount,
   type ApiAction,
   type AutoMode,
-} from '../../lib/review-ui.ts'
+} from '../../packages/core/src/review-ui.ts'
 
 const mutationDeps: MutationDeps = {
   fetch: (url, init) => fetch(url, init),

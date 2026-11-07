@@ -1,9 +1,9 @@
-import { defaultAuthContext, requireUser } from "../../../lib/auth-runtime.ts";
-import { openDatabase } from "../../../lib/db.ts";
-import { validateDatabasePath } from "../../../lib/accounts.ts";
-import { PROJECT_ROOT } from "../../../lib/constants.ts";
-import { readAutoActionModes } from "../../../lib/account-modes.ts";
-import { listEmails, parseListQuery } from "../../../lib/email-api.ts";
+import { defaultAuthContext, requireUser } from "../../../packages/core/src/auth-runtime.ts";
+import { openDatabase } from "../../../packages/core/src/db.ts";
+import { validateDatabasePath } from "../../../packages/core/src/accounts.ts";
+import { PROJECT_ROOT } from "../../../packages/core/src/constants.ts";
+import { readAutoActionModes } from "../../../packages/core/src/account-modes.ts";
+import { listEmails, parseListQuery } from "../../../packages/core/src/email-api.ts";
 
 // Reads only from SQLite. Never exposes body/excerpt/raw data (none is stored) or account host/user.
 // Query: view=important|open|noise|all, account, status, limit (<= 50), cursor (opaque). Without view: all. Sorted by urgency, importance, time.

@@ -1,9 +1,9 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import type { DatabaseSync } from "node:sqlite";
-import { openDatabase } from "../lib/db.ts";
-import { syncAccounts } from "../lib/accounts.ts";
-import { createRule, deactivateRule, listRules, senderRuleHit } from "../lib/sender-rules.ts";
+import { openDatabase } from "../packages/core/src/db.ts";
+import { syncAccounts } from "../packages/core/src/accounts.ts";
+import { createRule, deactivateRule, listRules, senderRuleHit } from "../packages/core/src/sender-rules.ts";
 
 const T = "2026-10-27T12:00:00.000Z";
 const T2 = "2026-10-27T13:00:00.000Z";

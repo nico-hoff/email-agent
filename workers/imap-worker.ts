@@ -1,12 +1,12 @@
 import type { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
-import type { AccountConfig } from "../lib/accounts-config.ts";
+import type { AccountConfig } from "../packages/core/src/accounts-config.ts";
 import {
   IMAP_BACKOFF_MAX_MS, IMAP_BACKOFF_MIN_MS, IMPORT_CLASSIFY_WAIT_MS, IMPORT_WATCH_MS, IMPORT_WINDOW_DAYS, POLL_INTERVAL_MS, WATCHDOG_STALE_MS,
-} from "../lib/constants.ts";
-import { ensureSync, readSync, updateSync, ACTIVE_PHASES } from "../lib/account-sync.ts";
-import { clampImportCount, importCounts, runFetchPhase } from "../lib/initial-import.ts";
-import { accountUserId } from "../lib/tenant.ts";
+} from "../packages/core/src/constants.ts";
+import { ensureSync, readSync, updateSync, ACTIVE_PHASES } from "../packages/core/src/account-sync.ts";
+import { clampImportCount, importCounts, runFetchPhase } from "../packages/core/src/initial-import.ts";
+import { accountUserId } from "../packages/core/src/tenant.ts";
 import {
   advanceCheckpoint,
   createImapFlowPort,
@@ -15,9 +15,9 @@ import {
   type MessageMeta,
   reconcileCheckpoint,
   type TransientInput,
-} from "../lib/imap.ts";
-import { refreshSeenFlags } from "../lib/email-status.ts";
-import { ingestMail } from "../lib/ingest.ts";
+} from "../packages/core/src/imap.ts";
+import { refreshSeenFlags } from "../packages/core/src/email-status.ts";
+import { ingestMail } from "../packages/core/src/ingest.ts";
 
 export interface Clock {
   now(): number;
@@ -40,7 +40,7 @@ export interface ImapWorkersDeps {
   onIngested?: (emailId: number, input: TransientInput) => void | Promise<void>;
   clock?: Clock;
   random?: () => number;
-  /** Initial import (ADR 0043). false = off; otherwise the bounds (defaults in lib/constants.ts). */
+  /** Initial import (ADR 0043). false = off; otherwise the bounds (defaults in packages/core/src/constants.ts). */
   initialImport?: false | { count?: number; windowDays?: number };
 }
 

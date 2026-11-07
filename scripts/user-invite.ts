@@ -1,10 +1,10 @@
 // Prints a one-time invitation code (ADR 0022). Only the hash is stored; the code appears here once, for the operator.
 //   npm run user:invite -- [--role user|admin] [--days 7] [--by <admin email>]
 // Without --by the invitation belongs to the owner (id 1) if that is an active admin, else the first active admin.
-import { validateDatabasePath } from "../lib/accounts.ts";
-import { PROJECT_ROOT } from "../lib/constants.ts";
-import { openDatabase } from "../lib/db.ts";
-import { createInvite, findUserByEmail, INVITE_DEFAULT_DAYS, INVITE_MAX_DAYS, USER_ROLES, type UserRole } from "../lib/users.ts";
+import { validateDatabasePath } from "../packages/core/src/accounts.ts";
+import { PROJECT_ROOT } from "../packages/core/src/constants.ts";
+import { openDatabase } from "../packages/core/src/db.ts";
+import { createInvite, findUserByEmail, INVITE_DEFAULT_DAYS, INVITE_MAX_DAYS, USER_ROLES, type UserRole } from "../packages/core/src/users.ts";
 import type { CliDeps } from "./user-create.ts";
 
 export interface UserInviteArgs { role: UserRole; days: number; by: string | undefined }

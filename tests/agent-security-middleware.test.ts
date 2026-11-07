@@ -6,7 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { formatAgentInput, type AgentInput } from "../lib/agent-input.ts";
+import { formatAgentInput, type AgentInput } from "../packages/core/src/agent-input.ts";
 
 const root = join(import.meta.dirname, "..");
 const vf = (p: string) => pathToFileURL(join(root, "node_modules/veryfront/esm/src", p)).href;

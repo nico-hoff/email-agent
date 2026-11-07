@@ -8,14 +8,14 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { calibrationFor } from "../lib/noul-calibration.ts";
-import { JEV_MODEL, PROJECT_ROOT, QUESTION_SET_VERSION_V1, QUESTION_SET_VERSION_V2 } from "../lib/constants.ts";
-import { createDecisionsClient, LUNA_DECISIONS_MODEL } from "../lib/decisions-client.ts";
-import type { EvalCase, EvalSplit } from "../lib/eval-sources.ts";
-import { createJevClient, type JevClient } from "../lib/jev.ts";
-import { buildState, questionsFor, type JevQuestion } from "../lib/jev-questions.ts";
-import { normalizeAnswers, type NormalizedAnswer } from "../lib/jev-response.ts";
-import { createLimiter } from "../lib/limiter.ts";
+import { calibrationFor } from "../packages/core/src/noul-calibration.ts";
+import { JEV_MODEL, PROJECT_ROOT, QUESTION_SET_VERSION_V1, QUESTION_SET_VERSION_V2 } from "../packages/core/src/constants.ts";
+import { createDecisionsClient, LUNA_DECISIONS_MODEL } from "../packages/core/src/decisions-client.ts";
+import type { EvalCase, EvalSplit } from "../packages/core/src/eval-sources.ts";
+import { createJevClient, type JevClient } from "../packages/core/src/jev.ts";
+import { buildState, questionsFor, type JevQuestion } from "../packages/core/src/jev-questions.ts";
+import { normalizeAnswers, type NormalizedAnswer } from "../packages/core/src/jev-response.ts";
+import { createLimiter } from "../packages/core/src/limiter.ts";
 import { prepareHfSample } from "./eval-jev.ts";
 import { buildTopicQuestion, loadTopicCases, sampleTopicCases, variantOptions } from "./jev-topic-probe.ts";
 

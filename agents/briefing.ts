@@ -1,5 +1,5 @@
 import { agent } from "veryfront/agent";
-import { BRIEFING_MODEL } from "../lib/constants.ts";
+import { BRIEFING_MODEL } from "../packages/core/src/constants.ts";
 
 const system = `Du erstellst ein kurzes Briefing aus einer Liste offener Aufgaben. Du hast keine Werkzeuge und keinen Zugriff auf ein Postfach; du kennst nur den gelieferten Kontext.
 - Schreibe auf Deutsch höchstens 3 Bullet Points (je eine kurze Zeile, mit "- " am Anfang): was ist offen und dringend, was ist wichtig, was wartet. Nenne bei Bedarf kurz neue und automatisch als gelesen markierte Einträge sowie offene Absenderfragen aus den Zählern.

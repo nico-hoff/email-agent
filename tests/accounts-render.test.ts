@@ -7,7 +7,7 @@ import { loadTsx } from "./helpers/load-tsx.ts";
 import {
   applyPatch, bodyFromForm, emptyForm, fetchAccounts, formFromItem, postAccountEnabled, postCreateAccount, postTestAccount, postUpdateAccount, workerText,
   type AccountItem, type AccountsData,
-} from "../lib/accounts-client.ts";
+} from "../packages/core/src/accounts-client.ts";
 
 type Profile = typeof import("../components/profile.tsx");
 const { ProfileView } = await loadTsx<Profile>("components/profile.tsx");
@@ -103,7 +103,7 @@ describe("accounts section", () => {
     assert.match(view({ editor: { id: null, form: emptyForm() }, formError: "Der Servername ist ungültig." }), /role="alert"[^>]*>Der Servername/);
   });
   it("source keeps secrets out of browser storage", () => {
-    const src = ["components/accounts-manager.tsx", "lib/accounts-client.ts", "app/profil/page.tsx"].map((f) => readFileSync(new URL(`../${f}`, import.meta.url), "utf8")).join("\n");
+    const src = ["components/accounts-manager.tsx", "packages/core/src/accounts-client.ts", "app/profil/page.tsx"].map((f) => readFileSync(new URL(`../${f}`, import.meta.url), "utf8")).join("\n");
     assert.doesNotMatch(src, /localStorage|sessionStorage|indexedDB/);
   });
 });

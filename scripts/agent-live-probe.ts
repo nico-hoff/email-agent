@@ -4,11 +4,11 @@
 // Speichert nichts: keine Datenbank, keine Datei, kein IMAP.
 import { pathToFileURL } from "node:url";
 import { join } from "node:path";
-import { formatAgentInput, type AgentInput } from "../lib/agent-input.ts";
-import { REPLY_DRAFTER_MODEL } from "../lib/constants.ts";
-import { parseReplyDraft, type DraftAgent } from "../lib/draft-reply.ts";
-import { applyOpenRouterEnv } from "../lib/openrouter-env.ts";
-import { PROJECT_ROOT } from "../lib/constants.ts";
+import { formatAgentInput, type AgentInput } from "../packages/core/src/agent-input.ts";
+import { REPLY_DRAFTER_MODEL } from "../packages/core/src/constants.ts";
+import { parseReplyDraft, type DraftAgent } from "../packages/core/src/draft-reply.ts";
+import { applyOpenRouterEnv } from "../packages/core/src/openrouter-env.ts";
+import { PROJECT_ROOT } from "../packages/core/src/constants.ts";
 
 export const PROBE_INPUT: AgentInput = {
   sender_domain: "example.test",

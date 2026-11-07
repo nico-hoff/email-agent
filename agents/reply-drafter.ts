@@ -1,6 +1,6 @@
 import { agent } from "veryfront/agent";
 import { defineSchema } from "veryfront/schemas";
-import { REPLY_DRAFTER_MODEL } from "../lib/constants.ts";
+import { REPLY_DRAFTER_MODEL } from "../packages/core/src/constants.ts";
 
 export const replyDraftSchema = defineSchema((v) =>
   v.object({

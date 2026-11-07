@@ -10,9 +10,9 @@ import {
   swipeCommits,
   swipeOffset,
   type ListState,
-} from "../lib/review-done.ts";
-import { compareSortKeys } from "../lib/email-api.ts";
-import type { ApiCounts, ApiEmail } from "../lib/review-ui.ts";
+} from "../packages/core/src/review-done.ts";
+import { compareSortKeys } from "../packages/core/src/email-api.ts";
+import type { ApiCounts, ApiEmail } from "../packages/core/src/review-ui.ts";
 
 function mail(id: number, over: Partial<ApiEmail> = {}): ApiEmail {
   return {

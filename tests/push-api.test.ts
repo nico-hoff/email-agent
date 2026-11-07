@@ -5,13 +5,13 @@ import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import { createAuthContext, createLoginLimiter, createMutationLimiter, handleLogin, handleSession } from "../lib/auth-runtime.ts";
-import { CSRF_HEADER } from "../lib/csrf.ts";
-import { openDatabase } from "../lib/db.ts";
+import { createAuthContext, createLoginLimiter, createMutationLimiter, handleLogin, handleSession } from "../packages/core/src/auth-runtime.ts";
+import { CSRF_HEADER } from "../packages/core/src/csrf.ts";
+import { openDatabase } from "../packages/core/src/db.ts";
 import {
   handlePushConfig, handlePushList, handlePushSubscribe, handlePushTest, handlePushUnsubscribe, type PushApiDeps,
-} from "../lib/push-api.ts";
-import { PUSH_MAX_DEVICES, subscribeDevice } from "../lib/push.ts";
+} from "../packages/core/src/push-api.ts";
+import { PUSH_MAX_DEVICES, subscribeDevice } from "../packages/core/src/push.ts";
 import { fakeDevice, fakeTransport, vapidEnv } from "./push-helpers.ts";
 
 const ME = "nico@example.test";

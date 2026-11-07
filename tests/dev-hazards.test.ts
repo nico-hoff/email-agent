@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { findStyleScanHazards } from "../lib/dev-hazards.ts";
+import { findStyleScanHazards } from "../packages/core/src/dev-hazards.ts";
 import { createService } from "../server.ts";
 
 function makeProject(): string {

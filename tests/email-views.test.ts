@@ -4,12 +4,12 @@ import { chmodSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import { openDatabase } from "../lib/db.ts";
-import { syncAccounts } from "../lib/accounts.ts";
-import { accountColor } from "../lib/account-color.ts";
+import { openDatabase } from "../packages/core/src/db.ts";
+import { syncAccounts } from "../packages/core/src/accounts.ts";
+import { accountColor } from "../packages/core/src/account-color.ts";
 import {
   compareSortKeys, decodeCursor, encodeCursor, getEmailDetail, isNoise, isOpen, listEmails, parseListQuery, type SortKey,
-} from "../lib/email-api.ts";
+} from "../packages/core/src/email-api.ts";
 import * as listRoute from "../app/api/emails/route.ts";
 import * as detailRoute from "../app/api/emails/[id]/route.ts";
 

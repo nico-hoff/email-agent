@@ -6,10 +6,10 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { JEV_MODEL, PROJECT_ROOT, QUESTION_SET_VERSION_V2 } from "../lib/constants.ts";
-import { createJevClient, type JevClient } from "../lib/jev.ts";
-import { buildState, questionsFor } from "../lib/jev-questions.ts";
-import { normalizeAnswers } from "../lib/jev-response.ts";
+import { JEV_MODEL, PROJECT_ROOT, QUESTION_SET_VERSION_V2 } from "../packages/core/src/constants.ts";
+import { createJevClient, type JevClient } from "../packages/core/src/jev.ts";
+import { buildState, questionsFor } from "../packages/core/src/jev-questions.ts";
+import { normalizeAnswers } from "../packages/core/src/jev-response.ts";
 
 export const FIXTURE_PATH = join(PROJECT_ROOT, "tests", "fixtures", "jev-email-v2-response.json");
 

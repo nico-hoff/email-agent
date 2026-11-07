@@ -3,8 +3,8 @@
 // (ohne Dateiargumente: alle Berichte). Schreibt zusaetzlich data/eval-runs/insights.md (nur Aggregate und Fall-IDs).
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { QUESTIONS } from "../lib/jev-questions.ts";
-import { EVAL_SOURCES } from "../lib/eval-sources.ts";
+import { QUESTIONS } from "../packages/core/src/jev-questions.ts";
+import { EVAL_SOURCES } from "../packages/core/src/eval-sources.ts";
 import {
   balancedAccuracy,
   categoryMetrics,
@@ -16,7 +16,7 @@ import {
   specificity,
   wilson,
   type ScoredPoint,
-} from "../lib/eval-stats.ts";
+} from "../packages/core/src/eval-stats.ts";
 import { quantiles, THRESHOLDS } from "./calibrate.ts";
 
 export type RunSummary = {

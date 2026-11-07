@@ -2,7 +2,7 @@
 // Kalibrierung; a test keeps both in sync. Any change of a value is a new version there and here.
 // A TypeScript data module instead of JSON: Veryfront bundles tools and API routes in a temp directory (no
 // usable import.meta.url, no JSON loader), a plain import works in Node, the Veryfront build and the client.
-// Validated at import by lib/noul-calibration.ts (zod); erasable syntax only.
+// Validated at import by packages/core/src/noul-calibration.ts (zod); erasable syntax only.
 export default [
   {
     version: "1",

@@ -15,7 +15,7 @@ import {
   type ActionsCounts,
   type ApiAccount,
   type AutoMode,
-} from "../lib/review-ui.ts";
+} from "../packages/core/src/review-ui.ts";
 
 const noop = (): void => {};
 

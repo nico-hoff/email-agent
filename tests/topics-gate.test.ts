@@ -3,11 +3,11 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { QUESTION_SET_VERSION_V3 } from "../lib/constants.ts";
+import { QUESTION_SET_VERSION_V3 } from "../packages/core/src/constants.ts";
 import {
   accuracy, evaluateTopicsGate, loadTopicsGateDatasets, macroF1, modelsOf, parseTopicsGateDataset, serializeTopicsGateDataset, TOPICS_GATE,
   TopicsGateError, type TopicsGateLine,
-} from "../lib/topics-gate.ts";
+} from "../packages/core/src/topics-gate.ts";
 import { loadTopicCases } from "../scripts/jev-topic-probe.ts";
 
 const root = join(import.meta.dirname, "..");

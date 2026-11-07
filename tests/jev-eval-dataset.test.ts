@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { runEval } from "veryfront/eval";
-import { buildGateEval } from "../lib/jev-gate-eval.ts";
+import { buildGateEval } from "../packages/core/src/jev-gate-eval.ts";
 import {
   GATE_DATASET_DIR,
   GATE_NOUL_THRESHOLD,
@@ -14,11 +14,11 @@ import {
   serializeGateDataset,
   toEvalExamples,
   type GateLine,
-} from "../lib/eval-gate.ts";
-import { QUESTION_SET_VERSION_V1, QUESTION_SET_VERSION_V2 } from "../lib/constants.ts";
-import { questionsFor } from "../lib/jev-questions.ts";
+} from "../packages/core/src/eval-gate.ts";
+import { QUESTION_SET_VERSION_V1, QUESTION_SET_VERSION_V2 } from "../packages/core/src/constants.ts";
+import { questionsFor } from "../packages/core/src/jev-questions.ts";
 import { loadDataset, PROVISIONAL_NOUL_THRESHOLD, runEvalSet } from "../scripts/eval-jev.ts";
-import type { JevClient } from "../lib/jev.ts";
+import type { JevClient } from "../packages/core/src/jev.ts";
 
 const root = join(import.meta.dirname, "..");
 const SET_V1 = loadDataset(join(root, "tests", "fixtures", "eval", "email-eval-v1.jsonl"));

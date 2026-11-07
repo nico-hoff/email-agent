@@ -4,14 +4,14 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import { openDatabase } from "../lib/db.ts";
-import { syncAccounts } from "../lib/accounts.ts";
-import { CSRF_HEADER } from "../lib/csrf.ts";
+import { openDatabase } from "../packages/core/src/db.ts";
+import { syncAccounts } from "../packages/core/src/accounts.ts";
+import { CSRF_HEADER } from "../packages/core/src/csrf.ts";
 import {
   createAuthContext, createLoginLimiter, createMutationLimiter, guardRequest, handleLogin, handleSession,
-} from "../lib/auth-runtime.ts";
-import { handleSetDone } from "../lib/email-done.ts";
-import { readEmailStatus, upsertSeen } from "../lib/email-status.ts";
+} from "../packages/core/src/auth-runtime.ts";
+import { handleSetDone } from "../packages/core/src/email-done.ts";
+import { readEmailStatus, upsertSeen } from "../packages/core/src/email-status.ts";
 import * as doneRoute from "../app/api/emails/[id]/done/route.ts";
 import * as undoneRoute from "../app/api/emails/[id]/undone/route.ts";
 
@@ -162,7 +162,7 @@ describe("done and undone (app database only)", () => {
 
 describe("done and undone never reach a mailbox (H2)", () => {
   test("neither the routes nor their library import IMAP code, workers or the write-capable modules", () => {
-    for (const f of ["app/api/emails/[id]/done/route.ts", "app/api/emails/[id]/undone/route.ts", "lib/email-done.ts", "lib/email-status.ts"]) {
+    for (const f of ["app/api/emails/[id]/done/route.ts", "app/api/emails/[id]/undone/route.ts", "packages/core/src/email-done.ts", "packages/core/src/email-status.ts"]) {
       const src = readFileSync(join(root, f), "utf8");
       const imports = [...src.matchAll(/^import (?!type )[^;]*? from "([^"]+)"/gm)].map((m) => m[1]);
       for (const i of imports) assert.doesNotMatch(i, /imap|workers|ingest|mailparser/i, `${f} imports ${i}`);

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   DEV_IDENTITY, SESSION_COOKIE, SESSION_TTL_MS, clearCookieHeader, deriveKeys, isAllowed, issueSession, parseAllowlist,
   readCookie, readTailnetLogin, requestOrigins, resolveIdentity, sessionCookieHeader, verifySession,
-} from "../lib/auth.ts";
+} from "../packages/core/src/auth.ts";
 
 const SECRET = Buffer.alloc(32, 9);
 const KEYS = deriveKeys(SECRET);

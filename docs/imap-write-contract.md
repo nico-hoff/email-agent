@@ -26,7 +26,7 @@
 
 ## 4. Muster für `ImapWritePort.addSeen` / `removeSeen`
 
-1. Lesepfad (`lib/imap.ts`) unverändert: nur `readOnly: true`, keine Schreibmethoden.
+1. Lesepfad (`packages/core/src/imap.ts`) unverändert: nur `readOnly: true`, keine Schreibmethoden.
 2. Schreibport öffnet eine eigene ImapFlow-Verbindung, `getMailboxLock(folder, { readOnly: false })`.
 3. UIDVALIDITY des Ordners mit dem gespeicherten Wert vergleichen; bei Abweichung ohne Schreiben abbrechen (`failure_code = uidvalidity_changed`).
 4. `ok = await client.messageFlagsAdd([uid], ['\\Seen'], { uid: true })` (bzw. `messageFlagsRemove`); `ok === false` → `failed`.
@@ -40,15 +40,15 @@
 
 Stand 2026-10-27. Alles gegen Fakes getestet; es gab keine Verbindung zu einem echten Mailserver.
 
-- **Schreibport:** `lib/imap-write.ts` (`createImapWritePort`). Genau zwei Methoden, `addSeen(folder, uidValidity, uid)` und `removeSeen(...)`. Jeder Aufruf nutzt eine eigene, kurzlebige ImapFlow-Verbindung, `getMailboxLock(folder, { readOnly: false })`, vergleicht UIDVALIDITY des Ordners mit dem gespeicherten Wert (Abweichung: Fehlercode `uidvalidity_changed`, nichts wird geschrieben), sendet `messageFlagsAdd/Remove([uid], ['\\Seen'], { uid: true })` und liest die Flags der UID danach zurück (Abschnitt 2: ein Server-OK für eine verschwundene UID wäre sonst ein stiller Erfolg). Der Port löst bei jedem Fehler einen `ImapWriteError` mit genau einem Code aus: `imap_auth`, `imap_error`, `invalid_target`, `uidvalidity_changed`, `store_rejected` (imapflow lieferte `false`), `message_gone`, `store_unverified`. Weder Servertext noch Host, User, Passwort oder UID stehen in der Fehlermeldung (H4). Lock und Verbindung werden immer freigegeben.
-- **Nicht vorhanden:** Löschen, Verschieben, Kopieren, Anhängen, EXPUNGE. Ein Test sucht den Quelltext danach und belegt, dass `lib/imap.ts` (Lesepfad) unverändert keine Schreibmethode und kein `readOnly: false` enthält. `moveTo` kommt erst mit M7 (H16a).
-- **Wer den Port erzeugt:** nur `lib/mailbox-actions.ts` (Quelltext-Test über das ganze Repo). Routen und Worker benutzen den Executor, nie den Port.
+- **Schreibport:** `packages/core/src/imap-write.ts` (`createImapWritePort`). Genau zwei Methoden, `addSeen(folder, uidValidity, uid)` und `removeSeen(...)`. Jeder Aufruf nutzt eine eigene, kurzlebige ImapFlow-Verbindung, `getMailboxLock(folder, { readOnly: false })`, vergleicht UIDVALIDITY des Ordners mit dem gespeicherten Wert (Abweichung: Fehlercode `uidvalidity_changed`, nichts wird geschrieben), sendet `messageFlagsAdd/Remove([uid], ['\\Seen'], { uid: true })` und liest die Flags der UID danach zurück (Abschnitt 2: ein Server-OK für eine verschwundene UID wäre sonst ein stiller Erfolg). Der Port löst bei jedem Fehler einen `ImapWriteError` mit genau einem Code aus: `imap_auth`, `imap_error`, `invalid_target`, `uidvalidity_changed`, `store_rejected` (imapflow lieferte `false`), `message_gone`, `store_unverified`. Weder Servertext noch Host, User, Passwort oder UID stehen in der Fehlermeldung (H4). Lock und Verbindung werden immer freigegeben.
+- **Nicht vorhanden:** Löschen, Verschieben, Kopieren, Anhängen, EXPUNGE. Ein Test sucht den Quelltext danach und belegt, dass `packages/core/src/imap.ts` (Lesepfad) unverändert keine Schreibmethode und kein `readOnly: false` enthält. `moveTo` kommt erst mit M7 (H16a).
+- **Wer den Port erzeugt:** nur `packages/core/src/mailbox-actions.ts` (Quelltext-Test über das ganze Repo). Routen und Worker benutzen den Executor, nie den Port.
 - **Offen aus Abschnitt 1:** ob der `source`-Zweig von `fetch` `BODY.PEEK` nutzt, wurde nicht geprüft und ist für M7a unerheblich, weil der Lesepfad ohnehin in EXAMINE (`readOnly: true`) arbeitet und das Postfach nichts ändern darf. Vor dem ersten `live`-Schritt gegen ein echtes Postfach beobachten (Abschnitt 5).
-- **Executor und Regel:** `lib/mailbox-rules.ts` (reine Funktion, Schutz zuerst, dann „Spam gelesen“) und `lib/mailbox-actions.ts` (Modus je Konto, Not-Aus, Tageslimit, Idempotenz, Undo). Siehe README, Abschnitt „Automatische Aktionen“.
+- **Executor und Regel:** `packages/core/src/mailbox-rules.ts` (reine Funktion, Schutz zuerst, dann „Spam gelesen“) und `packages/core/src/mailbox-actions.ts` (Modus je Konto, Not-Aus, Tageslimit, Idempotenz, Undo). Siehe README, Abschnitt „Automatische Aktionen“.
 
 ## Not-Aus-Semantik (R3, ADR 0016, 0025, 0044)
 
-Zwei Stufen, beide werden **vor jeder Aktion** gelesen (`lib/mailbox-actions.ts`):
+Zwei Stufen, beide werden **vor jeder Aktion** gelesen (`packages/core/src/mailbox-actions.ts`):
 
 1. **Global:** die Datei `auto-actions.disabled` neben der Datenbank. Solange sie existiert, wird nichts geplant und nichts geschrieben, auch kein Rückgängigmachen am Server. Die App zeigt sie allen Nutzern an (nur lesend); Admins können sie nach Bestätigung anlegen und entfernen. Die Datei bleibt der Not-Aus von außen (ohne App, ohne Datenbank).
 2. **Pro Nutzer:** `user_settings.auto_actions_stopped_at`. Gleiche Wirkung für die Konten dieses Nutzers (Ergebnis `user_stop`; Undo am Server liefert `409 user_stop`). Das Zurückstellen auf „ungelesen“ im Trockenlauf (nur App-Status) bleibt möglich. Ein nicht lesbarer Zustand zählt als gestoppt.
@@ -75,7 +75,7 @@ Stand 2026-11-01, `imapflow` 2.9.1. Quellen: Context7 `/postalsys/imapflow` (`me
 6. Rücklesen: die UID im Quellordner muss weg sein, sonst `move_unverified`.
 7. `COPYUID` (UIDPLUS; `uidValidity` und `uidMap` im Ergebnis): Zielordner schreibgeschützt öffnen (`readOnly: true`, EXAMINE), UIDVALIDITY gleich dem `COPYUID`-Wert und neue UID vorhanden, sonst `move_unverified`. Ergebnis: neuer Ort mit Ordner, UIDVALIDITY und UID. Ohne `COPYUID`: nur der Ordner; der Executor kann den neuen Ort nicht speichern (kein Aufräumen, kein Undo für diese Mail).
 
-**Executor (`lib/mailbox-actions.ts`).** Reihenfolge je Mail: importiert (`origin = 'import'`) → nie; Modus des Kontos (`mail_accounts.quarantine_mode`, Standard `off`); globale Stop-Datei; Not-Aus des Nutzers; Schutz (`security_auth`, `transactional`, Positivliste) vor der Spam-Regel; Tageslimit; Move; Protokollzeile in `mailbox_actions` (`quarantine` / `move_quarantine`, `purge` / `move_trash`, Undo: `undo` / `move_inbox`); bei Erfolg neuer Ort in `email_locations` (alter inaktiv), Audit `folder_changed` und `mailbox_action` nur mit Codes. Ein Fehler wird als `failed` mit Code gespeichert und nicht wiederholt.
+**Executor (`packages/core/src/mailbox-actions.ts`).** Reihenfolge je Mail: importiert (`origin = 'import'`) → nie; Modus des Kontos (`mail_accounts.quarantine_mode`, Standard `off`); globale Stop-Datei; Not-Aus des Nutzers; Schutz (`security_auth`, `transactional`, Positivliste) vor der Spam-Regel; Tageslimit; Move; Protokollzeile in `mailbox_actions` (`quarantine` / `move_quarantine`, `purge` / `move_trash`, Undo: `undo` / `move_inbox`); bei Erfolg neuer Ort in `email_locations` (alter inaktiv), Audit `folder_changed` und `mailbox_action` nur mit Codes. Ein Fehler wird als `failed` mit Code gespeichert und nicht wiederholt.
 
 **Aufräumen.** Job im Server-Prozess (`server.ts`, alle 30 Minuten und einmal nach dem Start): `quarantine`-Zeilen (`done`, `live`) älter als `quarantine_days`, Mail noch in einem Ordner namens `Quarantäne` → `purge`. Dieselben Stopps, Limits und Schutzregeln; Trockenlauf plant nur.
 

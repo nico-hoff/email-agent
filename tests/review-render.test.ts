@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createElement } from "react";
 import { loadTsx } from "./helpers/load-tsx.ts";
-import type { ApiAnswer, ApiCounts, ApiEmail, ApiEmailDetail } from "../lib/review-ui.ts";
+import type { ApiAnswer, ApiCounts, ApiEmail, ApiEmailDetail } from "../packages/core/src/review-ui.ts";
 
 type Review = typeof import("../components/review.tsx");
 const { EmailDetailView, ReviewListView } =await loadTsx<Review>("components/review.tsx");

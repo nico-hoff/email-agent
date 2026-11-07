@@ -1,16 +1,16 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import type { DatabaseSync } from "node:sqlite";
-import { EXCERPT_MAX_CHARS } from "../lib/constants.ts";
-import { openDatabase } from "../lib/db.ts";
-import { syncAccounts } from "../lib/accounts.ts";
+import { EXCERPT_MAX_CHARS } from "../packages/core/src/constants.ts";
+import { openDatabase } from "../packages/core/src/db.ts";
+import { syncAccounts } from "../packages/core/src/accounts.ts";
 import {
   createImapFlowPort,
   fetchNewMessages,
   type ImapPort,
   parseMessage,
   reconcileCheckpoint,
-} from "../lib/imap.ts";
+} from "../packages/core/src/imap.ts";
 
 const CRLF = "\r\n";
 function mime(headers: string[], body: string): Buffer {

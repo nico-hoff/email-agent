@@ -3,11 +3,11 @@ import assert from "node:assert/strict";
 import { mkdtempSync, chmodSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openDatabase } from "../lib/db.ts";
-import { syncAccounts } from "../lib/accounts.ts";
-import { draftReply, type DraftAgent } from "../lib/draft-reply.ts";
-import type { ImapPort } from "../lib/imap.ts";
-import type { NormalizedAnswer, NoulReading } from "../lib/jev-response.ts";
+import { openDatabase } from "../packages/core/src/db.ts";
+import { syncAccounts } from "../packages/core/src/accounts.ts";
+import { draftReply, type DraftAgent } from "../packages/core/src/draft-reply.ts";
+import type { ImapPort } from "../packages/core/src/imap.ts";
+import type { NormalizedAnswer, NoulReading } from "../packages/core/src/jev-response.ts";
 
 const T = "2026-10-26T10:00:00.000Z";
 const byValue = (a: NormalizedAnswer): NoulReading => ((a.value as number) >= 0.5 ? "positive" : "negative");

@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
-import { normalizeAnswers } from "../lib/jev-response.ts";
-import { QUESTIONS } from "../lib/jev-questions.ts";
+import { normalizeAnswers } from "../packages/core/src/jev-response.ts";
+import { QUESTIONS } from "../packages/core/src/jev-questions.ts";
 
 function fixture(name: string): any {
   return JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8"));

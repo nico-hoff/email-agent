@@ -1,4 +1,4 @@
-import { defaultApiDeps, handleFeedbackGet, handleFeedbackPost } from "../../../../../lib/senders-api.ts";
+import { defaultApiDeps, handleFeedbackGet, handleFeedbackPost } from "../../../../../packages/core/src/senders-api.ts";
 
 // POST { kind, value? }: Nico's feedback (T37). GET: the current answer per topic. App database only, never a mailbox.
 export async function POST(request: Request, context: { params: Record<string, string> | Promise<Record<string, string>> }): Promise<Response> {

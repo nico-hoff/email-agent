@@ -1,8 +1,8 @@
-import { defaultAuthContext, requireUser } from "../../../lib/auth-runtime.ts";
-import { openDatabase } from "../../../lib/db.ts";
-import { validateDatabasePath } from "../../../lib/accounts.ts";
-import { PROJECT_ROOT } from "../../../lib/constants.ts";
-import { listActions, parseActionsQuery } from "../../../lib/actions-api.ts";
+import { defaultAuthContext, requireUser } from "../../../packages/core/src/auth-runtime.ts";
+import { openDatabase } from "../../../packages/core/src/db.ts";
+import { validateDatabasePath } from "../../../packages/core/src/accounts.ts";
+import { PROJECT_ROOT } from "../../../packages/core/src/constants.ts";
+import { listActions, parseActionsQuery } from "../../../packages/core/src/actions-api.ts";
 
 // Reads only from SQLite: ids, codes and timestamps of mailbox actions (dry run and live). No mail content.
 // Query: mode=dry_run|live, status=planned|done|failed|undone, limit (<= 50), cursor (opaque).

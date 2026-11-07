@@ -5,8 +5,8 @@ import { describe, it } from "node:test";
 import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { loadTsx } from "./helpers/load-tsx.ts";
-import { fetchSync, isActivePhase, parseSync, postSyncRestart, showSyncCard, syncHeadline, syncNote, syncStages, type SyncData } from "../lib/sync-client.ts";
-import type { ApiEmail } from "../lib/review-ui.ts";
+import { fetchSync, isActivePhase, parseSync, postSyncRestart, showSyncCard, syncHeadline, syncNote, syncStages, type SyncData } from "../packages/core/src/sync-client.ts";
+import type { ApiEmail } from "../packages/core/src/review-ui.ts";
 
 type Card = typeof import("../components/sync-card.tsx");
 type Profile = typeof import("../components/profile.tsx");

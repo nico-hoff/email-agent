@@ -3,8 +3,8 @@ import { describe, it } from "node:test";
 import {
   BRIEFING_ERROR_TEXT, briefingLines, FALLBACK_LABEL, INITIAL_BRIEFING, reduceBriefing, runBriefing,
   type BriefingState,
-} from "../lib/briefing-client.ts";
-import type { MutationDeps } from "../lib/mutate-client.ts";
+} from "../packages/core/src/briefing-client.ts";
+import type { MutationDeps } from "../packages/core/src/mutate-client.ts";
 
 const sse = (...events: [string, unknown][]) => events.map(([e, d]) => `event: ${e}\ndata: ${JSON.stringify(d)}\n\n`).join("");
 const META = { source: "model", cached: false, open_total: 5, listed: 3 };

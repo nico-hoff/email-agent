@@ -2,16 +2,16 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import type { DatabaseSync } from "node:sqlite";
-import { openDatabase } from "../lib/db.ts";
-import { syncAccounts } from "../lib/accounts.ts";
-import type { AccountConfig } from "../lib/accounts-config.ts";
-import { generateVapidKeys, verifyVapidJwt } from "../lib/push-crypto.ts";
+import { openDatabase } from "../packages/core/src/db.ts";
+import { syncAccounts } from "../packages/core/src/accounts.ts";
+import type { AccountConfig } from "../packages/core/src/accounts-config.ts";
+import { generateVapidKeys, verifyVapidJwt } from "../packages/core/src/push-crypto.ts";
 import {
   agentFamily, backoffMs, buildPayload, isAllowedPushEndpoint, listDevices, loadPushConfig, PUSH_MAX_DEVICES, PUSH_MAX_FAILURES, sendToSubscription,
   subscribeDevice, subscriptionsFor, unsubscribeDevice,
-} from "../lib/push.ts";
-import { BRIEFING_PUSH_FROM_MINUTES, createPushNotifier, localClock, PUSH_STATE_KEY } from "../lib/push-notify.ts";
-import { getUserState } from "../lib/user-state.ts";
+} from "../packages/core/src/push.ts";
+import { BRIEFING_PUSH_FROM_MINUTES, createPushNotifier, localClock, PUSH_STATE_KEY } from "../packages/core/src/push-notify.ts";
+import { getUserState } from "../packages/core/src/user-state.ts";
 import { addMail, BODY_MARKER, fakeDevice, fakeTransport, SENDER_MARKER, SUBJECT_MARKER, vapidEnv } from "./push-helpers.ts";
 
 const T = "2026-10-31T10:00:00.000Z";

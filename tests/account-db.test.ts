@@ -4,8 +4,8 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } fr
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { openDatabase } from "../lib/db.ts";
-import { startup, syncAccounts, validateDatabasePath } from "../lib/accounts.ts";
+import { openDatabase } from "../packages/core/src/db.ts";
+import { startup, syncAccounts, validateDatabasePath } from "../packages/core/src/accounts.ts";
 
 const PW = "pw-SECRET-VALUE-123";
 let tmp: string;

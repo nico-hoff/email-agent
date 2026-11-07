@@ -16,7 +16,7 @@ import {
   specificity,
   type Confusion,
   type ScoredPoint,
-} from "../lib/eval-stats.ts";
+} from "../packages/core/src/eval-stats.ts";
 
 export const SWEEP: readonly number[] = Array.from({ length: 19 }, (_, i) => (5 + 5 * i) / 100);
 export const NOUL_KEYS = ["is_spam", "is_phishing_or_scam", "addresses_an_ai", "needs_my_reply", "is_assessable"] as const;

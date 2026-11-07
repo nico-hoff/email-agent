@@ -1,9 +1,9 @@
 // Shared by the initial-import tests and the screenshot simulation: a fake clock, a fake IMAP port with a synthetic INBOX
 // and a fake classifier hand-over (onIngested) that writes the same rows the real pipeline writes. Synthetic content only.
 import type { DatabaseSync } from "node:sqlite";
-import { syncAccounts } from "../../lib/accounts.ts";
-import { openDatabase } from "../../lib/db.ts";
-import type { ImapEventError, ImapPort, TransientInput } from "../../lib/imap.ts";
+import { syncAccounts } from "../../packages/core/src/accounts.ts";
+import { openDatabase } from "../../packages/core/src/db.ts";
+import type { ImapEventError, ImapPort, TransientInput } from "../../packages/core/src/imap.ts";
 import { createImapWorkers } from "../../workers/imap-worker.ts";
 
 export const settle = async () => {

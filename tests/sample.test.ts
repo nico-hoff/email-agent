@@ -1,11 +1,11 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { openDatabase } from "../lib/db.ts";
-import { syncAccounts } from "../lib/accounts.ts";
-import type { ImapPort } from "../lib/imap.ts";
-import type { JevCallResult } from "../lib/jev.ts";
-import { JEV_MODEL, QUESTION_SET_VERSION } from "../lib/constants.ts";
+import { openDatabase } from "../packages/core/src/db.ts";
+import { syncAccounts } from "../packages/core/src/accounts.ts";
+import type { ImapPort } from "../packages/core/src/imap.ts";
+import type { JevCallResult } from "../packages/core/src/jev.ts";
+import { JEV_MODEL, QUESTION_SET_VERSION } from "../packages/core/src/constants.ts";
 import { parseSampleArgs, runSample, SampleError, type SampleProgress } from "../scripts/sample.ts";
 
 const BODY_MARK = "BODY-MARKER-5D1E";

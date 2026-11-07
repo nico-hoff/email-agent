@@ -1,6 +1,6 @@
 // "Entwurf erzeugen" on the detail page (T42). Stateless. The draft is shown as plain text in a text node (never HTML),
 // can be copied, and is never stored by the page: it lives in component state only.
-import { draftErrorText, type DraftResult } from "../lib/draft-client.ts";
+import { draftErrorText, type DraftResult } from "../packages/core/src/draft-client.ts";
 
 export type DraftViewState =
   | { kind: "idle" }

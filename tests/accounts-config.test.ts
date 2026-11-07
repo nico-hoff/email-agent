@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { autoActionMode, loadAccountsConfig } from "../lib/accounts-config.ts";
+import { autoActionMode, loadAccountsConfig } from "../packages/core/src/accounts-config.ts";
 
 const repoRoot = join(import.meta.dirname, "..");
 let tmp: string; // simulated project root

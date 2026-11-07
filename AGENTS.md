@@ -38,7 +38,7 @@ Integration tools such as `gmail__list_emails` use a provider account connected 
 
 Quelle der Wahrheit: `docs/IMPLEMENTATION_PLAN.md` (Arbeitsregeln in Abschnitt 3) und `docs/erd.md` (Schema). Kurzfassung der harten Regeln:
 
-- IMAP-Lesepfad nur schreibgeschützt. Schreiben nur über den Schreibport (`lib/imap-write.ts`) und nur: `\Seen`, Verschieben in Quarantäne, Verschieben in den Papierkorb (ADR 0025), jeweils vom Nutzer in der App eingeschaltet. Nie senden, keine Entwürfe, keine anderen Flags, nie endgültig löschen.
+- IMAP-Lesepfad nur schreibgeschützt. Schreiben nur über den Schreibport (`packages/core/src/imap-write.ts`) und nur: `\Seen`, Verschieben in Quarantäne, Verschieben in den Papierkorb (ADR 0025), jeweils vom Nutzer in der App eingeschaltet. Nie senden, keine Entwürfe, keine anderen Flags, nie endgültig löschen.
 - Keine Mailinhalte persistieren (kein Body, Auszug, Rohquelle, Roh-Response) und nie in Logs, API, Dashboard oder Fixtures. Fixtures nur synthetisch.
 - Secrets (`.env`, `.env.local`, `.mcp.json`, Konten-Datei) nie lesen, ausgeben oder committen.
 - Jev nur über `@openrouter/sdk` System One (`typesafe/jev-1.13`), kein Chat-Agent. Live-Aufrufe für R&D nur mit synthetischen Inhalten (ADR 0028). Keine erfundenen SDK-Felder: Context7, dann installierte Typen, dann echte synthetische Fixtures.

@@ -3,11 +3,11 @@
 // Prints counts and codes only, never a value. The server does the same automatically at startup; afterwards the file is
 // never read again (marker in user_state).
 import { fileURLToPath } from "node:url";
-import { validateDatabasePath } from "../lib/accounts.ts";
-import { loadKeyring } from "../lib/account-secrets.ts";
-import { PROJECT_ROOT } from "../lib/constants.ts";
-import { openDatabase } from "../lib/db.ts";
-import { importLegacyAccounts } from "../lib/mail-accounts.ts";
+import { validateDatabasePath } from "../packages/core/src/accounts.ts";
+import { loadKeyring } from "../packages/core/src/account-secrets.ts";
+import { PROJECT_ROOT } from "../packages/core/src/constants.ts";
+import { openDatabase } from "../packages/core/src/db.ts";
+import { importLegacyAccounts } from "../packages/core/src/mail-accounts.ts";
 
 export interface CliDeps {
   env: Record<string, string | undefined>;

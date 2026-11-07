@@ -1,15 +1,15 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { openDatabase } from "../lib/db.ts";
-import { syncAccounts } from "../lib/accounts.ts";
-import { ingestMail } from "../lib/ingest.ts";
-import type { ImapPort, MessageMeta, TransientInput } from "../lib/imap.ts";
-import type { JevCallResult } from "../lib/jev.ts";
-import { JEV_MODEL, QUESTION_SET_VERSION } from "../lib/constants.ts";
-import { createClassificationPipeline, createPersistResponse } from "../lib/classification-pipeline.ts";
-import { computeShadowQuarantine } from "../lib/shadow.ts";
-import type { NormalizedAnswer } from "../lib/jev-response.ts";
+import { openDatabase } from "../packages/core/src/db.ts";
+import { syncAccounts } from "../packages/core/src/accounts.ts";
+import { ingestMail } from "../packages/core/src/ingest.ts";
+import type { ImapPort, MessageMeta, TransientInput } from "../packages/core/src/imap.ts";
+import type { JevCallResult } from "../packages/core/src/jev.ts";
+import { JEV_MODEL, QUESTION_SET_VERSION } from "../packages/core/src/constants.ts";
+import { createClassificationPipeline, createPersistResponse } from "../packages/core/src/classification-pipeline.ts";
+import { computeShadowQuarantine } from "../packages/core/src/shadow.ts";
+import type { NormalizedAnswer } from "../packages/core/src/jev-response.ts";
 import { createWorkersWithPipeline } from "../server.ts";
 
 const T0 = new Date("2026-10-26T12:00:00.000Z");

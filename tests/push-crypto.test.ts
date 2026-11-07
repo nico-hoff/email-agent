@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createDecipheriv, createECDH, hkdfSync } from "node:crypto";
 import {
   b64urlDecode, createVapidJwt, encryptPayload, generateVapidKeys, vapidAuthorization, vapidKeysMatch, verifyVapidJwt,
-} from "../lib/push-crypto.ts";
+} from "../packages/core/src/push-crypto.ts";
 
 // RFC 8291 appendix A.
 const RFC = {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { dummyHash, hashPassword, MAX_USER_PASSWORD_CHARS, MIN_USER_PASSWORD_CHARS, passwordProblem, verifyPassword } from "../lib/user-password.ts";
+import { dummyHash, hashPassword, MAX_USER_PASSWORD_CHARS, MIN_USER_PASSWORD_CHARS, passwordProblem, verifyPassword } from "../packages/core/src/user-password.ts";
 
 const PW = "synthetic-test-password-1";
 // Cheap parameters keep the tests fast; the format and bounds are what is under test.

@@ -1,4 +1,4 @@
-import { defaultApiDeps, handleRulesCreate, handleRulesList } from "../../../../lib/senders-api.ts";
+import { defaultApiDeps, handleRulesCreate, handleRulesList } from "../../../../packages/core/src/senders-api.ts";
 
 // GET: active rules (?include_inactive=1 for all). POST { match, value, kind, account_id? }: permanent rule by Nico.
 export function GET(request: Request): Response {

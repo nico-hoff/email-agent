@@ -3,10 +3,10 @@ import assert from "node:assert/strict";
 import { mkdtempSync, chmodSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
-import { openDatabase } from "../lib/db.ts";
-import { syncAccounts } from "../lib/accounts.ts";
+import { openDatabase } from "../packages/core/src/db.ts";
+import { syncAccounts } from "../packages/core/src/accounts.ts";
 import { GET } from "../app/api/status/route.ts";
-import { PROJECT_ROOT } from "../lib/constants.ts";
+import { PROJECT_ROOT } from "../packages/core/src/constants.ts";
 
 test("GET /api/status reads worker state and classification counts from SQLite only", async () => {
   const dir = mkdtempSync(join(tmpdir(), "status-"));

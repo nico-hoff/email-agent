@@ -26,7 +26,7 @@
 | R12 | Nutzer-Gedächtnis | `user_memories` + FTS5, Tools `add_memory`/`search_memory` mit Gate (Jev), Profil „Was der Agent über mich weiß“ (ADR 0031) | 🤖 | ⏳ |
 | R10 | UI-Feinschliff | im QA-Loop mit Nico iterieren (Kopfzeile, Badges, Absender-Fragen, Profil-Flows) | 🤖 + 👤 | ⏳ |
 | R13 | Postgres auf Neon | Schema 001–012 nach Postgres, asynchroner Datenzugriff, Query-Builder, RLS (App-Rolle ohne `BYPASSRLS`), Neon-Branches für Dev/Test, Staging, Prod; vor R5 (ADR 0048/0049) | 🤖, Neon-Zugang 👤 | ⏳ wartet auf `DATABASE_URL` |
-| R14 | Monorepo Schritt 1 | npm-Workspaces, `lib/` → `packages/core`, SQL → `packages/db`, Veryfront-App bleibt im Root (ADR 0048) | 🤖 | 🟡 |
+| R14 | Monorepo Schritt 1 | npm-Workspaces, `lib/` → `packages/core`, SQL → `packages/db`, Veryfront-App bleibt im Root (ADR 0048) | 🤖 | ✅ `dev` (Importe relativ, siehe ADR 0048) |
 | R15 | Threads und Workstreams | Thread-Header und Teilnehmer als Metadaten, Threads, Workstreams, To-dos/Deadlines je Workstream; Probe mit synthetischen Verläufen zuerst (ADR 0050, `VISION.md`) | 🤖 + 👤 (H3-Frage) | ⏳ Entwurf |
 
 ## Phase C – go2market-Gate (nicht vor Nicos Entscheidung)

@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import { mkdtempSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { EVAL_SOURCES } from "../lib/eval-sources.ts";
+import { EVAL_SOURCES } from "../packages/core/src/eval-sources.ts";
 import { DEFAULT_HARD_CAP, fetchSource, pageIndices } from "../scripts/fetch-eval-datasets.ts";
 
 const source = EVAL_SOURCES.find((s) => s.short === "triage")!;

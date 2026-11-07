@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it } from "node:test";
-import { PROJECT_ROOT } from "../lib/constants.ts";
+import { PROJECT_ROOT } from "../packages/core/src/constants.ts";
 import { E2E_DEFAULT_PORT, E2E_PASSWORD, E2E_USER_EMAIL, e2eMode, e2ePort, PRODUCTION_MODULE_CACHE } from "../scripts/e2e-browser-serve.ts";
 import { QA_PASSWORD, QA_USER_EMAIL } from "../scripts/qa-serve.ts";
 

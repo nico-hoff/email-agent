@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { loadTsx } from "./helpers/load-tsx.ts";
-import { fetchInvites, fetchProfile, formatWhen, postInvite, postLogout, postLogoutAll } from "../lib/profile-client.ts";
+import { fetchInvites, fetchProfile, formatWhen, postInvite, postLogout, postLogoutAll } from "../packages/core/src/profile-client.ts";
 
 type Profile = typeof import("../components/profile.tsx");
 const { ProfileView } = await loadTsx<Profile>("components/profile.tsx");
@@ -61,7 +61,7 @@ describe("profile page", () => {
   });
 
   it("the page source and the client keep codes and tokens out of browser storage", () => {
-    const src = readFileSync(new URL("../app/profil/page.tsx", import.meta.url), "utf8") + readFileSync(new URL("../lib/profile-client.ts", import.meta.url), "utf8")
+    const src = readFileSync(new URL("../app/profil/page.tsx", import.meta.url), "utf8") + readFileSync(new URL("../packages/core/src/profile-client.ts", import.meta.url), "utf8")
       + readFileSync(new URL("../components/profile.tsx", import.meta.url), "utf8");
     assert.doesNotMatch(src, /localStorage|sessionStorage|indexedDB/);
   });

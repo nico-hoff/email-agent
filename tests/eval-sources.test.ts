@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { EXCERPT_MAX_CHARS } from "../lib/constants.ts";
+import { EXCERPT_MAX_CHARS } from "../packages/core/src/constants.ts";
 import {
   classLabel,
   contentHash,
@@ -13,7 +13,7 @@ import {
   strataKey,
   triageNeedsMyReply,
   type EvalCase,
-} from "../lib/eval-sources.ts";
+} from "../packages/core/src/eval-sources.ts";
 
 const triage = EVAL_SOURCES.find((s) => s.short === "triage")!;
 const sinabis = EVAL_SOURCES.find((s) => s.short === "sinabis")!;

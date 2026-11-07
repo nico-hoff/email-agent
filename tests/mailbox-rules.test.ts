@@ -1,7 +1,7 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { decideSpamSeen, PROTECTED_CATEGORIES, type RuleInput } from "../lib/mailbox-rules.ts";
-import type { NormalizedAnswer } from "../lib/jev-response.ts";
+import { decideSpamSeen, PROTECTED_CATEGORIES, type RuleInput } from "../packages/core/src/mailbox-rules.ts";
+import type { NormalizedAnswer } from "../packages/core/src/jev-response.ts";
 
 const V1 = "email-classification-v1";
 const noul = (key: string, value: number): NormalizedAnswer => ({ key, type: "noul", value });

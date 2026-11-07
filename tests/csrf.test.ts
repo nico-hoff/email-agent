@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CSRF_HEADER, CSRF_TTL_MS, issueCsrfToken, verifyCsrf } from "../lib/csrf.ts";
+import { CSRF_HEADER, CSRF_TTL_MS, issueCsrfToken, verifyCsrf } from "../packages/core/src/csrf.ts";
 
 const SECRET = Buffer.alloc(32, 7);
 const ORIGIN = "https://mac.tailnet-example.ts.net";

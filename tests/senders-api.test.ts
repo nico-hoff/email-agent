@@ -4,15 +4,15 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import { openDatabase } from "../lib/db.ts";
-import { syncAccounts } from "../lib/accounts.ts";
-import { CSRF_HEADER } from "../lib/csrf.ts";
-import { createAuthContext, createLoginLimiter, createMutationLimiter, guardRequest, handleLogin, handleSession } from "../lib/auth-runtime.ts";
+import { openDatabase } from "../packages/core/src/db.ts";
+import { syncAccounts } from "../packages/core/src/accounts.ts";
+import { CSRF_HEADER } from "../packages/core/src/csrf.ts";
+import { createAuthContext, createLoginLimiter, createMutationLimiter, guardRequest, handleLogin, handleSession } from "../packages/core/src/auth-runtime.ts";
 import {
   handleFeedbackGet, handleFeedbackPost, handleHitlDismiss, handleHitlList, handleRuleDeactivate, handleRulesCreate, handleRulesList,
   type ApiDeps,
-} from "../lib/senders-api.ts";
-import { recordSenderMail } from "../lib/senders.ts";
+} from "../packages/core/src/senders-api.ts";
+import { recordSenderMail } from "../packages/core/src/senders.ts";
 import * as feedbackRoute from "../app/api/emails/[id]/feedback/route.ts";
 import * as hitlRoute from "../app/api/senders/hitl/route.ts";
 import * as dismissRoute from "../app/api/senders/hitl/dismiss/route.ts";
@@ -235,7 +235,7 @@ describe("no mailbox access (H2)", () => {
     const files = [
       "app/api/emails/[id]/feedback/route.ts", "app/api/senders/hitl/route.ts", "app/api/senders/hitl/dismiss/route.ts",
       "app/api/senders/rules/route.ts", "app/api/senders/rules/[id]/deactivate/route.ts",
-      "lib/senders-api.ts", "lib/feedback.ts", "lib/sender-rules.ts", "lib/sender-hitl.ts", "lib/senders.ts",
+      "packages/core/src/senders-api.ts", "packages/core/src/feedback.ts", "packages/core/src/sender-rules.ts", "packages/core/src/sender-hitl.ts", "packages/core/src/senders.ts",
     ];
     for (const f of files) {
       const src = readFileSync(join(root, f), "utf8");

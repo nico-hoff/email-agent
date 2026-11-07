@@ -5,7 +5,7 @@ import { createElement } from "react";
 import { loadTsx } from "./helpers/load-tsx.ts";
 import type {
   ActionRow, ActionsCounts, ApiAccount, ApiAction, ApiCounts, ApiEmail, ApiEmailDetail, ApiMailboxAction,
-} from "../lib/review-ui.ts";
+} from "../packages/core/src/review-ui.ts";
 
 type Actions = typeof import("../components/actions.tsx");
 type Review = typeof import("../components/review.tsx");

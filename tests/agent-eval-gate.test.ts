@@ -3,8 +3,8 @@ import { describe, it } from "node:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { runEval } from "veryfront/eval";
-import { formatAgentInput } from "../lib/agent-input.ts";
-import { formatBriefingInput } from "../lib/briefing-context.ts";
+import { formatAgentInput } from "../packages/core/src/agent-input.ts";
+import { formatBriefingInput } from "../packages/core/src/briefing-context.ts";
 import {
   AGENT_GATE_FILES,
   AGENT_SET_FILES,
@@ -23,9 +23,9 @@ import {
   replyInputOf,
   serializeBriefingGate,
   serializeReplyGate,
-} from "../lib/agent-eval-gate.ts";
-import { buildAgentGateEval } from "../lib/agent-gate-eval.ts";
-import { loadGateDatasets } from "../lib/eval-gate.ts";
+} from "../packages/core/src/agent-eval-gate.ts";
+import { buildAgentGateEval } from "../packages/core/src/agent-gate-eval.ts";
+import { loadGateDatasets } from "../packages/core/src/eval-gate.ts";
 
 const root = join(import.meta.dirname, "..");
 const read = (rel: string) => readFileSync(join(root, rel), "utf8");

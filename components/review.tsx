@@ -1,7 +1,7 @@
 // Presentational components of the signal inbox (T36, T47, T48, T49). They are stateless and receive only the
 // metadata rows of GET /api/emails: no body, excerpt or raw source ever exists here. The mailbox itself is read-only.
 import { createContext, useContext, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode, type Ref } from "react";
-import { SWIPE_COMMIT_PX, swipeCommits, swipeOffset } from "../lib/review-done.ts";
+import { SWIPE_COMMIT_PX, swipeCommits, swipeOffset } from "../packages/core/src/review-done.ts";
 import {
   cardBadges,
   categoryLabel,
@@ -38,8 +38,8 @@ import {
   type AutoMode,
   type Badge,
   type ViewId,
-} from "../lib/review-ui.ts";
-import type { TopicFolder } from "../lib/topics-client.ts";
+} from "../packages/core/src/review-ui.ts";
+import type { TopicFolder } from "../packages/core/src/topics-client.ts";
 
 /** Labels of the topic keys (R8). Empty = topics are off: no badge on any card. Provided by ReviewListView. */
 const TopicLabels = createContext<ReadonlyMap<string, string>>(new Map());

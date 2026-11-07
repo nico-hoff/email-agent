@@ -4,12 +4,12 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import { openDatabase } from "../lib/db.ts";
+import { openDatabase } from "../packages/core/src/db.ts";
 import {
   countLiveSessions, createInvite, createSession, createUser, DEV_USER_EMAIL, DEV_USER_PASSWORD, ensureDevUser, findUserByEmail, getUser,
   INVITE_MAX_DAYS, listOpenInvites, newInviteCode, normalizeEmail, normalizeInviteCode, OWNER_USER_ID, registerWithInvite, revokeAllSessions,
   revokeSessionToken, setUserStatus, verifyLogin, verifySessionToken,
-} from "../lib/users.ts";
+} from "../packages/core/src/users.ts";
 
 const PW = "synthetic-test-password-1";
 const T0 = new Date("2026-10-31T10:00:00.000Z");

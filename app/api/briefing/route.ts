@@ -1,9 +1,9 @@
-import { resolveAgent, hasModelKey } from "../../../lib/agent-registry.ts";
-import { validateDatabasePath } from "../../../lib/accounts.ts";
-import { defaultAuthContext, createMutationLimiter } from "../../../lib/auth-runtime.ts";
-import { createBriefingCache, handleBriefing, type BriefingAgent } from "../../../lib/briefing.ts";
-import { PROJECT_ROOT } from "../../../lib/constants.ts";
-import { openDatabase } from "../../../lib/db.ts";
+import { resolveAgent, hasModelKey } from "../../../packages/core/src/agent-registry.ts";
+import { validateDatabasePath } from "../../../packages/core/src/accounts.ts";
+import { defaultAuthContext, createMutationLimiter } from "../../../packages/core/src/auth-runtime.ts";
+import { createBriefingCache, handleBriefing, type BriefingAgent } from "../../../packages/core/src/briefing.ts";
+import { PROJECT_ROOT } from "../../../packages/core/src/constants.ts";
+import { openDatabase } from "../../../packages/core/src/db.ts";
 
 // POST only: streams the briefing as Server-Sent Events (event types meta, delta, error, done; docs/agent-contract.md).
 // Opening the app is cheap to repeat (5-minute cache), but each call can cost a model run, so the budget is small.

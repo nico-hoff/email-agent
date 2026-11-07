@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { assertFlyAuthConfigured, FlyAuthMissingError } from "../lib/fly-guard.ts";
+import { assertFlyAuthConfigured, FlyAuthMissingError } from "../packages/core/src/fly-guard.ts";
 import { createService } from "../server.ts";
 
 const LONG = "a-long-synthetic-test-passphrase";

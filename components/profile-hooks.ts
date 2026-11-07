@@ -24,9 +24,9 @@ import {
   type PushKindName,
   type PushKinds,
   type PushSupport,
-} from '../lib/push-client.ts'
-import { pushSectionState } from '../lib/push-section.ts'
-import { fetchTopics, postTopicChange, topicErrorText, type TopicChange, type TopicsData } from '../lib/topics-client.ts'
+} from '../packages/core/src/push-client.ts'
+import { pushSectionState } from '../packages/core/src/push-section.ts'
+import { fetchTopics, postTopicChange, topicErrorText, type TopicChange, type TopicsData } from '../packages/core/src/topics-client.ts'
 
 export function useTopicsSection(onNotice: (text: string, error?: boolean) => void): TopicsSectionProps {
   const [data, setData] = useState<TopicsData | null>(null)

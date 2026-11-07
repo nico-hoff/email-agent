@@ -1,4 +1,4 @@
-import { defaultProfileDeps, handleInviteCreate, handleInvitesList } from "../../../lib/profile-api.ts";
+import { defaultProfileDeps, handleInviteCreate, handleInvitesList } from "../../../packages/core/src/profile-api.ts";
 
 // Admin only. GET: open invitations (no codes). POST { role?, days? }: creates one; the code is returned once.
 export function GET(request: Request): Response {

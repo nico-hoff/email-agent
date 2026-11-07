@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { assertCalibrationMatchesQuestions, calibrationFor, NOUL_CALIBRATIONS, NoulCalibrationError, noulThreshold, parseNoulCalibration, parseNoulCalibrations } from "../lib/noul-calibration.ts";
-import { interpretNoul, type NormalizedAnswer } from "../lib/jev-response.ts";
-import { QUESTION_SET_VERSION, QUESTION_SET_VERSION_V1, QUESTION_SET_VERSION_V2, QUESTION_SET_VERSION_V3 } from "../lib/constants.ts";
-import { questionsFor } from "../lib/jev-questions.ts";
+import { assertCalibrationMatchesQuestions, calibrationFor, NOUL_CALIBRATIONS, NoulCalibrationError, noulThreshold, parseNoulCalibration, parseNoulCalibrations } from "../packages/core/src/noul-calibration.ts";
+import { interpretNoul, type NormalizedAnswer } from "../packages/core/src/jev-response.ts";
+import { QUESTION_SET_VERSION, QUESTION_SET_VERSION_V1, QUESTION_SET_VERSION_V2, QUESTION_SET_VERSION_V3 } from "../packages/core/src/constants.ts";
+import { questionsFor } from "../packages/core/src/jev-questions.ts";
 import shippedConfig from "../config/noul-calibration.ts";
 
 const root = join(import.meta.dirname, "..");

@@ -10,8 +10,8 @@ import { chmodSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createService } from "../server.ts";
-import { openDatabase } from "../lib/db.ts";
-import { PROJECT_ROOT } from "../lib/constants.ts";
+import { openDatabase } from "../packages/core/src/db.ts";
+import { PROJECT_ROOT } from "../packages/core/src/constants.ts";
 import { ensureQaUser, QA_PASSWORD, QA_USER_EMAIL, seedQaDatabase } from "./qa-serve.ts";
 
 export const E2E_DEFAULT_PORT = 3300;

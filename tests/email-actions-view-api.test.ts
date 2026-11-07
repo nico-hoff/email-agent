@@ -1,10 +1,10 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { openDatabase } from "../lib/db.ts";
-import { syncAccounts } from "../lib/accounts.ts";
-import { readAutoActionModes } from "../lib/account-modes.ts";
-import { getEmailDetail, listEmails, parseListQuery } from "../lib/email-api.ts";
-import { listActions, parseActionsQuery } from "../lib/actions-api.ts";
+import { openDatabase } from "../packages/core/src/db.ts";
+import { syncAccounts } from "../packages/core/src/accounts.ts";
+import { readAutoActionModes } from "../packages/core/src/account-modes.ts";
+import { getEmailDetail, listEmails, parseListQuery } from "../packages/core/src/email-api.ts";
+import { listActions, parseActionsQuery } from "../packages/core/src/actions-api.ts";
 
 const T = "2026-10-27T10:00:00.000Z";
 

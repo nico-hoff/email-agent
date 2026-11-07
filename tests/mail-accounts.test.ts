@@ -5,17 +5,17 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import { loadKeyring, generateKey } from "../lib/account-secrets.ts";
-import { createAccountSupervisor } from "../lib/account-supervisor.ts";
-import type { AccountConfig } from "../lib/accounts-config.ts";
-import { startup } from "../lib/accounts.ts";
-import { classifyError, testConnection, type TestPort } from "../lib/connection-test.ts";
-import { openDatabase } from "../lib/db.ts";
+import { loadKeyring, generateKey } from "../packages/core/src/account-secrets.ts";
+import { createAccountSupervisor } from "../packages/core/src/account-supervisor.ts";
+import type { AccountConfig } from "../packages/core/src/accounts-config.ts";
+import { startup } from "../packages/core/src/accounts.ts";
+import { classifyError, testConnection, type TestPort } from "../packages/core/src/connection-test.ts";
+import { openDatabase } from "../packages/core/src/db.ts";
 import {
   createMailAccount, getAccountView, hostProblem, importLegacyAccounts, listAccountViews, loadConnection, loadWorkerAccounts, newAccountId,
   rekeyAll, setAccountEnabled, updateMailAccount, type CreateAccountInput,
-} from "../lib/mail-accounts.ts";
-import { createUser } from "../lib/users.ts";
+} from "../packages/core/src/mail-accounts.ts";
+import { createUser } from "../packages/core/src/users.ts";
 
 const PW = "synthetic-password-XYZ-123";
 const NOW = new Date("2026-10-31T10:00:00.000Z");
