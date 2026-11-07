@@ -23,12 +23,13 @@ Priorität: Aggregieren und Klassifizieren sind das Produkt. Workstreams sind de
 - Klassifikation kostet laut Messung rund 0,06 $ je 1.000 Mails und trägt sich bei diesem Preis. Generative Funktionen brauchen Budgets je Nutzer (ADR 0041/0045).
 
 ## Grundsätze
-- **Datenschutz als Produktmerkmal:** keine Mailinhalte speichern, nur Metadaten und Bewertungen (H3). Nie senden. Schreiben ins Postfach nur, wenn der Nutzer es einschaltet.
+- **Datenschutz als Produktmerkmal, wählbar:** Standard ist „sparsam“, also nur Metadaten und Bewertungen, keine Mailinhalte (H3). Wer will, kann per Opt-in „Komfort“ wählen: Mailtext verschlüsselt auf dem Server, dafür Ansicht in der App, Suche, schnellere Ladezeiten und bessere Workstreams (Entwurf ADR 0052). Nie senden. Schreiben ins Postfach nur, wenn der Nutzer es einschaltet.
 - **Langweilig skalieren:** mandantenfähig von Anfang an (Postgres + RLS auf Neon, ADR 0049), Monorepo mit Frontend, Backend, Worker und Datenbank (ADR 0048). Leicht überdimensioniert für heute, damit Wachstum keine Umbauten erzwingt.
 - **Holistischer Fullstack:** Product Engineering (Jev, Workstreams, KI), Service Reliability Engineering und Infrastruktur gehören gleichwertig zum Produkt. Das Projekt ist für Nico auch Lernfeld für Monorepo, Frontend, Backend und Datenbank.
 
 ## Offene Fragen
 - Wie viel abgeleitetes Wissen (Workstream-Namen, To-dos, Deadlines) darf gespeichert werden, ohne H3 zu verletzen? Siehe ADR 0050.
 - Welche Header werden zusätzlich gebraucht (Empfänger, CC, `In-Reply-To`, `References`)? Siehe ADR 0050.
-- Wo leben die Veryfront-Agenten künftig? Siehe ADR 0051.
+- Wo leben die Agenten künftig (Veryfront im Backend oder ein anderes SDK)? Siehe ADR 0051.
+- Datenschutz-Stufe „Komfort“ (Opt-in zum Speichern von Mailtext): ob, ab wann, ob Bezahlmerkmal? Siehe ADR 0052.
 - Preis, Testphase, Free-Tier: go2market-Gate in `docs/ROADMAP.md`.

@@ -54,6 +54,7 @@ Neue ADR: nächste freie Nummer, Vorlage unten, Eintrag in dieser Tabelle, im se
 | [0049](0049-supabase-or-postgres.md) | Datenplattform: reines Postgres auf Neon (EU), kein Supabase, eigene Nutzerkonten | angenommen |
 | [0050](0050-threads-workstreams.md) | Threads und Workstreams: Mails als Artefakte eines Vorgangs | Entwurf |
 | [0051](0051-veryfront-agents-in-backend.md) | Veryfront nur noch für Agenten, Tools und Skills im Backend | Entwurf |
+| [0052](0052-privacy-levels-opt-in-content.md) | Datenschutz-Stufen: Mailinhalte nur nach Opt-in speichern | Entwurf |
 
 ## Vorlage
 
