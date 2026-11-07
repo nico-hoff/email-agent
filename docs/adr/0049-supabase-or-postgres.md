@@ -1,6 +1,6 @@
 # 0049 Datenplattform: Supabase (selbst gehostet oder Cloud) oder reines Postgres
 
-- Status: vorgeschlagen (Entscheidung Nico offen)
+- Status: angenommen (Entscheidung Nico 2026-11-07: Option C auf Neon)
 - Datum: 2026-11-07
 - Bezug: Frage Nico 2026-11-07 („Supabase als Backend-as-a-Service, selbst gehostet?“), 0045 (Postgres + RLS ab ~200 Nutzern), 0048 (Monorepo), 0022/0033 (eigene Nutzerkonten, Mandant = Nutzer), H1 (keine Mailinhalte speichern)
 
@@ -60,11 +60,14 @@ Was sie nicht braucht:
   - Keine Abhängigkeit von anbieterspezifischen Extensions außer `pgvector`.
 - **B nur wählen, wenn Nico die eigenen Nutzerkonten zugunsten von Supabase Auth aufgeben will.** Dann vor dem ersten externen Nutzer migrieren, nicht danach.
 
-## Offene Entscheidung (Nico)
-1. Eigene Nutzerkonten behalten (→ C) oder Supabase Auth (→ B)?
-2. Anbieter für C: Neon (Branching für Previews) oder fly Managed Postgres (gleiche Plattform wie die App). Preise und EU-Region vor der Wahl prüfen.
-3. Zeitpunkt: Postgres vor R5 (erster Prod-Deploy, dann keine SQLite-Daten in Prod zu migrieren) oder danach mit Datenübernahme.
+## Entscheidung (Nico, 2026-11-07)
+1. **Kein Supabase.** Supabase käme nur als Gesamtpaket in Frage, nicht allein wegen Auth. Das Gesamtpaket (Browser-Direktzugriff, Storage, Edge Functions) passt nicht zum Server-Modell. Die Nutzerkonten bleiben eigene; fehlt später etwas, kommt eine Bibliothek im gewählten Backend-Stack dazu.
+2. **Reines Postgres auf Neon** (Option C), Region EU (Frankfurt, `aws-eu-central-1`). Verbindung nur über `DATABASE_URL` aus der Umgebung (`.env.local`, später Secret), nie im Repo, im Chat oder in Logs. Getrennte Neon-Branches für Entwicklung und Tests (nur synthetische Daten), Staging und Prod.
+3. **Zeitpunkt:** Der Umstieg beginnt, sobald Nico den Neon-Zugang als Umgebungsvariable hinterlegt hat. Ziel ist Postgres vor R5, damit keine SQLite-Daten aus Prod migriert werden müssen. Der Meilenstein steht in `docs/ROADMAP.md` (R13).
+4. **Hosting der App** bleibt vorerst offen (MacBook-Staging über Tailscale oder fly nach 0046). Mit der Datenbank bei Neon ist die App-Maschine zustandslos, das fly-Volume für SQLite entfällt.
 
 ## Folgen
-- Nach Nicos Entscheidung wird diese ADR angenommen oder durch eine neue ersetzt. Die Umsetzung (Postgres-Migration, Kysely, RLS, Queue) bekommt eigene ADRs und einen Meilenstein in `docs/ROADMAP.md`.
+- Die Umsetzung (Migration der Schemata 001–012, asynchroner Datenzugriff, Query-Builder, RLS mit App-Rolle ohne `BYPASSRLS`, Queue) bekommt eigene ADRs. Den Query-Builder wählt die ADR zum Backend-Stack (0045 schlägt Kysely vor).
+- **Kosten:** Die IMAP-Worker halten die Neon-Compute dauerhaft wach, Scale-to-Zero greift nur für ruhende Branches. Grob 19 $/Monat bei 0,25 CU dauerhaft im Launch-Plan (Stand 2026-11-04, vor Abschluss auf neon.com/pricing prüfen).
+- **Datenschutz:** Neon wird mit EU-Region und AV-Vertrag im go2market-Gate geführt. Echte Mail-Metadaten liegen nur in den Branches für Staging und Prod.
 - **Unabhängig von der Wahl:** Kein Dateispeicher und keine Embeddings von Mailinhalten (H1). `pgvector` nur für Daten, die gespeichert werden dürfen, etwa das Nutzer-Gedächtnis aus R12.

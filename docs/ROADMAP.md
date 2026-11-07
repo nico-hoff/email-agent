@@ -25,6 +25,7 @@
 | R11 | Follow-ups und Erinnerungen | Tabelle `follow_ups`, Worker-Durchlauf, Web-Push, Agent-Tool `create_follow_up` mit Gate, UI „Erinnerungen“ (ADR 0030 Stufe 1) | 🤖 | ⏳ |
 | R12 | Nutzer-Gedächtnis | `user_memories` + FTS5, Tools `add_memory`/`search_memory` mit Gate (Jev), Profil „Was der Agent über mich weiß“ (ADR 0031) | 🤖 | ⏳ |
 | R10 | UI-Feinschliff | im QA-Loop mit Nico iterieren (Kopfzeile, Badges, Absender-Fragen, Profil-Flows) | 🤖 + 👤 | ⏳ |
+| R13 | Postgres auf Neon | Schema 001–012 nach Postgres, asynchroner Datenzugriff, Query-Builder, RLS (App-Rolle ohne `BYPASSRLS`), Neon-Branches für Dev/Test, Staging, Prod; vor R5 (ADR 0048/0049) | 🤖, Neon-Zugang 👤 | ⏳ wartet auf `DATABASE_URL` |
 
 ## Phase C – go2market-Gate (nicht vor Nicos Entscheidung)
 
@@ -41,3 +42,4 @@
 3. Dev-Rechner (Mac/Pi): `git checkout dev`, `.env.local` mit `ACCOUNTS_ENCRYPTION_KEY` (`openssl rand -base64 32`), `tailscale serve --bg 3000`.
 4. QA-Loops: Preview-Link öffnen, „go“ oder Mängelliste.
 5. Nach R5: Postfächer in der App anlegen, Trockenlauf prüfen, Aktionen selbst scharf schalten.
+6. Neon (R13, ADR 0049): Projekt in Region Frankfurt anlegen, die Verbindungs-URL als `DATABASE_URL` selbst in `.env.local` eintragen (nicht in den Chat). Für Cloud-Agenten als Umgebungs-Secret.
